@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use crate::review::comment::{Comment, Selection};
 use crate::review::common::Priority;
 
-const PROMPT_VERSION: &str = "v2";
+const PROMPT_VERSION: &str = "v1";
 
 #[derive(Debug, Clone, Copy)]
 pub enum AgentKind {
