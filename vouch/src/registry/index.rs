@@ -115,3 +115,20 @@ pub fn ensure(
     }
     insert(host_name, human_url, artifact_url, &tx)
 }
+
+pub fn ensure_host(host_name: &str, tx: &StoreTransaction) -> Result<common::Registry> {
+    let existing = get(
+        &Fields {
+            host_name: Some(host_name),
+            ..Default::default()
+        },
+        &tx,
+    )?;
+    if let Some(registry) = existing.into_iter().next() {
+        return Ok(registry);
+    }
+
+    let human_url = url::Url::parse(&format!("https://{}/", host_name))?;
+    let artifact_url = url::Url::parse(&format!("https://{}/artifact", host_name))?;
+    insert(host_name, &human_url, &artifact_url, &tx)
+}

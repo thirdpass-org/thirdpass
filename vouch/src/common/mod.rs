@@ -9,6 +9,7 @@ use anyhow::Result;
 use std::convert::TryFrom;
 
 pub mod config;
+pub mod api;
 pub mod fs;
 pub mod index;
 

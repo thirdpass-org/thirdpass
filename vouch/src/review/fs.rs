@@ -5,6 +5,7 @@ use crate::common;
 use crate::review;
 
 static REVIEW_FILE_NAME: &str = "review.json";
+static REVIEW_FILE_PREFIX: &str = "review-";
 
 /// Given a package, returns a package version specific relative directory path.
 ///
@@ -36,7 +37,17 @@ fn get_storage_file_path(review: &review::Review) -> Result<std::path::PathBuf> 
 
     let paths = common::fs::DataPaths::new()?;
     let package_specific_directory = paths.reviews_directory.join(review_directory_path);
-    Ok(package_specific_directory.join(REVIEW_FILE_NAME))
+    Ok(package_specific_directory.join(review_file_name(review)))
+}
+
+fn review_file_name(review: &review::Review) -> std::path::PathBuf {
+    if review.metadata.reviewer_uuid.is_empty() {
+        return std::path::PathBuf::from(REVIEW_FILE_NAME);
+    }
+    std::path::PathBuf::from(format!(
+        "{}{}.json",
+        REVIEW_FILE_PREFIX, review.metadata.reviewer_uuid
+    ))
 }
 
 /// Store a review.

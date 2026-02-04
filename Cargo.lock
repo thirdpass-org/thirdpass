@@ -1784,6 +1784,7 @@ dependencies = [
  "pin-project-lite 0.2.6",
  "rustls 0.19.1",
  "serde",
+ "serde_json",
  "serde_urlencoded",
  "tokio 1.5.0",
  "tokio-rustls 0.22.0",

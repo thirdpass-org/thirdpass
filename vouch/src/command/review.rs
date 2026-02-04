@@ -39,6 +39,10 @@ pub struct Arguments {
     /// Use manual review via VSCode.
     #[structopt(long = "manual")]
     pub manual: bool,
+
+    /// Skip submission to the central API.
+    #[structopt(long = "no-submit")]
+    pub no_submit: bool,
 }
 
 pub fn run_command(args: &Arguments) -> Result<()> {
@@ -70,6 +74,11 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         .as_ref()
         .ok_or(format_err!("--file is required"))?;
     let target_path = resolve_target_path(&workspace_manifest.workspace_path, target_file)?;
+    let target_relative = target_path
+        .strip_prefix(&workspace_manifest.workspace_path)
+        .unwrap_or(target_path.as_path())
+        .to_path_buf();
+    let target_display = target_relative.display().to_string();
 
     // TODO: Make use of workspace analysis in review.
     review::workspace::analyse(&workspace_manifest.workspace_path)?;
@@ -85,7 +94,8 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     } else {
         let agent = review::tool::select_agent()?;
         let file_contents = std::fs::read_to_string(&target_path)?;
-        let agent_run = review::tool::run_agent(agent, &target_path, &file_contents)?;
+        let agent_run =
+            review::tool::run_agent(agent, &target_path, &target_display, &file_contents)?;
         let comments = insert_comments(agent_run.comments, &tx)?;
         (
             comments,
@@ -96,7 +106,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     };
 
     review.comments = comments;
-    review.target_file = Some(std::path::PathBuf::from(target_file));
+    review.target_file = Some(target_relative);
     review.metadata = build_metadata(
         &config,
         &agent_name,
@@ -110,8 +120,15 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     tx.commit(&commit_message)?;
     println!("Review committed.");
 
+    let submit_result = if args.no_submit {
+        Ok(())
+    } else {
+        println!("Submitting review to central API.");
+        review::remote::submit(&review, &config)
+    };
+
     review::workspace::remove(&workspace_manifest)?;
-    Ok(())
+    submit_result
 }
 
 /// Parse user comments from active review file and insert into index.
@@ -286,14 +303,13 @@ fn setup_existing_review(
     config: &common::config::Config,
     tx: &StoreTransaction,
 ) -> Result<Option<(review::Review, review::workspace::Manifest)>> {
-    log::debug!("Checking index for existing root peer review.");
-    let root_peer =
-        peer::index::get_root(&tx)?.ok_or(format_err!("Cant find root peer. Index corrupt."))?;
+    log::debug!("Checking index for existing reviewer review.");
+    let reviewer_peer = get_reviewer_peer(config, &tx)?;
     let reviews = review::index::get(
         &review::index::Fields {
             package_name: Some(&package_name),
             package_version: Some(&package_version),
-            peer: Some(&root_peer),
+            peer: Some(&reviewer_peer),
             ..Default::default()
         },
         &tx,
@@ -425,7 +441,7 @@ fn setup_new_review(
         &extensions,
         &tx,
     )?;
-    let review = get_insert_empty_review(&package, &tx)?;
+    let review = get_insert_empty_review(&package, config, &tx)?;
     Ok((review, workspace_manifest))
 }
 
@@ -510,17 +526,28 @@ fn ensure_package_setup(
 
 fn get_insert_empty_review(
     package: &package::Package,
+    config: &common::config::Config,
     tx: &common::StoreTransaction,
 ) -> Result<review::Review> {
-    let root_peer =
-        peer::index::get_root(&tx)?.ok_or(format_err!("Cant find root peer. Index corrupt."))?;
+    let reviewer_peer = get_reviewer_peer(config, tx)?;
     let unset_review = review::index::insert(
         &std::collections::BTreeSet::<review::comment::Comment>::new(),
-        &root_peer,
+        &reviewer_peer,
         &package,
         &tx,
     )?;
     Ok(unset_review)
+}
+
+fn get_reviewer_peer(
+    config: &common::config::Config,
+    tx: &common::StoreTransaction,
+) -> Result<peer::Peer> {
+    peer::index::ensure_reviewer_peer(
+        &config.core.reviewer_uuid,
+        &config.core.api_base,
+        tx,
+    )
 }
 
 fn get_commit_message(

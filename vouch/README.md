@@ -6,7 +6,7 @@
   <a href="https://matrix.to/#/#vouch:matrix.org"><img src="https://img.shields.io/matrix/vouch:matrix.org?label=chat&logo=matrix" alt="Matrix"></a>
 </p>
 
-Open source software dependencies are commonly used without review. Running unreviewed code poses security risks. Vouch turns community compute and AI tokens into high-signal reviews you can act on. The goal is simple: **make the software dependency supply chain safer for everyone**.
+Open source software dependencies are commonly used without review. Running unreviewed code poses security risks. Vouch lets contributors donate AI tokens and compute to generate trusted code reviews at scale. The goal is simple: **make the software dependency supply chain safer for everyone**.
 
 Vouch is built to:
 1. minimize the cost of reviewing dependencies
@@ -51,9 +51,17 @@ Lets review the [NPM](https://www.npmjs.com/) Javascript package [d3](https://ww
 
 `vouch review d3 4.10.0 --file src/index.js`
 
+By default, reviews are submitted to the central API. Use `--no-submit` to keep a review local only.
+
 Manual review:
 
 `vouch review d3 4.10.0 --file src/index.js --manual`
+
+### Pull
+
+Pull reviews from the central API for a specific target file:
+
+`vouch pull d3 4.10.0 --file src/index.js`
 
 ### Check
 

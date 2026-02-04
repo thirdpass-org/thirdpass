@@ -4,6 +4,7 @@ use structopt::{self, StructOpt};
 mod check;
 mod config;
 mod extension;
+mod pull;
 mod review;
 mod setup;
 
@@ -26,6 +27,10 @@ pub fn run_command(command: Command, extension_args: &Vec<String>) -> Result<()>
             log::info!("Running command: extension");
             extension::run_subcommand(&args)?;
         }
+        Command::Pull(args) => {
+            log::info!("Running command: pull");
+            pull::run_command(&args)?;
+        }
     }
     Ok(())
 }
@@ -47,6 +52,10 @@ pub enum Command {
     /// Manage extensions.
     #[structopt(name = "extension")]
     Extension(extension::Subcommands),
+
+    /// Pull reviews from the central API.
+    #[structopt(name = "pull")]
+    Pull(pull::Arguments),
 }
 
 #[derive(Debug, StructOpt, Clone)]

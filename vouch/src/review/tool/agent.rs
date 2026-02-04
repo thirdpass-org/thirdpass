@@ -111,10 +111,11 @@ pub fn select_installed_agent() -> Result<AgentKind> {
 
 pub fn run(
     agent: AgentKind,
-    target_path: &std::path::PathBuf,
+    _target_path: &std::path::PathBuf,
+    display_path: &str,
     file_contents: &str,
 ) -> Result<AgentRunResult> {
-    let prompt = build_prompt(target_path, file_contents);
+    let prompt = build_prompt(display_path, file_contents);
 
     let mut child = Command::new(agent.binary_name())
         .stdin(Stdio::piped())
@@ -158,7 +159,7 @@ pub fn run(
     })
 }
 
-fn build_prompt(target_path: &std::path::PathBuf, file_contents: &str) -> String {
+fn build_prompt(display_path: &str, file_contents: &str) -> String {
     format!(
         r#"You are a security and quality reviewer. Review the file below.
 
@@ -186,7 +187,7 @@ File path: {file_path}
 --- FILE CONTENTS ---
 {file_contents}
 "#,
-        file_path = target_path.display(),
+        file_path = display_path,
         file_contents = file_contents
     )
 }

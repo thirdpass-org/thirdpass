@@ -62,6 +62,29 @@ pub fn setup(tx: &StoreTransaction) -> Result<()> {
     Ok(())
 }
 
+pub fn ensure_reviewer_peer(
+    reviewer_uuid: &str,
+    api_base: &str,
+    tx: &StoreTransaction,
+) -> Result<common::Peer> {
+    let alias = format!("reviewer-{}", reviewer_uuid);
+    let existing = get(
+        &Fields {
+            alias: Some(&alias),
+            ..Default::default()
+        },
+        &tx,
+    )?;
+    if let Some(peer) = existing.into_iter().next() {
+        return Ok(peer);
+    }
+
+    let base = crate::common::api::normalize_base(api_base)?;
+    let reviewer_url = crate::common::api::join(&base, &format!("reviewers/{}", reviewer_uuid))?;
+    let git_url = crate::common::GitUrl::try_from(reviewer_url.as_str())?;
+    insert(&alias, &git_url, None, tx)
+}
+
 fn insert(
     alias: &str,
     git_url: &crate::common::GitUrl,
