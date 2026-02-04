@@ -16,6 +16,7 @@ pub struct DependencyReport {
 pub fn get_dependency_report(
     dependency: &vouch_lib::extension::Dependency,
     registry_host_name: &str,
+    config: &crate::common::config::Config,
     tx: &StoreTransaction,
 ) -> Result<DependencyReport> {
     let package_version = match &dependency.version {
@@ -30,6 +31,14 @@ pub fn get_dependency_report(
             });
         }
     };
+
+    let _ = pull_latest_reviews(
+        registry_host_name,
+        &dependency.name,
+        &package_version,
+        config,
+        tx,
+    );
 
     let reviews = review::index::get(
         &review::index::Fields {
@@ -63,6 +72,24 @@ pub fn get_dependency_report(
         review_count: Some(reviews.len()),
         note: Some(note),
     })
+}
+
+fn pull_latest_reviews(
+    registry_host_name: &str,
+    package_name: &str,
+    package_version: &str,
+    config: &crate::common::config::Config,
+    tx: &StoreTransaction,
+) -> Result<()> {
+    let query = review::remote::ReviewQuery {
+        registry_host: Some(registry_host_name.to_string()),
+        package_name: Some(package_name.to_string()),
+        package_version: Some(package_version.to_string()),
+        file_path: None,
+    };
+    let records = review::remote::fetch(&query, config)?;
+    review::remote::store_records(records, config, tx)?;
+    Ok(())
 }
 
 #[derive(Debug, Default, Clone)]

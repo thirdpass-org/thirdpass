@@ -40,7 +40,7 @@ pub fn report(
         };
         for (index, fs_dependencies) in extension_all_dependencies.iter().enumerate() {
             dependencies_found |= !fs_dependencies.dependencies.is_empty();
-            report_dependencies(&fs_dependencies, &tx)?;
+            report_dependencies(&fs_dependencies, &config, &tx)?;
             let is_last = index == extension_all_dependencies.len() - 1;
             if !is_last {
                 println!("");
@@ -59,6 +59,7 @@ pub fn report(
 
 fn report_dependencies(
     package_dependencies: &vouch_lib::extension::FileDefinedDependencies,
+    config: &common::config::Config,
     tx: &StoreTransaction,
 ) -> Result<()> {
     log::info!(
@@ -73,6 +74,7 @@ fn report_dependencies(
             Ok(report::get_dependency_report(
                 &dependency,
                 &package_dependencies.registry_host_name,
+                config,
                 &tx,
             )?)
         })

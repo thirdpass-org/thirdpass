@@ -62,7 +62,7 @@ pub fn report(
 
         for (index, package_dependencies) in extension_all_package_dependencies.iter().enumerate() {
             dependencies_found |= !package_dependencies.dependencies.is_empty();
-            report_dependencies(&package_name, &package_dependencies, &tx)?;
+            report_dependencies(&package_name, &package_dependencies, &config, &tx)?;
             let is_last = index == extension_all_package_dependencies.len() - 1;
             if !is_last {
                 println!("");
@@ -79,6 +79,7 @@ pub fn report(
 fn report_dependencies(
     package_name: &str,
     package_dependencies: &vouch_lib::extension::PackageDependencies,
+    config: &common::config::Config,
     tx: &StoreTransaction,
 ) -> Result<()> {
     log::info!("Generating report for package dependencies.");
@@ -91,6 +92,7 @@ fn report_dependencies(
             version: package_dependencies.package_version.clone(),
         },
         &package_dependencies.registry_host_name,
+        config,
         &tx,
     )?;
     dependency_reports.push(target_package_dependency_report);
@@ -98,6 +100,7 @@ fn report_dependencies(
         let dependency_report = report::get_dependency_report(
             &dependency,
             &package_dependencies.registry_host_name,
+            config,
             &tx,
         )?;
         dependency_reports.push(dependency_report);

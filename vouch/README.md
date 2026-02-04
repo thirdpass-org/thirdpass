@@ -57,17 +57,11 @@ Manual review:
 
 `vouch review d3 4.10.0 --file src/index.js --manual`
 
-### Pull
-
-Pull reviews from the central API for a specific target file:
-
-`vouch pull d3 4.10.0 --file src/index.js`
-
 ### Check
 
 Reviews created using Vouch can be used to evaluate software project dependencies. Vouch extensions can discover ecosystem specific dependency definition files. For example, the Python extension parses `Pipfile.lock` files.
 
-The `check` command generates an evaluation report of local project dependencies based on available reviews:
+The `check` command automatically pulls the latest reviews from the central API, then generates an evaluation report of local project dependencies:
 
 `vouch check`
 
