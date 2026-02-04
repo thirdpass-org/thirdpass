@@ -1,5 +1,5 @@
 use anyhow::{format_err, Result};
-use dialoguer::{theme::ColorfulTheme, Select};
+use dialoguer::Input;
 use serde::Deserialize;
 use std::io::Write;
 use std::path::PathBuf;
@@ -91,13 +91,22 @@ pub fn select_installed_agent() -> Result<AgentKind> {
         return Ok(available[0]);
     }
 
-    let options: Vec<&str> = available.iter().map(|agent| agent.name()).collect();
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("Select agent")
-        .items(&options)
-        .default(0)
-        .interact()?;
-    Ok(available[selection])
+    println!("Select agent:");
+    for (index, agent) in available.iter().enumerate() {
+        println!("  {}. {}", index + 1, agent.name());
+    }
+    let selection: usize = Input::new()
+        .with_prompt("Enter number")
+        .validate_with(|value: &usize| {
+            if *value == 0 || *value > available.len() {
+                Err("Selection out of range.")
+            } else {
+                Ok(())
+            }
+        })
+        .interact_text()?;
+
+    Ok(available[selection - 1])
 }
 
 pub fn run(
