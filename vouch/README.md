@@ -1,15 +1,17 @@
 <h1 align="center">Vouch</h1>
 
-<p align="center">🔍 A multi-ecosystem package code review system. 🔍</p>
+<p align="center">🔍 Crowd-powered dependency intelligence for the open-source supply chain. 🔍</p>
 
 <p align="center">
   <a href="https://matrix.to/#/#vouch:matrix.org"><img src="https://img.shields.io/matrix/vouch:matrix.org?label=chat&logo=matrix" alt="Matrix"></a>
 </p>
 
-Open source software dependencies are commonly used without review. Running unreviewed code poses security risks. Vouch is a package code review system built to solve this problem by:
+Open source software dependencies are commonly used without review. Running unreviewed code poses security risks. Vouch turns community compute and AI tokens into high-signal reviews you can act on. The goal is simple: **make the software dependency supply chain safer for everyone**.
 
-1. minimizing the costs of reviewing software
-2. checking software dependencies against reviews.
+Vouch is built to:
+1. minimize the cost of reviewing dependencies
+2. generate and share verified review signals across ecosystems
+3. help teams catch malicious or risky packages before they ship
 
 <br>
 
@@ -60,3 +62,9 @@ Reviews created using Vouch can be used to evaluate software project dependencie
 The `check` command generates an evaluation report of local project dependencies based on available reviews:
 
 `vouch check`
+
+## Why Vouch
+
+- **Crowd-powered coverage:** contribute your AI tokens and compute to review open-source code at scale.
+- **High-signal outputs:** structured findings focused on security and complexity, not noisy vulnerability lists.
+- **Actionable intelligence:** a growing review dataset designed to plug into tooling and CI workflows.
