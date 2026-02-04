@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 use crate::review::comment::{Comment, Selection};
 use crate::review::common::Priority;
 
-const PROMPT_VERSION: &str = "v1";
+const PROMPT_VERSION: &str = "v2";
 
 #[derive(Debug, Clone, Copy)]
 pub enum AgentKind {
@@ -161,14 +161,33 @@ pub fn run(
 
 fn build_prompt(display_path: &str, file_contents: &str) -> String {
     format!(
-        r#"You are a security and quality reviewer. Review the file below.
+        r#"You are a security and complexity reviewer for open-source dependency code.
+Review ONLY the single file below. You are in read-only mode.
+
+Focus areas (security):
+- remote code execution, deserialization hazards, eval/exec, command injection
+- filesystem/network misuse, credential leaks, unsafe crypto, auth bypass
+- suspicious supply-chain behavior (exfiltration, hidden downloads, obfuscation)
+
+Focus areas (complexity):
+- unusually complex or hard-to-audit logic that increases security risk
+- hidden control flow, reflection/metaprogramming, overly clever parsing
+- deeply nested conditionals or state machines without clear invariants
+
+Rules:
+- Output ONLY valid JSON, no markdown, no extra keys.
+- If there are no concrete issues, return an empty comments list.
+- Comments must be specific and actionable, tied to the shown code.
+- Use selection only when you can point to exact lines; otherwise omit it.
+- Line/character numbers are 1-based.
+- Do not speculate about other files.
 
 Return ONLY valid JSON with this schema:
 {{
   "model": "<model name used>",
   "comments": [
     {{
-      "comment": "string",
+      "comment": "string (what is the issue and why it matters)",
       "security": "critical|medium|low",
       "complexity": "critical|medium|low",
       "file": "{file_path}",
