@@ -80,6 +80,9 @@ pub fn insert(
         peer: peer.clone(),
         package: package.clone(),
         comments: comments.clone(),
+        metadata: common::ReviewMetadata::default(),
+        target_file: None,
+        overall_security_summary: common::SecuritySummary::default(),
     })
 }
 
@@ -237,12 +240,16 @@ pub fn get(fields: &Fields, tx: &StoreTransaction) -> Result<Vec<common::Review>
             None => std::collections::BTreeSet::<comment::Comment>::new(),
         };
 
-        let review = common::Review {
+        let mut review = common::Review {
             id: row.get(0)?,
             peer,
             package,
             comments,
+            metadata: common::ReviewMetadata::default(),
+            target_file: None,
+            overall_security_summary: common::SecuritySummary::default(),
         };
+        review.overall_security_summary = crate::review::overall_security_summary(&review)?;
         reviews.push(review);
     }
     Ok(reviews)

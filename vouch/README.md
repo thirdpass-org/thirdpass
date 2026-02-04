@@ -21,9 +21,7 @@ Open source software dependencies are commonly used without review. Running unre
 
 ### Setup
 
-First, lets setup Vouch. This initializes local configuration and data directories.
-
-`vouch setup`
+Setup runs automatically on first use and initializes local configuration and data directories.
 
 ### Extensions
 
@@ -45,11 +43,15 @@ or via any GitHub repository URL:
 
 ### Review
 
-(Note: Vouch currently requires [VSCode](https://code.visualstudio.com/) to create reviews.)
+By default, Vouch runs an AI agent (Codex or Claude) to review a target file. Use `--manual` to review via [VSCode](https://code.visualstudio.com/) and the Vouch extension.
 
-Vouch supports multiple ecosystems and is extendable. For now, Python and Javascript support comes built-in. Lets review the [NPM](https://www.npmjs.com/) Javascript package [d3](https://www.npmjs.com/package/d3) at version `4.10.0`:
+Lets review the [NPM](https://www.npmjs.com/) Javascript package [d3](https://www.npmjs.com/package/d3) at version `4.10.0`, targeting `src/index.js`:
 
-`vouch review d3 4.10.0`
+`vouch review d3 4.10.0 --file src/index.js`
+
+Manual review:
+
+`vouch review d3 4.10.0 --file src/index.js --manual`
 
 ### Check
 

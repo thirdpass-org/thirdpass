@@ -31,6 +31,14 @@ pub struct Arguments {
     /// Example values: py, js, rs
     #[structopt(long = "extension", short = "e", name = "name")]
     pub extension_names: Option<Vec<String>>,
+
+    /// Target file path within the package.
+    #[structopt(long = "file", name = "path")]
+    pub target_file: Option<String>,
+
+    /// Use manual review via VSCode.
+    #[structopt(long = "manual")]
+    pub manual: bool,
 }
 
 pub fn run_command(args: &Arguments) -> Result<()> {
@@ -38,7 +46,9 @@ pub fn run_command(args: &Arguments) -> Result<()> {
 
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
-    review::tool::check_install(&mut config)?;
+    if args.manual {
+        review::tool::check_manual_install(&mut config)?;
+    }
     let config = config;
 
     let extension_names =
@@ -55,43 +65,52 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         &tx,
     )?;
 
+    let target_file = args
+        .target_file
+        .as_ref()
+        .ok_or(format_err!("--file is required"))?;
+    let target_path = resolve_target_path(&workspace_manifest.workspace_path, target_file)?;
+
     // TODO: Make use of workspace analysis in review.
     review::workspace::analyse(&workspace_manifest.workspace_path)?;
 
-    let reviews_directory =
-        review::tool::ensure_reviews_directory(&workspace_manifest.workspace_path)?;
-    let active_review_file = review::active::ensure(&review, &reviews_directory)?;
-
-    println!("Starting review tool.");
-    review::tool::run(&workspace_manifest.workspace_path, &config)?;
-    if !active_review_file.exists() {
-        println!("Review file not found.");
-        return Ok(());
-    }
-    review.comments = get_comments(&active_review_file, &tx)?;
-    println!(
-        "Review tool closed. Fund {} review comments.",
-        review.comments.len()
-    );
-
-    if review.comments.is_empty() {
-        println!("No review comments found. Review saved as ongoing.");
-        return Ok(());
-    }
-
-    if dialoguer::Confirm::new()
-        .with_prompt("Is the review ready to share?")
-        .interact()?
-    {
-        review::store(&review, &tx)?;
-        let commit_message = get_commit_message(&review.package, &edit_mode)?;
-        tx.commit(&commit_message)?;
-        println!("Review committed.");
-
-        review::workspace::remove(&workspace_manifest)?;
+    let (comments, agent_name, agent_model, prompt_version) = if args.manual {
+        let comments = run_manual_review(&review, &workspace_manifest.workspace_path, &config, &tx)?;
+        (
+            comments,
+            "manual".to_string(),
+            "".to_string(),
+            "manual".to_string(),
+        )
     } else {
-        println!("Not committing review. Review saved as ongoing.");
-    }
+        let agent = review::tool::select_agent()?;
+        let file_contents = std::fs::read_to_string(&target_path)?;
+        let agent_run = review::tool::run_agent(agent, &target_path, &file_contents)?;
+        let comments = insert_comments(agent_run.comments, &tx)?;
+        (
+            comments,
+            agent.name().to_string(),
+            agent_run.model,
+            review::tool::agent_prompt_version().to_string(),
+        )
+    };
+
+    review.comments = comments;
+    review.target_file = Some(std::path::PathBuf::from(target_file));
+    review.metadata = build_metadata(
+        &config,
+        &agent_name,
+        &agent_model,
+        &prompt_version,
+    )?;
+    review.overall_security_summary = review::overall_security_summary(&review)?;
+
+    review::store(&review, &tx)?;
+    let commit_message = get_commit_message(&review.package, &review.target_file, &edit_mode)?;
+    tx.commit(&commit_message)?;
+    println!("Review committed.");
+
+    review::workspace::remove(&workspace_manifest)?;
     Ok(())
 }
 
@@ -101,7 +120,16 @@ fn get_comments(
     tx: &StoreTransaction,
 ) -> Result<std::collections::BTreeSet<review::comment::Comment>> {
     let comments = review::active::parse(&active_review_file)?;
+    insert_comments(comments, tx)
+}
 
+fn insert_comments<I>(
+    comments: I,
+    tx: &StoreTransaction,
+) -> Result<std::collections::BTreeSet<review::comment::Comment>>
+where
+    I: IntoIterator<Item = review::comment::Comment>,
+{
     let mut inserted_comments = std::collections::BTreeSet::<_>::new();
     for comment in comments {
         let mut comment = comment;
@@ -109,8 +137,72 @@ fn get_comments(
         let comment = review::comment::index::insert(&comment, &tx)?;
         inserted_comments.insert(comment);
     }
-
     Ok(inserted_comments)
+}
+
+fn run_manual_review(
+    review: &review::Review,
+    workspace_path: &std::path::PathBuf,
+    config: &common::config::Config,
+    tx: &StoreTransaction,
+) -> Result<std::collections::BTreeSet<review::comment::Comment>> {
+    let reviews_directory = review::tool::ensure_reviews_directory(&workspace_path)?;
+    let active_review_file = review::active::ensure(&review, &reviews_directory)?;
+
+    println!("Starting review tool.");
+    review::tool::run_manual(&workspace_path, &config)?;
+    if !active_review_file.exists() {
+        println!("Review file not found.");
+        return Ok(std::collections::BTreeSet::new());
+    }
+    let comments = get_comments(&active_review_file, &tx)?;
+    println!(
+        "Review tool closed. Found {} review comments.",
+        comments.len()
+    );
+    Ok(comments)
+}
+
+fn resolve_target_path(
+    workspace_path: &std::path::PathBuf,
+    target_file: &str,
+) -> Result<std::path::PathBuf> {
+    let target_path = std::path::PathBuf::from(target_file);
+    let target_path = if target_path.is_absolute() {
+        target_path
+    } else {
+        workspace_path.join(target_path)
+    };
+    if !target_path.is_file() {
+        return Err(format_err!(
+            "Target file not found: {}",
+            target_path.display()
+        ));
+    }
+    Ok(target_path)
+}
+
+fn build_metadata(
+    config: &common::config::Config,
+    agent_name: &str,
+    agent_model: &str,
+    prompt_version: &str,
+) -> Result<review::ReviewMetadata> {
+    Ok(review::ReviewMetadata {
+        reviewer_uuid: config.core.reviewer_uuid.clone(),
+        agent_name: agent_name.to_string(),
+        agent_model: agent_model.to_string(),
+        prompt_version: prompt_version.to_string(),
+        created_at: now_epoch_seconds()?,
+        tool_version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+fn now_epoch_seconds() -> Result<String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|err| format_err!("Failed to read system time: {}", err))?;
+    Ok(now.as_secs().to_string())
 }
 
 /// Review edit mode.
@@ -431,17 +523,26 @@ fn get_insert_empty_review(
     Ok(unset_review)
 }
 
-fn get_commit_message(package: &package::Package, editing_mode: &ReviewEditMode) -> Result<String> {
+fn get_commit_message(
+    package: &package::Package,
+    target_file: &Option<std::path::PathBuf>,
+    editing_mode: &ReviewEditMode,
+) -> Result<String> {
     let message_prefix = match editing_mode {
         ReviewEditMode::Create => "Creating",
         ReviewEditMode::Update => "Updating",
     };
     let registry = get_primary_registry(&package)?;
+    let target_file = target_file
+        .as_ref()
+        .map(|path| format!(" {}", path.display()))
+        .unwrap_or_default();
     Ok(format!(
-        "{message_prefix} review: {registry_host_name}/{package_name}/{package_version}",
+        "{message_prefix} review: {registry_host_name}/{package_name}/{package_version}{target_file}",
         message_prefix = message_prefix,
         registry_host_name = registry.host_name,
         package_name = package.name,
         package_version = package.version,
+        target_file = target_file,
     ))
 }

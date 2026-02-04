@@ -10,9 +10,11 @@ use serde;
 use std::hash::Hash;
 
 pub mod priority;
+pub mod metadata;
 pub mod security_summary;
 pub mod summary;
 
+pub use metadata::ReviewMetadata;
 pub use priority::Priority;
 pub use security_summary::SecuritySummary;
 pub use summary::Summary;
@@ -25,6 +27,12 @@ pub struct Review {
     pub peer: crate::peer::Peer,
     pub package: crate::package::Package,
     pub comments: std::collections::BTreeSet<crate::review::comment::Comment>,
+    #[serde(default)]
+    pub metadata: ReviewMetadata,
+    #[serde(default)]
+    pub target_file: Option<std::path::PathBuf>,
+    #[serde(default)]
+    pub overall_security_summary: SecuritySummary,
 }
 
 impl Ord for Review {

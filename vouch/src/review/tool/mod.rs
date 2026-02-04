@@ -1,18 +1,15 @@
-use anyhow::{format_err, Result};
+use anyhow::Result;
+mod agent;
 mod vscode;
 
 use crate::common;
 
-pub fn check_install(config: &mut common::config::Config) -> Result<()> {
+pub use agent::{prompt_version as agent_prompt_version, AgentKind, AgentRunResult};
+
+pub fn check_manual_install(config: &mut common::config::Config) -> Result<()> {
     // Skip check if previously passed.
     if config.review_tool.install_check {
         return Ok(());
-    }
-    if config.review_tool.name != "vscode" {
-        return Err(format_err!(
-            "Reviewing currently requires vscode. Unsupported review tool: {}",
-            config.review_tool.name
-        ));
     }
     vscode::setup()?;
 
@@ -22,7 +19,7 @@ pub fn check_install(config: &mut common::config::Config) -> Result<()> {
     Ok(())
 }
 
-pub fn run(
+pub fn run_manual(
     workspace_directory: &std::path::PathBuf,
     config: &common::config::Config,
 ) -> Result<()> {
@@ -35,6 +32,18 @@ pub fn run(
     vscode::run(&workspace_directory)?;
     log::debug!("Review tool exit complete.");
     Ok(())
+}
+
+pub fn select_agent() -> Result<AgentKind> {
+    agent::select_installed_agent()
+}
+
+pub fn run_agent(
+    agent: AgentKind,
+    target_path: &std::path::PathBuf,
+    file_contents: &str,
+) -> Result<AgentRunResult> {
+    agent::run(agent, target_path, file_contents)
 }
 
 /// Setup reviews directory within workspace.

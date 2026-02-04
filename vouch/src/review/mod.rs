@@ -9,7 +9,7 @@ pub mod index;
 pub mod tool;
 pub mod workspace;
 
-pub use crate::review::common::{Priority, Review, SecuritySummary, Summary};
+pub use crate::review::common::{Priority, Review, ReviewMetadata, SecuritySummary, Summary};
 
 pub fn overall_security_summary(review: &Review) -> Result<SecuritySummary> {
     if review.comments.is_empty() {

@@ -9,6 +9,12 @@ pub enum SecuritySummary {
     None,
 }
 
+impl Default for SecuritySummary {
+    fn default() -> Self {
+        SecuritySummary::None
+    }
+}
+
 impl std::str::FromStr for SecuritySummary {
     type Err = anyhow::Error;
     fn from_str(input: &str) -> Result<SecuritySummary, Self::Err> {

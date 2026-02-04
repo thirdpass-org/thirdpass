@@ -1,4 +1,4 @@
 pub mod common;
 pub mod index;
 
-pub use common::Comment;
+pub use common::{Comment, Position, Selection};
