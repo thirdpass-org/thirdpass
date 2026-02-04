@@ -1,17 +1,11 @@
-use anyhow::{format_err, Result};
+use anyhow::Result;
 
 use crate::common;
 use crate::extension;
+use uuid;
 
 fn handle_nonempty_data_directory(directory_path: &std::path::PathBuf, force: bool) -> Result<()> {
     let target_directory_empty = directory_path.read_dir()?.next().is_none();
-    if !force && !target_directory_empty {
-        // TODO: Check with storage::sync for un-synchronized changes. Improve feedback.
-        return Err(format_err!(
-            "Setup directory is not empty ({}).\nUse --force to overwrite existing data.",
-            &directory_path.display()
-        ));
-    }
     if force && !target_directory_empty {
         // Delete directory contents so setup can start cleanly.
         std::fs::remove_dir_all(&directory_path)?;
@@ -56,9 +50,11 @@ fn setup_config(
         let mut config = crate::common::config::Config::default();
 
         config.core.api_key = "tmp_api_key".to_string();
-        config.review_tool.name = "vscode".to_string();
+        config.core.reviewer_uuid = uuid::Uuid::new_v4().to_hyphenated().to_string();
+        config.review_tool.name = "agent".to_string();
         config.review_tool.install_check = false;
         extension::manage::update_config(&mut config)?;
+        config.dump()?;
     } else {
         log::debug!(
             "Not overwriting existing config file (--force: {:?}): {}",

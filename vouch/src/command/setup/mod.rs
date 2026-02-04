@@ -1,39 +1,42 @@
 use anyhow::{format_err, Result};
-use structopt::{self, StructOpt};
-
+use crate::common::config::Config;
 use crate::store;
+use uuid;
 mod fs;
 
-#[derive(Debug, StructOpt, Clone)]
-#[structopt(
-    name = "no_version",
-    no_version,
-    global_settings = &[structopt::clap::AppSettings::DisableVersion]
-)]
-pub struct Arguments {
-    /// Force setup cleanly. Removes existing local setup data.
-    #[structopt(long = "force", short = "f")]
-    pub force: bool,
+/// Return Err if setup is not complete, otherwise Result.
+pub fn is_complete() -> Result<()> {
+    if !fs::is_complete()? {
+        return Err(format_err!(
+            "Vouch setup has not completed yet."
+        ));
+    }
+    Ok(())
 }
 
-pub fn run_command(args: &Arguments) -> Result<()> {
-    fs::setup(args.force)?;
+pub fn ensure() -> Result<()> {
+    if fs::is_complete()? {
+        ensure_reviewer_uuid()?;
+        return Ok(());
+    }
+
+    fs::setup(false)?;
 
     let mut store = store::Store::from_root()?;
     let tx = store.get_transaction()?;
 
     store::index::setup(&tx)?;
 
-    tx.commit("Setup Vouch.")?;
+    tx.commit("Initialize Vouch data.")?;
+    ensure_reviewer_uuid()?;
     Ok(())
 }
 
-/// Return Err if setup is not complete, otherwise Result.
-pub fn is_complete() -> Result<()> {
-    if !fs::is_complete()? {
-        return Err(format_err!(
-            "Setup command has not been executed. Try running: 'vouch setup --help'"
-        ));
+fn ensure_reviewer_uuid() -> Result<()> {
+    let mut config = Config::load()?;
+    if config.core.reviewer_uuid.is_empty() {
+        config.core.reviewer_uuid = uuid::Uuid::new_v4().to_hyphenated().to_string();
+        config.dump()?;
     }
     Ok(())
 }

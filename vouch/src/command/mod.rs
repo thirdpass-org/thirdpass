@@ -8,29 +8,22 @@ mod review;
 mod setup;
 
 pub fn run_command(command: Command, extension_args: &Vec<String>) -> Result<()> {
+    setup::ensure()?;
     match command {
-        Command::Setup(args) => {
-            log::info!("Running command: setup");
-            setup::run_command(&args)?;
-        }
         Command::Review(args) => {
             log::info!("Running command: review");
-            setup::is_complete()?;
             review::run_command(&args)?;
         }
         Command::Check(args) => {
             log::info!("Running command: check");
-            setup::is_complete()?;
             check::run_command(&args, &extension_args)?;
         }
         Command::Config(args) => {
             log::info!("Running command: config");
-            setup::is_complete()?;
             config::run_command(&args)?;
         }
         Command::Extension(args) => {
             log::info!("Running command: extension");
-            setup::is_complete()?;
             extension::run_subcommand(&args)?;
         }
     }
@@ -39,12 +32,6 @@ pub fn run_command(command: Command, extension_args: &Vec<String>) -> Result<()>
 
 #[derive(Debug, StructOpt, Clone)]
 pub enum Command {
-    /// Initial user setup.
-    ///
-    /// Initialize local data and configuration.
-    #[structopt(name = "setup")]
-    Setup(setup::Arguments),
-
     /// Review a package.
     #[structopt(name = "review")]
     Review(review::Arguments),

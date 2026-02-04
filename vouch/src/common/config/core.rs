@@ -6,6 +6,8 @@ use anyhow::{format_err, Result};
 pub struct Core {
     #[serde(rename = "api-key")]
     pub api_key: String,
+    #[serde(rename = "reviewer-uuid")]
+    pub reviewer_uuid: String,
 }
 
 fn get_regex() -> Result<regex::Regex> {
@@ -32,6 +34,10 @@ pub fn set(core: &mut Core, name: &str, value: &str) -> Result<()> {
             core.api_key = value.to_string();
             Ok(())
         }
+        "reviewer-uuid" => {
+            core.reviewer_uuid = value.to_string();
+            Ok(())
+        }
         _ => Err(format_err!(name_error_message.clone())),
     }
 }
@@ -49,6 +55,7 @@ pub fn get(core: &Core, name: &str) -> Result<String> {
 
     match field {
         "api-key" => Ok(core.api_key.clone()),
+        "reviewer-uuid" => Ok(core.reviewer_uuid.clone()),
         _ => Err(format_err!(name_error_message.clone())),
     }
 }
