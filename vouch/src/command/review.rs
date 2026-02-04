@@ -61,19 +61,15 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         &config,
     )?;
 
-    let target_file = args
-        .target_file
-        .as_ref()
-        .ok_or(format_err!("--file is required"))?;
-    let target_path = resolve_target_path(&workspace_manifest.workspace_path, target_file)?;
-    let target_relative = target_path
-        .strip_prefix(&workspace_manifest.workspace_path)
-        .unwrap_or(target_path.as_path())
-        .to_path_buf();
+    let (target_path, target_relative) = match args.target_file.as_ref() {
+        Some(target_file) => resolve_target_path(&workspace_manifest.workspace_path, target_file)?,
+        None => select_target_file(
+            &workspace_manifest.workspace_path,
+            &review,
+            &config,
+        )?,
+    };
     let target_display = target_relative.display().to_string();
-
-    // TODO: Make use of workspace analysis in review.
-    review::workspace::analyse(&workspace_manifest.workspace_path)?;
 
     let (comments, agent_name, agent_model, prompt_version) = if args.manual {
         let comments = run_manual_review(&review, &workspace_manifest.workspace_path, &config)?;
@@ -86,8 +82,12 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     } else {
         let agent = review::tool::select_agent()?;
         let file_contents = std::fs::read_to_string(&target_path)?;
-        let agent_run =
-            review::tool::run_agent(agent, &target_path, &target_display, &file_contents)?;
+        let agent_run = review::tool::run_agent(
+            agent,
+            &workspace_manifest.workspace_path,
+            &target_display,
+            &file_contents,
+        )?;
         let comments = normalize_comments(agent_run.comments);
         (
             comments,
@@ -98,7 +98,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     };
 
     review.comments = comments;
-    review.target_file = Some(target_relative);
+    review.target_file = Some(target_relative.clone());
     review.metadata = build_metadata(
         &config,
         &agent_name,
@@ -167,7 +167,7 @@ where
 fn resolve_target_path(
     workspace_path: &std::path::PathBuf,
     target_file: &str,
-) -> Result<std::path::PathBuf> {
+) -> Result<(std::path::PathBuf, std::path::PathBuf)> {
     let target_path = std::path::PathBuf::from(target_file);
     let target_path = if target_path.is_absolute() {
         target_path
@@ -180,7 +180,69 @@ fn resolve_target_path(
             target_path.display()
         ));
     }
-    Ok(target_path)
+    let target_relative = target_path
+        .strip_prefix(workspace_path)
+        .unwrap_or(target_path.as_path())
+        .to_path_buf();
+    Ok((target_path, target_relative))
+}
+
+fn select_target_file(
+    workspace_path: &std::path::PathBuf,
+    review: &review::Review,
+    config: &common::config::Config,
+) -> Result<(std::path::PathBuf, std::path::PathBuf)> {
+    let analysis = review::workspace::analyse(workspace_path)?;
+    let mut candidates = Vec::new();
+    for (path, entry) in analysis.iter() {
+        if let common::fs::PathType::File = entry.path_type {
+            candidates.push((path.clone(), entry.line_count));
+        }
+    }
+    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+    if candidates.is_empty() {
+        return Err(format_err!("No files found to review."));
+    }
+
+    let registry = review
+        .package
+        .registries
+        .iter()
+        .next()
+        .ok_or(format_err!("Package does not have associated registries."))?;
+
+    let request_candidates = candidates
+        .iter()
+        .take(50)
+        .map(|(path, _)| review::remote::ReviewTarget {
+            registry_host: registry.host_name.clone(),
+            package_name: review.package.name.clone(),
+            package_version: review.package.version.clone(),
+            file_path: path.display().to_string(),
+            artifact_hash: review.package.artifact_hash.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    if let Ok(Some(target)) = review::remote::request_target(request_candidates, config) {
+        let target_relative = std::path::PathBuf::from(target.file_path);
+        let target_path = workspace_path.join(&target_relative);
+        if target_path.is_file() {
+            println!("Selected target file: {}", target_relative.display());
+            return Ok((target_path, target_relative));
+        }
+        log::warn!(
+            "Target file from API not found locally: {}",
+            target_path.display()
+        );
+    }
+
+    let target_relative = candidates[0].0.clone();
+    let target_path = workspace_path.join(&target_relative);
+    println!(
+        "Selected target file (local order): {}",
+        target_relative.display()
+    );
+    Ok((target_path, target_relative))
 }
 
 fn build_metadata(

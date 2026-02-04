@@ -45,11 +45,15 @@ or via any GitHub repository URL:
 
 ### Review
 
-By default, Vouch runs an AI agent (Codex or Claude) to review a target file. Use `--manual` to review via [VSCode](https://code.visualstudio.com/) and the Vouch extension.
+By default, Vouch runs an AI agent (Codex or Claude) to review a target file. If `--file` is omitted, Vouch selects a file automatically based on server priorities or local ordering. Use `--manual` to review via [VSCode](https://code.visualstudio.com/) and the Vouch extension.
 
 Lets review the [NPM](https://www.npmjs.com/) Javascript package [d3](https://www.npmjs.com/package/d3) at version `4.10.0`, targeting `src/index.js`:
 
 `vouch review d3 4.10.0 --file src/index.js`
+
+Automatic file selection:
+
+`vouch review d3 4.10.0`
 
 By default, reviews are submitted to the central API. Use `--no-submit` to keep a review local only.
 

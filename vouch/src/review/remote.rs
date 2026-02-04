@@ -8,13 +8,13 @@ use crate::review;
 use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewMetadata, SecuritySummary};
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ReviewTarget {
-    registry_host: String,
-    package_name: String,
-    package_version: String,
-    file_path: String,
-    artifact_hash: String,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ReviewTarget {
+    pub registry_host: String,
+    pub package_name: String,
+    pub package_version: String,
+    pub file_path: String,
+    pub artifact_hash: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -146,6 +146,59 @@ pub fn fetch(
     }
     let reviews = response.json::<Vec<ReviewRecord>>()?;
     Ok(reviews)
+}
+
+#[derive(Debug, Serialize)]
+struct ReviewRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    candidates: Option<Vec<ReviewTarget>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReviewAssignment {
+    target: Option<ReviewTarget>,
+}
+
+pub fn request_target(
+    candidates: Vec<ReviewTarget>,
+    config: &common::config::Config,
+) -> Result<Option<ReviewTarget>> {
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    let payload = ReviewRequest {
+        candidates: Some(candidates),
+    };
+    let client = reqwest::blocking::Client::new();
+    let base = crate::common::api::normalize_base(&config.core.api_base)?;
+    let url = crate::common::api::join(&base, "v1/review-requests")?;
+    let mut request = client
+        .post(url)
+        .header("User-Agent", common::HTTP_USER_AGENT);
+    if !config.core.api_key.is_empty() {
+        request = request.header("X-API-Key", config.core.api_key.clone());
+    }
+    let response = match request.json(&payload).send() {
+        Ok(response) => response,
+        Err(err) => {
+            log::warn!("Failed to request target from API: {}", err);
+            return Ok(None);
+        }
+    };
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+        log::warn!("Review request failed ({}): {}", status, body);
+        return Ok(None);
+    }
+    let assignment = match response.json::<ReviewAssignment>() {
+        Ok(assignment) => assignment,
+        Err(err) => {
+            log::warn!("Failed to parse review request response: {}", err);
+            return Ok(None);
+        }
+    };
+    Ok(assignment.target)
 }
 
 pub fn store_records(

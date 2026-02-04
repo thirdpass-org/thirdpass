@@ -111,13 +111,14 @@ pub fn select_installed_agent() -> Result<AgentKind> {
 
 pub fn run(
     agent: AgentKind,
-    _target_path: &std::path::PathBuf,
+    workspace_path: &std::path::PathBuf,
     display_path: &str,
     file_contents: &str,
 ) -> Result<AgentRunResult> {
     let prompt = build_prompt(display_path, file_contents);
 
     let mut child = Command::new(agent.binary_name())
+        .current_dir(workspace_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -163,6 +164,7 @@ fn build_prompt(display_path: &str, file_contents: &str) -> String {
     format!(
         r#"You are a security and complexity reviewer for open-source dependency code.
 Review ONLY the single file below. You are in read-only mode.
+You may inspect other files in the package if your tool supports it, but only report issues in the target file.
 
 Focus areas (security):
 - remote code execution, deserialization hazards, eval/exec, command injection

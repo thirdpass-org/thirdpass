@@ -40,11 +40,11 @@ pub fn select_agent() -> Result<AgentKind> {
 
 pub fn run_agent(
     agent: AgentKind,
-    target_path: &std::path::PathBuf,
+    workspace_path: &std::path::PathBuf,
     display_path: &str,
     file_contents: &str,
 ) -> Result<AgentRunResult> {
-    agent::run(agent, target_path, display_path, file_contents)
+    agent::run(agent, workspace_path, display_path, file_contents)
 }
 
 /// Setup reviews directory within workspace.
