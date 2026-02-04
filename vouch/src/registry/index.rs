@@ -97,49 +97,21 @@ pub fn get(fields: &Fields, tx: &StoreTransaction) -> Result<HashSet<common::Reg
     Ok(registries)
 }
 
-/// Merge registries from incoming index into another index. Returns the newly merged registries.
-pub fn merge(
-    incoming_tx: &StoreTransaction,
-    tx: &StoreTransaction,
-) -> Result<HashSet<common::Registry>> {
-    let existing_registries = get(&Fields::default(), &tx)?;
-    let incoming_registries = get(&Fields::default(), &incoming_tx)?;
-
-    let mut new_registries = HashSet::new();
-    for registry in
-        crate::common::index::get_difference_sans_id(&incoming_registries, &existing_registries)?
-    {
-        let registry = insert(
-            registry.host_name.as_str(),
-            &registry.human_url,
-            &registry.artifact_url,
-            &tx,
-        )?;
-        new_registries.insert(registry);
-    }
-    Ok(new_registries)
-}
-
 pub fn ensure(
     host_name: &str,
     human_url: &url::Url,
     artifact_url: &url::Url,
     tx: &StoreTransaction,
 ) -> Result<common::Registry> {
-    let registry = get(
+    let existing = get(
         &Fields {
-            host_name: Some(host_name),
-            human_url: Some(human_url.as_str()),
             artifact_url: Some(artifact_url.as_str()),
             ..Default::default()
         },
         &tx,
-    )?
-    .into_iter()
-    .next();
-
-    Ok(match registry {
-        Some(registry) => registry,
-        None => insert(&host_name, &human_url, &artifact_url, &tx)?,
-    })
+    )?;
+    if let Some(registry) = existing.into_iter().next() {
+        return Ok(registry);
+    }
+    insert(host_name, human_url, artifact_url, &tx)
 }

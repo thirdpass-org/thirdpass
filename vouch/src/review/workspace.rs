@@ -234,6 +234,7 @@ fn get_directory_line_counts(
     Ok(directory_line_counts.clone())
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct PathAnalysis {
     pub path_type: common::fs::PathType,

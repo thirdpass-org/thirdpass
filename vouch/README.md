@@ -21,9 +21,9 @@ Open source software dependencies are commonly used without review. Running unre
 
 ### Setup
 
-First, lets setup Vouch. During setup we can optionally specify a git repository URL for publishing reviews.
+First, lets setup Vouch. This initializes local configuration and data directories.
 
-`vouch setup https://github.com/<username>/reviews`
+`vouch setup`
 
 ### Extensions
 
@@ -50,18 +50,6 @@ or via any GitHub repository URL:
 Vouch supports multiple ecosystems and is extendable. For now, Python and Javascript support comes built-in. Lets review the [NPM](https://www.npmjs.com/) Javascript package [d3](https://www.npmjs.com/package/d3) at version `4.10.0`:
 
 `vouch review d3 4.10.0`
-
-### Peers
-
-Subscribe to reviews created by other users using the command:
-
-`vouch peer add https://github.com/vouch-dev/example-reviews`
-
-### Sync
-
-The sync command pulls new reviews from peers and publishes user generated reviews:
-
-`vouch sync`
 
 ### Check
 

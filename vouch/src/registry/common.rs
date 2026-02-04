@@ -18,13 +18,3 @@ impl crate::common::HashSansId for Registry {
         self.artifact_url.hash(state);
     }
 }
-
-impl crate::common::index::Identify for Registry {
-    fn id(&self) -> crate::common::index::ID {
-        self.id
-    }
-
-    fn id_mut(&mut self) -> &mut crate::common::index::ID {
-        &mut self.id
-    }
-}

@@ -62,13 +62,3 @@ impl crate::common::HashSansId for Comment {
         self.selection.hash(state);
     }
 }
-
-impl crate::common::index::Identify for Comment {
-    fn id(&self) -> crate::common::index::ID {
-        self.id
-    }
-
-    fn id_mut(&mut self) -> &mut crate::common::index::ID {
-        &mut self.id
-    }
-}

@@ -38,16 +38,6 @@ impl PartialOrd for Package {
     }
 }
 
-impl common::index::Identify for Package {
-    fn id(&self) -> common::index::ID {
-        self.id
-    }
-
-    fn id_mut(&mut self) -> &mut common::index::ID {
-        &mut self.id
-    }
-}
-
 impl crate::common::HashSansId for Package {
     fn hash_sans_id<H: std::hash::Hasher>(&self, state: &mut H) {
         self.name.hash(state);

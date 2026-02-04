@@ -1,5 +1,4 @@
 use crate::common::StoreTransaction;
-use crate::peer;
 use anyhow::Result;
 
 pub mod index;
@@ -16,13 +15,6 @@ impl Store {
         })
     }
 
-    /// Load the store of a given peer.
-    pub fn from_peer(peer_branch: &Vec<peer::Peer>) -> Result<Self> {
-        Ok(Self {
-            index: index::Index::from_peer(&peer_branch)?,
-        })
-    }
-
     /// Load temporary storage. Useful for testing.
     #[allow(dead_code)]
     pub fn from_tmp() -> Result<Self> {
@@ -31,7 +23,7 @@ impl Store {
         Ok(Self { index })
     }
 
-    pub fn get_transaction(&mut self) -> Result<StoreTransaction> {
+    pub fn get_transaction(&mut self) -> Result<StoreTransaction<'_>> {
         Ok(StoreTransaction::new(self.index.db.transaction()?)?)
     }
 }

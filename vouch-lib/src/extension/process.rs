@@ -123,7 +123,7 @@ impl common::Extension for ProcessExtension {
             package_name,
         ];
         if let Some(package_version) = package_version {
-            args.push(package_version.clone());
+            args.push(*package_version);
         }
 
         let output: Box<Vec<common::RegistryPackageMetadata>> =

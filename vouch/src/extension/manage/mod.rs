@@ -180,7 +180,7 @@ pub fn update_config(config: &mut Config) -> Result<()> {
     let stale_names: Vec<_> = configured_names.difference(&all_found_names).collect();
     let registries_map = config.extensions.registries.clone();
     for name in &stale_names {
-        config.extensions.enabled.remove(name.clone());
+        config.extensions.enabled.remove(*name);
 
         // Update registries map.
         for (registry, extension_name) in &registries_map {

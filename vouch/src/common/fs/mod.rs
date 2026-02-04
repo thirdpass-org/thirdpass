@@ -120,14 +120,6 @@ impl DataPaths {
     }
 }
 
-pub fn git(args: Vec<&str>, working_directory: &std::path::PathBuf) -> Result<()> {
-    std::process::Command::new("git")
-        .args(args)
-        .current_dir(working_directory)
-        .status()?;
-    Ok(())
-}
-
 /// Remove empty directories along relative path.
 pub fn remove_empty_directories(
     relative_path: &std::path::PathBuf,
@@ -151,110 +143,6 @@ pub fn remove_empty_directories(
         absolute_path.pop();
     }
     Ok(())
-}
-
-/// Remove a git submodule.
-///
-/// See: https://stackoverflow.com/a/36593218/1339591
-pub fn git_remove_submodule(
-    submodule_relative_path: &std::path::PathBuf,
-    root_directory: &std::path::PathBuf,
-) -> Result<()> {
-    // Make a str version because its used throughout.
-    let submodule_relative_path_str = submodule_relative_path.to_str().ok_or(format_err!(
-        "Could not parse submodule path: {}",
-        submodule_relative_path.display()
-    ))?;
-
-    // Remove the submodule entry from .git/config
-    std::process::Command::new("git")
-        .args(vec![
-            "submodule",
-            "deinit",
-            "-f",
-            submodule_relative_path_str,
-        ])
-        .current_dir(&root_directory)
-        .status()?;
-
-    // // Remove the submodule directory from the superproject's .git/modules directory
-    let modules_path = format!(".git/modules/{}", submodule_relative_path_str);
-    std::fs::remove_dir_all(&root_directory.join(modules_path))?;
-    remove_empty_directories(
-        &submodule_relative_path,
-        &root_directory.join(".git/modules"),
-    )?;
-
-    // Remove the entry in .gitmodules and remove the submodule directory
-    std::process::Command::new("git")
-        .args(vec!["rm", "-f", submodule_relative_path_str])
-        .current_dir(&root_directory)
-        .status()?;
-    remove_empty_directories(&submodule_relative_path, &root_directory)?;
-
-    Ok(())
-}
-
-/// Deinit a git submodule.
-pub fn git_deinit_submodule(
-    submodule_path: &std::path::PathBuf,
-    working_directory: &std::path::PathBuf,
-) -> Result<()> {
-    let submodule_path = submodule_path.to_str().ok_or(format_err!(
-        "Could not parse submodule path: {}",
-        submodule_path.display()
-    ))?;
-
-    std::process::Command::new("git")
-        .args(vec!["submodule", "deinit", "-f", submodule_path])
-        .current_dir(&working_directory)
-        .status()?;
-
-    Ok(())
-}
-
-pub fn is_remote_repo_setup() -> Result<bool> {
-    let paths = DataPaths::new()?;
-    let repo = git2::Repository::open(&paths.root_directory)?;
-    Ok(!repo.remotes()?.is_empty())
-}
-
-pub fn git_push_root() -> Result<()> {
-    let paths = DataPaths::new()?;
-    git(
-        vec!["push", "--set-upstream", "origin", "master"],
-        &paths.root_directory,
-    )?;
-    Ok(())
-}
-
-pub struct GitTransaction {
-    working_directory: std::path::PathBuf,
-}
-
-impl GitTransaction {
-    pub fn new() -> Result<Self> {
-        let paths = DataPaths::new()?;
-
-        // TODO: Get initial commit for atomic reversion.
-        // let repository = git2::Repository::open(&paths.root_data_directory)?;
-        // let head_reference = repository.head()?;
-        // let initial_commit_hash = head_reference.peel_to_commit()?.id();
-
-        Ok(Self {
-            working_directory: paths.root_directory.clone(),
-        })
-    }
-
-    pub fn commit(&mut self, message: &str) -> Result<()> {
-        let args = vec!["add", "-A"];
-        git(args, &self.working_directory)?;
-
-        let args = vec!["commit", "-am", message];
-        git(args, &self.working_directory)?;
-
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone, Copy)]

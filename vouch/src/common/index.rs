@@ -17,15 +17,10 @@ fn like_escape(x: &str) -> String {
     x.replace("_", r"\_").replace("%", r"\%")
 }
 
-pub trait Identify {
-    fn id(&self) -> ID;
-    fn id_mut(&mut self) -> &mut ID;
-}
-
 /// Return elements which are in primary and also not in secondary. Ignores ID values.
 pub fn get_difference_sans_id<T>(primary: &HashSet<T>, secondary: &HashSet<T>) -> Result<HashSet<T>>
 where
-    T: crate::common::HashSansId + Identify + Clone + Eq + PartialEq + std::hash::Hash,
+    T: crate::common::HashSansId + Clone + Eq + PartialEq + std::hash::Hash,
 {
     let primary = primary
         .into_iter()

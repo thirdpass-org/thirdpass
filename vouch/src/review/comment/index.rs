@@ -169,14 +169,18 @@ fn get_selection_field(row: &rusqlite::Row<'_>) -> Result<Option<common::Selecti
 pub fn remove(fields: &Fields, tx: &StoreTransaction) -> Result<()> {
     let id =
         crate::common::index::get_like_clause_param(fields.id.map(|id| id.to_string()).as_deref());
-    tx.index_tx().execute_named(
-        r"
-        DELETE FROM
-            comment
+    let ids_where_field = crate::common::index::get_ids_where_field(&fields.ids);
+    let sql_query = format!(
+        "
+        DELETE
+        FROM comment
         WHERE
-            id LIKE :id ESCAPE '\'
+            id LIKE :id ESCAPE '\\'
+            AND {ids_where_field}
     ",
-        &[(":id", &id)],
-    )?;
+        ids_where_field = ids_where_field
+    );
+    tx.index_tx()
+        .execute_named(sql_query.as_str(), &[(":id", &id)])?;
     Ok(())
 }

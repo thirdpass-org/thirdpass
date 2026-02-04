@@ -1,11 +1,9 @@
 use anyhow::{format_err, Result};
-use git2;
-use std::io::Write;
 
 use crate::common;
 use crate::extension;
 
-fn handle_nonempty_git_repository(directory_path: &std::path::PathBuf, force: bool) -> Result<()> {
+fn handle_nonempty_data_directory(directory_path: &std::path::PathBuf, force: bool) -> Result<()> {
     let target_directory_empty = directory_path.read_dir()?.next().is_none();
     if !force && !target_directory_empty {
         // TODO: Check with storage::sync for un-synchronized changes. Improve feedback.
@@ -15,79 +13,9 @@ fn handle_nonempty_git_repository(directory_path: &std::path::PathBuf, force: bo
         ));
     }
     if force && !target_directory_empty {
-        // Delete directory contents so that git clone can succeed.
+        // Delete directory contents so setup can start cleanly.
         std::fs::remove_dir_all(&directory_path)?;
         std::fs::create_dir_all(&directory_path)?;
-    }
-    Ok(())
-}
-
-/// Adds a pattern to the .git/info/exclude file if absent.
-fn append_git_exclude(exclusion_pattern: &str, git_root_path: &std::path::PathBuf) -> Result<()> {
-    let exclude_file_path = git_root_path.join(".git").join("info").join("exclude");
-
-    // Check to see whether pattern is already included in file.
-    let contents = std::fs::read_to_string(&exclude_file_path)?;
-    let mut pattern_found = false;
-    for line in contents.split("\n") {
-        if line == exclusion_pattern {
-            pattern_found = true;
-            break;
-        }
-    }
-
-    if !pattern_found {
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&exclude_file_path)?;
-        file.write(exclusion_pattern.as_bytes())?;
-    }
-    Ok(())
-}
-
-fn setup_git_repository(
-    remote_repository_url: &Option<common::GitUrl>,
-    paths: &common::fs::DataPaths,
-    force: bool,
-) -> Result<()> {
-    handle_nonempty_git_repository(&paths.root_directory, force)?;
-
-    if let Some(remote_repository_url) = remote_repository_url {
-        log::debug!(
-            "Cloning git repository from: {}",
-            remote_repository_url.to_string()
-        );
-        common::fs::git(
-            vec![
-                "clone",
-                remote_repository_url.to_string().as_str(),
-                &paths.root_directory.to_str().unwrap(),
-            ],
-            &paths
-                .root_directory
-                .parent()
-                .unwrap_or(&std::path::PathBuf::from(r"/"))
-                .to_path_buf(),
-        )?;
-        setup_top_level_peers(&paths)?;
-    } else {
-        log::debug!("Initializing git repository.");
-        git2::Repository::init(&paths.root_directory)?;
-    }
-    Ok(())
-}
-
-fn setup_top_level_peers(paths: &common::fs::DataPaths) -> Result<()> {
-    let repository = git2::Repository::open(&paths.root_directory)?;
-    let submodules = repository.submodules()?;
-
-    for submodule in submodules {
-        let path = submodule.path();
-        log::debug!("Updating top level peer submodule: {}", path.display());
-        common::fs::git(
-            vec!["submodule", "update", "--init", "--depth", "1"],
-            &paths.root_directory.join(path),
-        )?;
     }
     Ok(())
 }
@@ -101,8 +29,6 @@ fn setup_data_directory_contents(paths: &common::fs::DataPaths) -> Result<()> {
 
     std::fs::create_dir_all(&paths.ongoing_reviews_directory)?;
     std::fs::File::create(&paths.ongoing_reviews_directory.join(".gitkeep"))?;
-    append_git_exclude("reviews/.ongoing", &paths.root_directory)?;
-    append_git_exclude(".index/index.db-journal", &paths.root_directory)?;
 
     std::fs::create_dir_all(&paths.peers_directory)?;
     std::fs::File::create(&paths.peers_directory.join(".gitkeep"))?;
@@ -119,7 +45,6 @@ fn setup_data_directory_contents(paths: &common::fs::DataPaths) -> Result<()> {
 ///
 /// If config file exists and force is false, file will not be modified.
 fn setup_config(
-    remote_repository_url: &Option<common::GitUrl>,
     paths: &common::fs::ConfigPaths,
     force: bool,
 ) -> Result<()> {
@@ -130,8 +55,6 @@ fn setup_config(
         log::debug!("Generating config file: {}", paths.config_file.display());
         let mut config = crate::common::config::Config::default();
 
-        config.core.root_git_url = remote_repository_url.clone();
-        config.core.notify_vouch_public_sync = true;
         config.core.api_key = "tmp_api_key".to_string();
         config.review_tool.name = "vscode".to_string();
         config.review_tool.install_check = false;
@@ -146,20 +69,19 @@ fn setup_config(
     Ok(())
 }
 
-pub fn setup(remote_repository_url: &Option<common::GitUrl>, force: bool) -> Result<()> {
+pub fn setup(force: bool) -> Result<()> {
     let data_paths = common::fs::DataPaths::new()?;
     log::debug!("Using data paths: {:#?}", data_paths);
 
     let config_paths = common::fs::ConfigPaths::new()?;
     log::debug!("Using config paths: {:#?}", config_paths);
-    setup_config(&remote_repository_url, &config_paths, force)?;
+    setup_config(&config_paths, force)?;
     log::debug!("Config setup complete.");
 
     log::debug!("Ensuring root data directory exists.");
     std::fs::create_dir_all(&data_paths.root_directory)?;
 
-    setup_git_repository(&remote_repository_url, &data_paths, force)?;
-    log::debug!("Repo git setup complete.");
+    handle_nonempty_data_directory(&data_paths.root_directory, force)?;
 
     setup_data_directory_contents(&data_paths)?;
 

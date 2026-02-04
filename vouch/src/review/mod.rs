@@ -6,7 +6,6 @@ pub mod comment;
 mod common;
 pub mod fs;
 pub mod index;
-pub mod official;
 pub mod tool;
 pub mod workspace;
 

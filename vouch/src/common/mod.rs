@@ -16,24 +16,19 @@ pub static HTTP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CA
 
 pub struct StoreTransaction<'a> {
     index_transaction: rusqlite::Transaction<'a>,
-    git_transaction: crate::common::fs::GitTransaction,
 }
 
 impl<'a> StoreTransaction<'a> {
     pub fn new(index_transaction: rusqlite::Transaction<'a>) -> Result<Self> {
-        Ok(Self {
-            index_transaction,
-            git_transaction: crate::common::fs::GitTransaction::new()?,
-        })
+        Ok(Self { index_transaction })
     }
 
     pub fn index_tx(&self) -> &rusqlite::Transaction<'a> {
         &self.index_transaction
     }
 
-    pub fn commit(mut self, message: &str) -> Result<()> {
+    pub fn commit(self, _message: &str) -> Result<()> {
         self.index_transaction.commit()?;
-        self.git_transaction.commit(message)?;
         Ok(())
     }
 
@@ -53,10 +48,6 @@ impl GitUrl {
 
     pub fn as_str(&self) -> &str {
         self.0.as_str()
-    }
-
-    pub fn url(&self) -> &url::Url {
-        &self.0
     }
 }
 
