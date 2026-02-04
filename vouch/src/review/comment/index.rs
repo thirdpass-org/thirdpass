@@ -9,26 +9,28 @@ pub fn setup(tx: &StoreTransaction) -> Result<()> {
         CREATE TABLE IF NOT EXISTS comment (
             id                        INTEGER NOT NULL PRIMARY KEY,
             path                      TEXT NOT NULL,
-            summary                   TEXT NOT NULL,
             message                   TEXT,
             selection_start_line      INTEGER,
             selection_start_character INTEGER,
             selection_end_line        INTEGER,
-            selection_end_character   INTEGER
+            selection_end_character   INTEGER,
+            summary                   TEXT,
+            security                  TEXT,
+            complexity                TEXT
         )",
         rusqlite::NO_PARAMS,
     )?;
+    ensure_columns(tx)?;
     Ok(())
 }
 
 /// Insert comment into index.
-pub fn insert(
-    path: &std::path::PathBuf,
-    summary: &crate::review::common::Summary,
-    message: &str,
-    selection: &Option<common::Selection>,
-    tx: &StoreTransaction,
-) -> Result<common::Comment> {
+pub fn insert(comment: &common::Comment, tx: &StoreTransaction) -> Result<common::Comment> {
+    let summary = comment
+        .summary
+        .clone()
+        .unwrap_or_else(|| summary_from_security(&comment.security));
+
     tx.index_tx().execute_named(
         r"
             INSERT INTO comment (
@@ -38,7 +40,9 @@ pub fn insert(
                 selection_start_line,
                 selection_start_character,
                 selection_end_line,
-                selection_end_character
+                selection_end_character,
+                security,
+                complexity
             )
             VALUES (
                 :path,
@@ -47,14 +51,93 @@ pub fn insert(
                 :selection_start_line,
                 :selection_start_character,
                 :selection_end_line,
-                :selection_end_character
+                :selection_end_character,
+                :security,
+                :complexity
             )
         ",
         &[
             (
                 ":path",
-                &path.clone().into_os_string().into_string().map_err(|_| {
-                    format_err!("Failed to convert path into String: {}", path.display())
+                &comment
+                    .path
+                    .clone()
+                    .into_os_string()
+                    .into_string()
+                    .map_err(|_| {
+                        format_err!(
+                            "Failed to convert path into String: {}",
+                            comment.path.display()
+                        )
+                    })?,
+            ),
+            (":summary", &summary.to_string()),
+            (":message", &comment.message.to_string()),
+            (
+                ":selection_start_line",
+                &comment.selection.clone().map(|s| s.start.line),
+            ),
+            (
+                ":selection_start_character",
+                &comment.selection.clone().map(|s| s.start.character),
+            ),
+            (
+                ":selection_end_line",
+                &comment.selection.clone().map(|s| s.end.line),
+            ),
+            (
+                ":selection_end_character",
+                &comment.selection.clone().map(|s| s.end.character),
+            ),
+            (":security", &comment.security.to_string()),
+            (":complexity", &comment.complexity.to_string()),
+        ],
+    )?;
+    Ok(common::Comment {
+        id: tx.index_tx().last_insert_rowid(),
+        security: comment.security.clone(),
+        complexity: comment.complexity.clone(),
+        summary: Some(summary),
+        path: comment.path.clone(),
+        message: comment.message.to_string(),
+        selection: comment.selection.clone(),
+    })
+}
+
+fn summary_from_security(security: &common::Priority) -> common::Summary {
+    match security {
+        common::Priority::Critical => common::Summary::Fail,
+        common::Priority::Medium => common::Summary::Warn,
+        common::Priority::Low => common::Summary::Pass,
+    }
+}
+
+fn ensure_columns(tx: &StoreTransaction) -> Result<()> {
+    add_column_if_missing(tx, "security", "TEXT")?;
+    add_column_if_missing(tx, "complexity", "TEXT")?;
+    Ok(())
+}
+
+fn add_column_if_missing(tx: &StoreTransaction, column: &str, column_type: &str) -> Result<()> {
+    if has_column(tx, column)? {
+        return Ok(());
+    }
+    let sql = format!("ALTER TABLE comment ADD COLUMN {} {}", column, column_type);
+    tx.index_tx().execute(sql.as_str(), rusqlite::NO_PARAMS)?;
+    Ok(())
+}
+
+fn has_column(tx: &StoreTransaction, column: &str) -> Result<bool> {
+    let mut statement = tx.index_tx().prepare("PRAGMA table_info(comment)")?;
+    let mut rows = statement.query(rusqlite::NO_PARAMS)?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
                 })?,
             ),
             (":summary", &summary.to_string()),
@@ -101,7 +184,17 @@ pub fn get(
 
     let sql_query = format!(
         "
-        SELECT *
+        SELECT
+            id,
+            path,
+            message,
+            selection_start_line,
+            selection_start_character,
+            selection_end_line,
+            selection_end_character,
+            summary,
+            security,
+            complexity
         FROM comment
         WHERE
             {ids_where_field}
@@ -113,24 +206,54 @@ pub fn get(
 
     let mut comments = std::collections::HashSet::new();
     while let Some(row) = rows.next()? {
+        let summary: Option<common::Summary> = match row.get::<_, Option<String>>(7)? {
+            Some(value) => Some(value.parse()?),
+            None => None,
+        };
+        let security: common::Priority = match row.get::<_, Option<String>>(8)? {
+            Some(value) => value.parse()?,
+            None => summary
+                .as_ref()
+                .map(security_from_summary)
+                .unwrap_or_default(),
+        };
+        let complexity: common::Priority = match row.get::<_, Option<String>>(9)? {
+            Some(value) => value.parse()?,
+            None => common::Priority::default(),
+        };
+
         comments.insert(common::Comment {
             id: row.get(0)?,
             path: std::path::PathBuf::from(&row.get::<_, String>(1)?),
-            summary: row.get::<_, String>(2)?.parse()?,
-            message: row.get::<_, String>(3)?,
-            selection: get_selection_field(row)?,
+            security,
+            complexity,
+            summary,
+            message: row.get::<_, String>(2)?,
+            selection: get_selection_field(row, 3)?,
         });
     }
     Ok(comments)
 }
 
+fn security_from_summary(summary: &common::Summary) -> common::Priority {
+    match summary {
+        common::Summary::Fail => common::Priority::Critical,
+        common::Summary::Warn => common::Priority::Medium,
+        common::Summary::Pass => common::Priority::Low,
+        common::Summary::Todo => common::Priority::Low,
+    }
+}
+
 /// Given a comment table row, return a comment selection.
-fn get_selection_field(row: &rusqlite::Row<'_>) -> Result<Option<common::Selection>> {
+fn get_selection_field(
+    row: &rusqlite::Row<'_>,
+    base_index: usize,
+) -> Result<Option<common::Selection>> {
     let selection_fields = [
-        row.get::<_, Option<i64>>(4)?, // Start line.
-        row.get::<_, Option<i64>>(5)?, // Start character.
-        row.get::<_, Option<i64>>(6)?, // End line.
-        row.get::<_, Option<i64>>(7)?, // End character.
+        row.get::<_, Option<i64>>(base_index)?, // Start line.
+        row.get::<_, Option<i64>>(base_index + 1)?, // Start character.
+        row.get::<_, Option<i64>>(base_index + 2)?, // End line.
+        row.get::<_, Option<i64>>(base_index + 3)?, // End character.
     ];
 
     let all_fields_none = selection_fields

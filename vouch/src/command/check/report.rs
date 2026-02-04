@@ -5,7 +5,7 @@ use crate::review;
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 pub struct DependencyReport {
-    pub summary: review::Summary,
+    pub summary: review::SecuritySummary,
     pub name: String,
     pub version: Option<String>,
     pub review_count: Option<usize>,
@@ -22,7 +22,7 @@ pub fn get_dependency_report(
         Ok(version) => version.clone(),
         Err(error) => {
             return Ok(DependencyReport {
-                summary: review::Summary::Warn,
+                summary: review::SecuritySummary::Medium,
                 name: dependency.name.clone(),
                 version: None,
                 review_count: None,
@@ -44,7 +44,7 @@ pub fn get_dependency_report(
     if reviews.is_empty() {
         // Report no reviews found for dependency.
         return Ok(DependencyReport {
-            summary: review::Summary::Todo,
+            summary: review::SecuritySummary::None,
             name: dependency.name.clone(),
             version: Some(package_version.clone()),
             review_count: Some(0),
@@ -68,8 +68,8 @@ pub fn get_dependency_report(
 #[derive(Debug, Default, Clone)]
 struct DependencyStats {
     pub total_review_count: usize,
-    pub count_fail_comments: i32,
-    pub count_warn_comments: i32,
+    pub count_critical_comments: i32,
+    pub count_medium_comments: i32,
 }
 
 fn get_dependency_stats(reviews: &Vec<review::Review>) -> Result<DependencyStats> {
@@ -77,31 +77,37 @@ fn get_dependency_stats(reviews: &Vec<review::Review>) -> Result<DependencyStats
     stats.total_review_count = reviews.len();
 
     for review in reviews {
-        let review_analysis = review::analyse(&review)?;
-        stats.count_fail_comments += review_analysis.count_fail_comments;
-        stats.count_warn_comments += review_analysis.count_warn_comments;
+        match review::overall_security_summary(&review)? {
+            review::SecuritySummary::Critical => stats.count_critical_comments += 1,
+            review::SecuritySummary::Medium => stats.count_medium_comments += 1,
+            review::SecuritySummary::Low => {}
+            review::SecuritySummary::None => {}
+        }
     }
     Ok(stats)
 }
 
-fn get_dependency_status(stats: &DependencyStats) -> Result<review::Summary> {
-    if stats.count_fail_comments > 0 {
-        return Ok(review::Summary::Fail);
+fn get_dependency_status(stats: &DependencyStats) -> Result<review::SecuritySummary> {
+    if stats.count_critical_comments > 0 {
+        return Ok(review::SecuritySummary::Critical);
     }
-    if stats.total_review_count == 0 || stats.count_warn_comments > 0 {
-        return Ok(review::Summary::Warn);
+    if stats.count_medium_comments > 0 {
+        return Ok(review::SecuritySummary::Medium);
     }
-    Ok(review::Summary::Pass)
+    if stats.total_review_count == 0 {
+        return Ok(review::SecuritySummary::None);
+    }
+    Ok(review::SecuritySummary::Low)
 }
 
 fn get_dependency_note(stats: &DependencyStats) -> Result<String> {
     let mut note_parts = Vec::<_>::new();
-    if stats.count_fail_comments > 0 {
-        note_parts.push(format!("fail ({})", stats.count_fail_comments));
+    if stats.count_critical_comments > 0 {
+        note_parts.push(format!("critical ({})", stats.count_critical_comments));
     }
 
-    if stats.count_warn_comments > 0 {
-        note_parts.push(format!("warn ({})", stats.count_warn_comments));
+    if stats.count_medium_comments > 0 {
+        note_parts.push(format!("medium ({})", stats.count_medium_comments));
     }
 
     Ok(note_parts.join("; "))

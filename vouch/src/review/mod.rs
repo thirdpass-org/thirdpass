@@ -9,32 +9,22 @@ pub mod index;
 pub mod tool;
 pub mod workspace;
 
-pub use crate::review::common::{Review, Summary};
+pub use crate::review::common::{Priority, Review, SecuritySummary, Summary};
 
-pub struct ReviewAnalysis {
-    pub count_fail_comments: i32,
-    pub count_warn_comments: i32,
-}
+pub fn overall_security_summary(review: &Review) -> Result<SecuritySummary> {
+    if review.comments.is_empty() {
+        return Ok(SecuritySummary::None);
+    }
 
-pub fn analyse(review: &Review) -> Result<ReviewAnalysis> {
-    let count_warn_comments = review.comments.iter().fold(0, |sum, comment| {
-        if comment.summary == Summary::Warn {
-            sum + 1
-        } else {
-            sum
+    let mut summary = SecuritySummary::Low;
+    for comment in &review.comments {
+        match comment.security {
+            Priority::Critical => return Ok(SecuritySummary::Critical),
+            Priority::Medium => summary = SecuritySummary::Medium,
+            Priority::Low => {}
         }
-    });
-    let count_fail_comments = review.comments.iter().fold(0, |sum, comment| {
-        if comment.summary == Summary::Fail {
-            sum + 1
-        } else {
-            sum
-        }
-    });
-    Ok(ReviewAnalysis {
-        count_fail_comments,
-        count_warn_comments,
-    })
+    }
+    Ok(summary)
 }
 
 pub fn store(review: &Review, tx: &StoreTransaction) -> Result<()> {

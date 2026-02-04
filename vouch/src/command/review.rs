@@ -104,13 +104,9 @@ fn get_comments(
 
     let mut inserted_comments = std::collections::BTreeSet::<_>::new();
     for comment in comments {
-        let comment = review::comment::index::insert(
-            &comment.path,
-            &comment.summary,
-            &comment.message,
-            &comment.selection,
-            &tx,
-        )?;
+        let mut comment = comment;
+        comment.apply_legacy_summary();
+        let comment = review::comment::index::insert(&comment, &tx)?;
         inserted_comments.insert(comment);
     }
 

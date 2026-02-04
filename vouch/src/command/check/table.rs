@@ -58,7 +58,7 @@ fn get_note_cell(dependency_report: &report::DependencyReport) -> prettytable::C
     };
     let mut note = prettytable::Cell::new_align(&note, prettytable::format::Alignment::LEFT);
 
-    if dependency_report.summary == review::Summary::Fail {
+    if dependency_report.summary == review::SecuritySummary::Critical {
         note = note
             .with_style(prettytable::Attr::BackgroundColor(
                 prettytable::color::BRIGHT_RED,
@@ -70,20 +70,20 @@ fn get_note_cell(dependency_report: &report::DependencyReport) -> prettytable::C
     note
 }
 
-impl From<review::Summary> for prettytable::Cell {
-    fn from(summary: review::Summary) -> Self {
+impl From<review::SecuritySummary> for prettytable::Cell {
+    fn from(summary: review::SecuritySummary) -> Self {
         let label = match summary {
-            review::Summary::Todo => "      ",
-            review::Summary::Pass => " PASS ",
-            review::Summary::Warn => " WARN ",
-            review::Summary::Fail => " FAIL ",
+            review::SecuritySummary::None => "      ",
+            review::SecuritySummary::Low => " LOW  ",
+            review::SecuritySummary::Medium => " MED  ",
+            review::SecuritySummary::Critical => " CRIT ",
         };
 
         let background_color = match summary {
-            review::Summary::Todo => None,
-            review::Summary::Pass => Some(prettytable::color::BRIGHT_GREEN),
-            review::Summary::Warn => Some(prettytable::color::YELLOW),
-            review::Summary::Fail => Some(prettytable::color::BRIGHT_RED),
+            review::SecuritySummary::None => None,
+            review::SecuritySummary::Low => Some(prettytable::color::BRIGHT_GREEN),
+            review::SecuritySummary::Medium => Some(prettytable::color::YELLOW),
+            review::SecuritySummary::Critical => Some(prettytable::color::BRIGHT_RED),
         };
 
         if let Some(background_color) = background_color {

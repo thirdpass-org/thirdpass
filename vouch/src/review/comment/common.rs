@@ -1,4 +1,4 @@
-use crate::review::common::Summary;
+use crate::review::common::{Priority, Summary};
 use std::hash::Hash;
 
 #[derive(
@@ -21,7 +21,12 @@ pub struct Selection {
 pub struct Comment {
     #[serde(skip)]
     pub id: crate::common::index::ID,
-    pub summary: Summary,
+    #[serde(default)]
+    pub security: Priority,
+    #[serde(default)]
+    pub complexity: Priority,
+    #[serde(skip_serializing, default)]
+    pub summary: Option<Summary>,
     #[serde(rename = "file")]
     pub path: std::path::PathBuf,
     #[serde(rename = "description")]
@@ -32,6 +37,8 @@ pub struct Comment {
 impl Ord for Comment {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         (
+            &self.security,
+            &self.complexity,
             &self.summary,
             &self.path,
             &self.message,
@@ -57,8 +64,23 @@ impl PartialOrd for Comment {
 impl crate::common::HashSansId for Comment {
     fn hash_sans_id<H: std::hash::Hasher>(&self, state: &mut H) {
         self.path.hash(state);
+        self.security.hash(state);
+        self.complexity.hash(state);
         self.summary.hash(state);
         self.message.hash(state);
         self.selection.hash(state);
+    }
+}
+
+impl Comment {
+    pub fn apply_legacy_summary(&mut self) {
+        if let Some(summary) = &self.summary {
+            self.security = match summary {
+                Summary::Fail => Priority::Critical,
+                Summary::Warn => Priority::Medium,
+                Summary::Pass => Priority::Low,
+                Summary::Todo => Priority::Low,
+            };
+        }
     }
 }

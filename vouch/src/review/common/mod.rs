@@ -9,7 +9,12 @@
 use serde;
 use std::hash::Hash;
 
+pub mod priority;
+pub mod security_summary;
 pub mod summary;
+
+pub use priority::Priority;
+pub use security_summary::SecuritySummary;
 pub use summary::Summary;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
