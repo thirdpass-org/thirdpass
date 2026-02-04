@@ -28,7 +28,8 @@ struct ReviewSubmission {
 
 #[derive(Debug, Deserialize)]
 pub struct ReviewRecord {
-    id: String,
+    #[serde(rename = "id")]
+    _id: String,
     target: ReviewTarget,
     metadata: ReviewMetadata,
     comments: Vec<ReviewComment>,

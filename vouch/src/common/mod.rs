@@ -19,13 +19,6 @@ pub static HTTP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CA
 pub struct GitUrl(url::Url);
 
 impl GitUrl {
-    pub fn to_string(&self) -> String {
-        self.0.to_string()
-    }
-
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
 }
 
 impl std::convert::TryFrom<&str> for GitUrl {
@@ -98,9 +91,4 @@ impl<'de> serde::Deserialize<'de> for GitUrl {
     {
         Ok(deserializer.deserialize_str(UrlVisitor)?)
     }
-}
-
-pub trait HashSansId {
-    /// Compute hash without ID field.
-    fn hash_sans_id<H: std::hash::Hasher>(&self, state: &mut H);
 }

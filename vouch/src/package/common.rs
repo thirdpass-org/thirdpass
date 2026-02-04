@@ -37,11 +37,3 @@ impl PartialOrd for Package {
         Some(self.cmp(other))
     }
 }
-
-impl crate::common::HashSansId for Package {
-    fn hash_sans_id<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.name.hash(state);
-        self.version.hash(state);
-        self.artifact_hash.hash(state);
-    }
-}

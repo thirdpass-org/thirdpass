@@ -49,13 +49,6 @@ impl PartialOrd for Peer {
     }
 }
 
-impl crate::common::HashSansId for Peer {
-    fn hash_sans_id<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.alias.hash(state);
-        self.git_url.hash(state);
-    }
-}
-
 impl Default for Peer {
     fn default() -> Self {
         Peer {

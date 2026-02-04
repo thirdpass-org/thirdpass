@@ -63,17 +63,6 @@ impl PartialOrd for Comment {
     }
 }
 
-impl crate::common::HashSansId for Comment {
-    fn hash_sans_id<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.path.hash(state);
-        self.security.hash(state);
-        self.complexity.hash(state);
-        self.summary.hash(state);
-        self.message.hash(state);
-        self.selection.hash(state);
-    }
-}
-
 impl Comment {
     pub fn apply_legacy_summary(&mut self) {
         if let Some(summary) = &self.summary {
