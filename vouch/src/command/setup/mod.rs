@@ -1,18 +1,8 @@
-use anyhow::{format_err, Result};
+use anyhow::Result;
 use crate::common::config::Config;
 use crate::store;
 use uuid;
 mod fs;
-
-/// Return Err if setup is not complete, otherwise Result.
-pub fn is_complete() -> Result<()> {
-    if !fs::is_complete()? {
-        return Err(format_err!(
-            "Vouch setup has not completed yet."
-        ));
-    }
-    Ok(())
-}
 
 pub fn ensure() -> Result<()> {
     if fs::is_complete()? {

@@ -46,6 +46,8 @@ impl Ord for Comment {
             &self.id,
         )
             .cmp(&(
+                &other.security,
+                &other.complexity,
                 &other.summary,
                 &other.path,
                 &other.message,

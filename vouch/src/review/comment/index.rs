@@ -2,6 +2,7 @@ use anyhow::{format_err, Result};
 
 use super::common;
 use crate::common::StoreTransaction;
+use crate::review::common::{Priority, Summary};
 
 pub fn setup(tx: &StoreTransaction) -> Result<()> {
     tx.index_tx().execute(
@@ -104,11 +105,11 @@ pub fn insert(comment: &common::Comment, tx: &StoreTransaction) -> Result<common
     })
 }
 
-fn summary_from_security(security: &common::Priority) -> common::Summary {
+fn summary_from_security(security: &Priority) -> Summary {
     match security {
-        common::Priority::Critical => common::Summary::Fail,
-        common::Priority::Medium => common::Summary::Warn,
-        common::Priority::Low => common::Summary::Pass,
+        Priority::Critical => Summary::Fail,
+        Priority::Medium => Summary::Warn,
+        Priority::Low => Summary::Pass,
     }
 }
 
@@ -137,36 +138,6 @@ fn has_column(tx: &StoreTransaction, column: &str) -> Result<bool> {
         }
     }
     Ok(false)
-}
-                })?,
-            ),
-            (":summary", &summary.to_string()),
-            (":message", &message.to_string()),
-            (
-                ":selection_start_line",
-                &selection.clone().map(|s| s.start.line),
-            ),
-            (
-                ":selection_start_character",
-                &selection.clone().map(|s| s.start.character),
-            ),
-            (
-                ":selection_end_line",
-                &selection.clone().map(|s| s.end.line),
-            ),
-            (
-                ":selection_end_character",
-                &selection.clone().map(|s| s.end.character),
-            ),
-        ],
-    )?;
-    Ok(common::Comment {
-        id: tx.index_tx().last_insert_rowid(),
-        path: path.clone(),
-        summary: summary.clone(),
-        message: message.to_string(),
-        selection: selection.clone(),
-    })
 }
 
 #[derive(Debug, Default)]
@@ -206,20 +177,20 @@ pub fn get(
 
     let mut comments = std::collections::HashSet::new();
     while let Some(row) = rows.next()? {
-        let summary: Option<common::Summary> = match row.get::<_, Option<String>>(7)? {
+        let summary: Option<Summary> = match row.get::<_, Option<String>>(7)? {
             Some(value) => Some(value.parse()?),
             None => None,
         };
-        let security: common::Priority = match row.get::<_, Option<String>>(8)? {
+        let security: Priority = match row.get::<_, Option<String>>(8)? {
             Some(value) => value.parse()?,
             None => summary
                 .as_ref()
                 .map(security_from_summary)
                 .unwrap_or_default(),
         };
-        let complexity: common::Priority = match row.get::<_, Option<String>>(9)? {
+        let complexity: Priority = match row.get::<_, Option<String>>(9)? {
             Some(value) => value.parse()?,
-            None => common::Priority::default(),
+            None => Priority::default(),
         };
 
         comments.insert(common::Comment {
@@ -235,12 +206,12 @@ pub fn get(
     Ok(comments)
 }
 
-fn security_from_summary(summary: &common::Summary) -> common::Priority {
+fn security_from_summary(summary: &Summary) -> Priority {
     match summary {
-        common::Summary::Fail => common::Priority::Critical,
-        common::Summary::Warn => common::Priority::Medium,
-        common::Summary::Pass => common::Priority::Low,
-        common::Summary::Todo => common::Priority::Low,
+        Summary::Fail => Priority::Critical,
+        Summary::Warn => Priority::Medium,
+        Summary::Pass => Priority::Low,
+        Summary::Todo => Priority::Low,
     }
 }
 
