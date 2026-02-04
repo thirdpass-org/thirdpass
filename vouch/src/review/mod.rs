@@ -1,11 +1,9 @@
-use crate::common::StoreTransaction;
 use anyhow::Result;
 
 pub mod active;
 pub mod comment;
 mod common;
 pub mod fs;
-pub mod index;
 pub mod remote;
 pub mod tool;
 pub mod workspace;
@@ -28,8 +26,7 @@ pub fn overall_security_summary(review: &Review) -> Result<SecuritySummary> {
     Ok(summary)
 }
 
-pub fn store(review: &Review, tx: &StoreTransaction) -> Result<()> {
-    index::update(&review, &tx)?;
+pub fn store(review: &Review) -> Result<()> {
     fs::add(&review)?;
     Ok(())
 }

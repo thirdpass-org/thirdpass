@@ -3,7 +3,6 @@ use structopt::{self, StructOpt};
 
 use crate::common;
 use crate::extension;
-use crate::store;
 
 mod fs;
 mod package;
@@ -38,9 +37,6 @@ pub fn run_command(args: &Arguments, extension_args: &Vec<String>) -> Result<()>
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
 
-    let mut store = store::Store::from_root()?;
-    let tx = store.get_transaction()?;
-
     match &args.package_name {
         Some(package_name) => {
             package::report(
@@ -49,11 +45,10 @@ pub fn run_command(args: &Arguments, extension_args: &Vec<String>) -> Result<()>
                 &extension_names,
                 &extension_args,
                 &config,
-                &tx,
             )?;
         }
         None => {
-            fs::report(&extension_names, &extension_args, &config, &tx)?;
+            fs::report(&extension_names, &extension_args, &config)?;
         }
     }
     Ok(())

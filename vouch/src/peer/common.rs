@@ -6,6 +6,7 @@
 //!
 //! Print statements are prohibited within this module. Logging is allowed.
 
+use anyhow::Result;
 use std::convert::TryFrom;
 use std::hash::Hash;
 pub static ROOT_ALIAS: &str = "root";
@@ -64,6 +65,19 @@ impl Default for Peer {
             parent_id: None,
         }
     }
+}
+
+pub fn reviewer_peer(reviewer_uuid: &str, api_base: &str) -> Result<Peer> {
+    let alias = format!("reviewer-{}", reviewer_uuid);
+    let base = crate::common::api::normalize_base(api_base)?;
+    let reviewer_url = crate::common::api::join(&base, &format!("reviewers/{}", reviewer_uuid))?;
+    let git_url = crate::common::GitUrl::try_from(reviewer_url.as_str())?;
+    Ok(Peer {
+        id: 0,
+        alias,
+        git_url,
+        parent_id: None,
+    })
 }
 
 #[cfg(test)]

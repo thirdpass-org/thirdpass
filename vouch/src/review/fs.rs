@@ -4,7 +4,6 @@ use std::io::Write;
 use crate::common;
 use crate::review;
 
-static REVIEW_FILE_NAME: &str = "review.json";
 static REVIEW_FILE_PREFIX: &str = "review-";
 
 /// Given a package, returns a package version specific relative directory path.
@@ -36,17 +35,24 @@ fn get_storage_file_path(review: &review::Review) -> Result<std::path::PathBuf> 
     )?;
 
     let paths = common::fs::DataPaths::new()?;
-    let package_specific_directory = paths.reviews_directory.join(review_directory_path);
-    Ok(package_specific_directory.join(review_file_name(review)))
+    let reviewer = if review.metadata.reviewer_uuid.is_empty() {
+        "unknown".to_string()
+    } else {
+        review.metadata.reviewer_uuid.clone()
+    };
+    let package_specific_directory = paths
+        .reviews_directory
+        .join(review_directory_path)
+        .join(&review.package.artifact_hash)
+        .join(reviewer);
+    Ok(package_specific_directory.join(review_file_name()))
 }
 
-fn review_file_name(review: &review::Review) -> std::path::PathBuf {
-    if review.metadata.reviewer_uuid.is_empty() {
-        return std::path::PathBuf::from(REVIEW_FILE_NAME);
-    }
+fn review_file_name() -> std::path::PathBuf {
     std::path::PathBuf::from(format!(
         "{}{}.json",
-        REVIEW_FILE_PREFIX, review.metadata.reviewer_uuid
+        REVIEW_FILE_PREFIX,
+        uuid::Uuid::new_v4().to_hyphenated()
     ))
 }
 
@@ -75,5 +81,53 @@ pub fn add(review: &review::Review) -> Result<()> {
             file_path.display()
         ))?;
     file.write_all(serde_json::to_string_pretty(&review)?.as_bytes())?;
+    Ok(())
+}
+
+pub fn list() -> Result<Vec<review::Review>> {
+    let paths = common::fs::DataPaths::new()?;
+    if !paths.reviews_directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    collect_review_files(&paths.reviews_directory, &mut files)?;
+
+    let mut reviews = Vec::new();
+    for file in files {
+        let reader = std::io::BufReader::new(std::fs::File::open(&file)?);
+        match serde_json::from_reader::<_, review::Review>(reader) {
+            Ok(mut review) => {
+                review.overall_security_summary =
+                    crate::review::overall_security_summary(&review)?;
+                reviews.push(review);
+            }
+            Err(err) => {
+                log::warn!("Failed to parse review file {}: {}", file.display(), err);
+            }
+        }
+    }
+    Ok(reviews)
+}
+
+fn collect_review_files(
+    directory: &std::path::PathBuf,
+    files: &mut Vec<std::path::PathBuf>,
+) -> Result<()> {
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                if name == ".ongoing" {
+                    continue;
+                }
+            }
+            collect_review_files(&path, files)?;
+            continue;
+        }
+        if path.extension().and_then(|s| s.to_str()) == Some("json") {
+            files.push(path);
+        }
+    }
     Ok(())
 }

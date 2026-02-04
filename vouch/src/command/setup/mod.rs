@@ -1,6 +1,5 @@
 use anyhow::Result;
 use crate::common::config::Config;
-use crate::store;
 use uuid;
 mod fs;
 
@@ -12,12 +11,6 @@ pub fn ensure() -> Result<()> {
 
     fs::setup(false)?;
 
-    let mut store = store::Store::from_root()?;
-    let tx = store.get_transaction()?;
-
-    store::index::setup(&tx)?;
-
-    tx.commit("Initialize Vouch data.")?;
     ensure_core_config()?;
     Ok(())
 }

@@ -15,30 +15,6 @@ pub mod index;
 
 pub static HTTP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
-pub struct StoreTransaction<'a> {
-    index_transaction: rusqlite::Transaction<'a>,
-}
-
-impl<'a> StoreTransaction<'a> {
-    pub fn new(index_transaction: rusqlite::Transaction<'a>) -> Result<Self> {
-        Ok(Self { index_transaction })
-    }
-
-    pub fn index_tx(&self) -> &rusqlite::Transaction<'a> {
-        &self.index_transaction
-    }
-
-    pub fn commit(self, _message: &str) -> Result<()> {
-        self.index_transaction.commit()?;
-        Ok(())
-    }
-
-    pub fn commit_index(self) -> Result<()> {
-        self.index_transaction.commit()?;
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct GitUrl(url::Url);
 

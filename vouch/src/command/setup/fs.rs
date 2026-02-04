@@ -15,17 +15,11 @@ fn handle_nonempty_data_directory(directory_path: &std::path::PathBuf, force: bo
 }
 
 fn setup_data_directory_contents(paths: &common::fs::DataPaths) -> Result<()> {
-    std::fs::create_dir_all(&paths.index_directory)?;
-    std::fs::File::create(&paths.index_directory.join(".gitkeep"))?;
-
     std::fs::create_dir_all(&paths.reviews_directory)?;
     std::fs::File::create(&paths.reviews_directory.join(".gitkeep"))?;
 
     std::fs::create_dir_all(&paths.ongoing_reviews_directory)?;
     std::fs::File::create(&paths.ongoing_reviews_directory.join(".gitkeep"))?;
-
-    std::fs::create_dir_all(&paths.peers_directory)?;
-    std::fs::File::create(&paths.peers_directory.join(".gitkeep"))?;
 
     // TODO: Populate README.md with reasonable message, stats, links.
     let readme_file_path = paths.root_directory.join("README.md");

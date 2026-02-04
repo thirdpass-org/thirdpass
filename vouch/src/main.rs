@@ -8,7 +8,6 @@ mod package;
 mod peer;
 mod registry;
 mod review;
-mod store;
 
 fn main() {
     let env = env_logger::Env::new().filter_or("VOUCH_LOG", "off");

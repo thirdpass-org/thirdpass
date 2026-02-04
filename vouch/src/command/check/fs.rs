@@ -1,7 +1,6 @@
 use anyhow::Result;
 
 use crate::common;
-use crate::common::StoreTransaction;
 use crate::extension;
 
 use super::report;
@@ -11,7 +10,6 @@ pub fn report(
     extension_names: &std::collections::BTreeSet<String>,
     extension_args: &Vec<String>,
     config: &common::config::Config,
-    tx: &StoreTransaction,
 ) -> Result<()> {
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;
     let working_directory = std::env::current_dir()?;
@@ -40,7 +38,7 @@ pub fn report(
         };
         for (index, fs_dependencies) in extension_all_dependencies.iter().enumerate() {
             dependencies_found |= !fs_dependencies.dependencies.is_empty();
-            report_dependencies(&fs_dependencies, &config, &tx)?;
+            report_dependencies(&fs_dependencies, &config)?;
             let is_last = index == extension_all_dependencies.len() - 1;
             if !is_last {
                 println!("");
@@ -60,7 +58,6 @@ pub fn report(
 fn report_dependencies(
     package_dependencies: &vouch_lib::extension::FileDefinedDependencies,
     config: &common::config::Config,
-    tx: &StoreTransaction,
 ) -> Result<()> {
     log::info!(
         "Generating report for dependencies specification file: {}",
@@ -75,7 +72,6 @@ fn report_dependencies(
                 &dependency,
                 &package_dependencies.registry_host_name,
                 config,
-                &tx,
             )?)
         })
         .collect();

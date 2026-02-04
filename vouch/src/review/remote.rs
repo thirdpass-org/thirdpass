@@ -1,7 +1,5 @@
 use anyhow::{format_err, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
-
 use crate::common;
 use crate::package;
 use crate::peer;
@@ -152,23 +150,21 @@ pub fn fetch(
 pub fn store_records(
     records: Vec<ReviewRecord>,
     config: &common::config::Config,
-    tx: &common::StoreTransaction,
 ) -> Result<usize> {
     let mut stored = 0;
     for record in records {
         if record.metadata.reviewer_uuid == config.core.reviewer_uuid {
             continue;
         }
-        upsert_record(record, config, tx)?;
+        store_record(record, config)?;
         stored += 1;
     }
     Ok(stored)
 }
 
-fn upsert_record(
+fn store_record(
     record: ReviewRecord,
     config: &common::config::Config,
-    tx: &common::StoreTransaction,
 ) -> Result<()> {
     let ReviewRecord {
         target,
@@ -177,91 +173,26 @@ fn upsert_record(
         overall_security_summary,
         ..
     } = record;
-    let registry = registry::index::ensure_host(&target.registry_host, tx)?;
-    let package = ensure_package(&target, &registry, tx)?;
-    let peer = peer::index::ensure_reviewer_peer(&metadata.reviewer_uuid, &config.core.api_base, tx)?;
-    let comments = insert_comments(comments, tx)?;
-
-    let existing = review::index::get(
-        &review::index::Fields {
-            peer: Some(&peer),
-            package_name: Some(&package.name),
-            package_version: Some(&package.version),
-            ..Default::default()
-        },
-        tx,
-    )?;
-
-    let review = if let Some(current) = existing
+    let registry = build_registry(&target)?;
+    let package = build_package(&target, &registry);
+    let peer = peer::reviewer_peer(&metadata.reviewer_uuid, &config.core.api_base)?;
+    let comments = comments
         .into_iter()
-        .find(|candidate| candidate.package.artifact_hash == target.artifact_hash)
-    {
-        review::Review {
-            id: current.id,
-            peer,
-            package,
-            comments,
-            metadata,
-            target_file: Some(std::path::PathBuf::from(target.file_path)),
-            overall_security_summary,
-        }
-    } else {
-        let inserted = review::index::insert(&comments, &peer, &package, tx)?;
-        review::Review {
-            id: inserted.id,
-            peer,
-            package,
-            comments,
-            metadata,
-            target_file: Some(std::path::PathBuf::from(target.file_path)),
-            overall_security_summary,
-        }
+        .map(|comment| comment.into_comment())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let review = review::Review {
+        id: 0,
+        peer,
+        package,
+        comments,
+        metadata,
+        target_file: Some(std::path::PathBuf::from(target.file_path)),
+        overall_security_summary,
     };
 
-    review::store(&review, tx)?;
+    review::store(&review)?;
     Ok(())
-}
-
-fn ensure_package(
-    target: &ReviewTarget,
-    registry: &registry::Registry,
-    tx: &common::StoreTransaction,
-) -> Result<package::Package> {
-    let candidates = package::index::get(
-        &package::index::Fields {
-            package_name: Some(&target.package_name),
-            package_version: Some(&target.package_version),
-            ..Default::default()
-        },
-        tx,
-    )?;
-    if let Some(existing) = candidates
-        .into_iter()
-        .find(|candidate| candidate.artifact_hash == target.artifact_hash)
-    {
-        return Ok(existing);
-    }
-
-    package::index::insert(
-        &target.package_name,
-        &target.package_version,
-        &maplit::btreeset! { registry.clone() },
-        &target.artifact_hash,
-        tx,
-    )
-}
-
-fn insert_comments(
-    comments: Vec<ReviewComment>,
-    tx: &common::StoreTransaction,
-) -> Result<BTreeSet<Comment>> {
-    let mut inserted = BTreeSet::new();
-    for comment in comments {
-        let comment = comment.into_comment();
-        let comment = review::comment::index::insert(&comment, tx)?;
-        inserted.insert(comment);
-    }
-    Ok(inserted)
 }
 
 fn to_remote_comment(comment: Comment) -> ReviewComment {
@@ -281,4 +212,29 @@ fn get_primary_registry<'a>(package: &'a package::Package) -> Result<&'a registr
         .next()
         .ok_or(format_err!("Package does not have associated registries."))?;
     Ok(registry)
+}
+
+fn build_registry(target: &ReviewTarget) -> Result<registry::Registry> {
+    let host = target.registry_host.as_str();
+    let human_url = url::Url::parse(&format!("https://{}/", host))?;
+    let artifact_url = url::Url::parse(&format!("https://{}/artifact", host))?;
+    Ok(registry::Registry {
+        id: 0,
+        host_name: target.registry_host.clone(),
+        human_url,
+        artifact_url,
+    })
+}
+
+fn build_package(
+    target: &ReviewTarget,
+    registry: &registry::Registry,
+) -> package::Package {
+    package::Package {
+        id: 0,
+        name: target.package_name.clone(),
+        version: target.package_version.clone(),
+        registries: maplit::btreeset! { registry.clone() },
+        artifact_hash: target.artifact_hash.clone(),
+    }
 }

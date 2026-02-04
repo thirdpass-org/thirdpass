@@ -1,6 +1,5 @@
 use anyhow::Result;
 
-use crate::common::StoreTransaction;
 use crate::review;
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
@@ -17,7 +16,6 @@ pub fn get_dependency_report(
     dependency: &vouch_lib::extension::Dependency,
     registry_host_name: &str,
     config: &crate::common::config::Config,
-    tx: &StoreTransaction,
 ) -> Result<DependencyReport> {
     let package_version = match &dependency.version {
         Ok(version) => version.clone(),
@@ -37,18 +35,14 @@ pub fn get_dependency_report(
         &dependency.name,
         &package_version,
         config,
-        tx,
     );
 
-    let reviews = review::index::get(
-        &review::index::Fields {
-            package_name: Some(&dependency.name),
-            package_version: Some(&package_version),
-            registry_host_names: Some(maplit::btreeset! {registry_host_name}),
-            ..Default::default()
-        },
-        &tx,
-    )?;
+    let reviews = filter_reviews(
+        &review::fs::list()?,
+        registry_host_name,
+        &dependency.name,
+        &package_version,
+    );
 
     if reviews.is_empty() {
         // Report no reviews found for dependency.
@@ -79,7 +73,6 @@ fn pull_latest_reviews(
     package_name: &str,
     package_version: &str,
     config: &crate::common::config::Config,
-    tx: &StoreTransaction,
 ) -> Result<()> {
     let query = review::remote::ReviewQuery {
         registry_host: Some(registry_host_name.to_string()),
@@ -88,8 +81,29 @@ fn pull_latest_reviews(
         file_path: None,
     };
     let records = review::remote::fetch(&query, config)?;
-    review::remote::store_records(records, config, tx)?;
+    review::remote::store_records(records, config)?;
     Ok(())
+}
+
+fn filter_reviews(
+    reviews: &Vec<review::Review>,
+    registry_host_name: &str,
+    package_name: &str,
+    package_version: &str,
+) -> Vec<review::Review> {
+    reviews
+        .iter()
+        .filter(|review| {
+            review.package.name == package_name
+                && review.package.version == package_version
+                && review
+                    .package
+                    .registries
+                    .iter()
+                    .any(|registry| registry.host_name == registry_host_name)
+        })
+        .cloned()
+        .collect()
 }
 
 #[derive(Debug, Default, Clone)]

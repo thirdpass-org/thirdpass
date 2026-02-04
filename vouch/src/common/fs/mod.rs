@@ -78,13 +78,8 @@ impl ConfigPaths {
 pub struct DataPaths {
     pub root_directory: std::path::PathBuf,
 
-    pub index_directory: std::path::PathBuf,
-    pub index_file: std::path::PathBuf,
-
     pub reviews_directory: std::path::PathBuf,
     pub ongoing_reviews_directory: std::path::PathBuf,
-
-    pub peers_directory: std::path::PathBuf,
 }
 
 impl DataPaths {
@@ -92,13 +87,8 @@ impl DataPaths {
         Ok(Self {
             root_directory: root_directory.clone(),
 
-            index_directory: root_directory.join(".index"),
-            index_file: root_directory.join(".index").join("index.db"),
-
             reviews_directory: root_directory.join("reviews"),
             ongoing_reviews_directory: root_directory.join("reviews").join(".ongoing"),
-
-            peers_directory: root_directory.join("peers"),
         })
     }
 
@@ -113,10 +103,8 @@ impl DataPaths {
     /// Returns true if the given absolute path is protected from deletion, otherwise false.
     pub fn is_protected(&self, absolute_path: &std::path::PathBuf) -> bool {
         absolute_path == &self.root_directory
-            || absolute_path == &self.index_directory
             || absolute_path == &self.reviews_directory
             || absolute_path == &self.ongoing_reviews_directory
-            || absolute_path == &self.peers_directory
     }
 }
 
