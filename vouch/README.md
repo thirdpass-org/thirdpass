@@ -121,10 +121,3 @@ Official extensions:
 | [vouch-py](https://github.com/vouch-dev/vouch-py)           | Python         | pypi.org           |
 | [vouch-js](https://github.com/vouch-dev/vouch-js)           | Javascript     | npmjs.com          |
 | [vouch-ansible](https://github.com/vouch-dev/vouch-ansible) | Ansible Galaxy | galaxy.ansible.com |
-
-## Notes
-
-- Setup runs automatically on first command.
-- Source archives and reviews are stored in Vouch's per-user data directory.
-- Use `vouch review --help` and `vouch check --help` for full flags.
-- If you need a local-only run, use `--skip-coordination`.
