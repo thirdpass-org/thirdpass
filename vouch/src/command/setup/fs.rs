@@ -18,8 +18,14 @@ fn setup_data_directory_contents(paths: &common::fs::DataPaths) -> Result<()> {
     std::fs::create_dir_all(&paths.reviews_directory)?;
     std::fs::File::create(&paths.reviews_directory.join(".gitkeep"))?;
 
+    std::fs::create_dir_all(&paths.pending_reviews_directory)?;
+    std::fs::File::create(&paths.pending_reviews_directory.join(".gitkeep"))?;
+
     std::fs::create_dir_all(&paths.ongoing_reviews_directory)?;
     std::fs::File::create(&paths.ongoing_reviews_directory.join(".gitkeep"))?;
+
+    std::fs::create_dir_all(&paths.archives_directory)?;
+    std::fs::File::create(&paths.archives_directory.join(".gitkeep"))?;
 
     // TODO: Populate README.md with reasonable message, stats, links.
     let readme_file_path = paths.root_directory.join("README.md");
@@ -48,6 +54,9 @@ fn setup_config(
         config.core.reviewer_uuid = uuid::Uuid::new_v4().to_hyphenated().to_string();
         config.review_tool.name = "agent".to_string();
         config.review_tool.install_check = false;
+        config.review_tool.agent = Some("codex".to_string());
+        config.review_tool.agent_model = Some("gpt-5.2-codex".to_string());
+        config.review_tool.agent_reasoning_effort = Some("high".to_string());
         extension::manage::update_config(&mut config)?;
         config.dump()?;
     } else {

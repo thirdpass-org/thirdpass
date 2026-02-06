@@ -1,4 +1,6 @@
 use anyhow::{format_err, Result};
+use console::style;
+use indicatif::{ProgressBar, ProgressStyle};
 use structopt::{self, StructOpt};
 
 use crate::common;
@@ -28,17 +30,33 @@ pub struct Arguments {
     #[structopt(long = "extension", short = "e", name = "name")]
     pub extension_names: Option<Vec<String>>,
 
-    /// Target file path within the package.
+    /// Target file path within the package (repeat to review multiple files).
     #[structopt(long = "file", name = "path")]
-    pub target_file: Option<String>,
+    pub target_files: Vec<String>,
 
     /// Use manual review via VSCode.
     #[structopt(long = "manual")]
     pub manual: bool,
 
-    /// Skip submission to the central API.
-    #[structopt(long = "no-submit")]
-    pub no_submit: bool,
+    /// Override the agent selection (codex or claude). Persists as default.
+    #[structopt(long = "agent", value_name = "agent")]
+    pub agent: Option<String>,
+
+    /// Override the agent model (Codex only). Persists as default.
+    #[structopt(long = "agent-model", value_name = "model")]
+    pub agent_model: Option<String>,
+
+    /// Override the agent reasoning effort (Codex only). Persists as default.
+    #[structopt(long = "agent-reasoning-effort", value_name = "effort")]
+    pub agent_reasoning_effort: Option<String>,
+
+    /// Submit an existing matching local review instead of running a new review.
+    #[structopt(long = "submit-existing")]
+    pub submit_existing: bool,
+
+    /// Skip coordination with the central API (target assignment and submission).
+    #[structopt(long = "skip-coordination", alias = "no-submit")]
+    pub skip_coordination: bool,
 }
 
 pub fn run_command(args: &Arguments) -> Result<()> {
@@ -46,10 +64,34 @@ pub fn run_command(args: &Arguments) -> Result<()> {
 
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
+    if args.submit_existing && args.skip_coordination {
+        return Err(format_err!(
+            "--submit-existing cannot be combined with --skip-coordination."
+        ));
+    }
     if args.manual {
         review::tool::check_manual_install(&mut config)?;
     }
-    let config = config;
+
+    if let Some(model) = args.agent_model.as_ref() {
+        config.review_tool.agent_model = Some(model.to_string());
+        config.dump()?;
+    }
+    if let Some(effort) = args.agent_reasoning_effort.as_ref() {
+        config.review_tool.agent_reasoning_effort = Some(effort.to_string());
+        config.dump()?;
+    }
+
+    let override_agent = match args.agent.as_deref() {
+        Some(name) => {
+            let agent = review::tool::AgentKind::from_name(name).ok_or(format_err!(
+                "Unknown agent '{}'. Supported values: codex, claude.",
+                name
+            ))?;
+            Some(agent)
+        }
+        None => None,
+    };
 
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
@@ -60,57 +102,275 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         &extension_names,
         &config,
     )?;
+    println!(
+        "Cached source archive: {}",
+        workspace_manifest.artifact_path.display()
+    );
 
-    let (target_path, target_relative) = match args.target_file.as_ref() {
-        Some(target_file) => resolve_target_path(&workspace_manifest.workspace_path, target_file)?,
-        None => select_target_file(
+    let selected_targets = if !args.target_files.is_empty() {
+        resolve_target_paths(&workspace_manifest.workspace_path, &args.target_files)?
+    } else {
+        select_target_files(
             &workspace_manifest.workspace_path,
             &review,
             &config,
-        )?,
+            args.skip_coordination,
+        )?
     };
-    let target_display = target_relative.display().to_string();
 
-    let (comments, agent_name, agent_model, prompt_version) = if args.manual {
+    if !args.target_files.is_empty() {
+        let files = selected_targets
+            .iter()
+            .map(|target| target.relative_path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("Selected target files: {}", files);
+    }
+
+    if args.submit_existing {
+        let target_paths = selected_targets
+            .iter()
+            .map(|target| target.relative_path.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        let (expected_agent_name, expected_agent_model, expected_prompt_version, expected_scope) =
+            if args.manual {
+                (
+                    "manual".to_string(),
+                    Some("".to_string()),
+                    "manual".to_string(),
+                    review::ReviewScope::TargetFilePartial,
+                )
+            } else {
+                let expected_agent_name = override_agent
+                    .map(|agent| agent.name().to_string())
+                    .or_else(|| config.review_tool.agent.clone())
+                    .unwrap_or_else(|| "codex".to_string());
+                let expected_model = if expected_agent_name == "codex" {
+                    args.agent_model
+                        .as_deref()
+                        .or(config.review_tool.agent_model.as_deref())
+                        .map(|model| model.to_string())
+                } else {
+                    None
+                };
+                (
+                    expected_agent_name,
+                    expected_model,
+                    review::tool::agent_prompt_version().to_string(),
+                    review::ReviewScope::TargetFileFull,
+                )
+            };
+
+        let existing = match find_matching_local_review(
+            &config,
+            &review.package.name,
+            &review.package.version,
+            &review.package.artifact_hash,
+            &target_paths,
+            expected_scope,
+            &expected_agent_name,
+            expected_agent_model.as_deref(),
+            &expected_prompt_version,
+        ) {
+            Ok(existing) => existing,
+            Err(err) => {
+                review::workspace::remove(&workspace_manifest)?;
+                return Err(err);
+            }
+        };
+        let existing = match existing {
+            Some(existing) => existing,
+            None => {
+                review::workspace::remove(&workspace_manifest)?;
+                return Err(format_err!(
+                    "No matching local review found for this scope/model. Run without --submit-existing first."
+                ));
+            }
+        };
+
+        if existing.status == review::fs::ReviewStorageStatus::Submitted {
+            println!(
+                "Matching review already submitted: {}",
+                existing.path.display()
+            );
+            review::workspace::remove(&workspace_manifest)?;
+            return Ok(());
+        }
+
+        println!(
+            "Submitting existing review: {}",
+            existing.path.display()
+        );
+        let submit_result = review::remote::submit(&existing.review, &config);
+        review::workspace::remove(&workspace_manifest)?;
+
+        if let Err(err) = submit_result {
+            if is_network_error(&err) {
+                log::warn!(
+                    "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
+                    err
+                );
+                return Ok(());
+            }
+            return Err(err);
+        }
+
+        review::promote_pending(&existing.review, &existing.path)?;
+        println!("Existing review submitted.");
+        return Ok(());
+    }
+
+    let config_agent_model = config.review_tool.agent_model.clone();
+    let config_agent_reasoning_effort = config.review_tool.agent_reasoning_effort.clone();
+
+    let (
+        targets,
+        agent_name,
+        agent_model,
+        prompt_version,
+        review_scope,
+        agent_summary,
+        overall_security_confidence,
+    ) = if args.manual {
+        if override_agent.is_some() {
+            review::tool::select_agent(&mut config, override_agent)?;
+        }
         let comments = run_manual_review(&review, &workspace_manifest.workspace_path, &config)?;
+        let targets = build_targets_from_comments(&selected_targets, comments);
         (
-            comments,
+            targets,
             "manual".to_string(),
             "".to_string(),
             "manual".to_string(),
+            review::ReviewScope::TargetFilePartial,
+            String::new(),
+            None,
         )
     } else {
-        let agent = review::tool::select_agent()?;
-        let file_contents = std::fs::read_to_string(&target_path)?;
-        let agent_run = review::tool::run_agent(
+        let agent = review::tool::select_agent(&mut config, override_agent)?;
+        let (effective_agent_model, effective_agent_reasoning_effort) =
+            if agent == review::tool::AgentKind::Codex {
+                (
+                    args.agent_model
+                        .as_deref()
+                        .or(config_agent_model.as_deref()),
+                    args.agent_reasoning_effort
+                        .as_deref()
+                        .or(config_agent_reasoning_effort.as_deref()),
+                )
+            } else {
+                (None, None)
+            };
+        let agent_label = format_agent_label(
             agent,
-            &workspace_manifest.workspace_path,
-            &target_display,
-            &file_contents,
-        )?;
-        let comments = normalize_comments(agent_run.comments);
+            effective_agent_model,
+            effective_agent_reasoning_effort,
+        );
+        let mut targets = Vec::new();
+        let mut agent_model = None::<String>;
+        let mut agent_summary = String::new();
+        let mut confidence_values = Vec::new();
+
+        for target in &selected_targets {
+            let target_display = target.relative_path.display().to_string();
+            let file_contents = std::fs::read_to_string(&target.absolute_path)?;
+            let spinner = ProgressBar::new_spinner();
+            let spinner_style = ProgressStyle::with_template("{spinner} {msg}")
+                .unwrap()
+                .tick_strings(&["|", "/", "-", "\\"]);
+            spinner.set_style(spinner_style);
+            spinner.enable_steady_tick(std::time::Duration::from_millis(120));
+            spinner.set_message(format!(
+                "Running agent {} on {}",
+                style(&agent_label).cyan(),
+                style(&target_display).dim()
+            ));
+            let agent_run = review::tool::run_agent(
+                agent,
+                &workspace_manifest.workspace_path,
+                &target_display,
+                &file_contents,
+                effective_agent_model,
+                effective_agent_reasoning_effort,
+            );
+            let agent_run = match agent_run {
+                Ok(agent_run) => {
+                    let completed_label = format_agent_label(
+                        agent,
+                        Some(agent_run.model.as_str()),
+                        effective_agent_reasoning_effort,
+                    );
+                    spinner.finish_with_message(format!(
+                        "Agent {} completed",
+                        style(completed_label).green()
+                    ));
+                    agent_run
+                }
+                Err(err) => {
+                    spinner.abandon_with_message(format!(
+                        "Agent {} failed",
+                        style(&agent_label).red()
+                    ));
+                    return Err(err);
+                }
+            };
+            agent_model = match agent_model {
+                None => Some(agent_run.model.clone()),
+                Some(current) if current == agent_run.model => Some(current),
+                Some(_) => Some("mixed".to_string()),
+            };
+            if let Some(summary) = agent_run.summary.as_deref() {
+                let summary = summary.trim();
+                if !summary.is_empty() {
+                    if !agent_summary.is_empty() {
+                        agent_summary.push('\n');
+                    }
+                    agent_summary.push_str(summary);
+                }
+            }
+            if let Some(confidence) = agent_run.confidence {
+                confidence_values.push(confidence);
+            }
+            let comments = normalize_comments(agent_run.comments)
+                .into_iter()
+                .map(|mut comment| {
+                    comment.path = target.relative_path.clone();
+                    comment
+                })
+                .collect::<std::collections::BTreeSet<_>>();
+            targets.push(review::ReviewTarget {
+                file_path: target.relative_path.clone(),
+                comments,
+            });
+        }
+
         (
-            comments,
+            targets,
             agent.name().to_string(),
-            agent_run.model,
+            agent_model.unwrap_or_else(|| "unknown".to_string()),
             review::tool::agent_prompt_version().to_string(),
+            review::ReviewScope::TargetFileFull,
+            agent_summary,
+            aggregate_confidence(&confidence_values),
         )
     };
 
-    review.comments = comments;
-    review.target_file = Some(target_relative.clone());
-    review.metadata = build_metadata(
+    review.targets = targets;
+    review.reviewer_details = build_reviewer_details(
         &config,
         &agent_name,
         &agent_model,
         &prompt_version,
+        review_scope,
     )?;
+    review.agent_summary = agent_summary;
     review.overall_security_summary = review::overall_security_summary(&review)?;
+    review.overall_security_confidence = overall_security_confidence;
 
-    review::store(&review)?;
+    let pending_review_path = review::store_pending(&review)?;
     println!("Review saved.");
 
-    let submit_result = if args.no_submit {
+    let submit_result = if args.skip_coordination {
         Ok(())
     } else {
         println!("Submitting review to central API.");
@@ -118,7 +378,23 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     };
 
     review::workspace::remove(&workspace_manifest)?;
-    submit_result
+
+    if let Err(err) = submit_result {
+        if is_network_error(&err) {
+            log::warn!(
+                "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
+                err
+            );
+            return Ok(());
+        }
+        return Err(err);
+    }
+
+    if !args.skip_coordination {
+        review::promote_pending(&review, &pending_review_path)?;
+    }
+
+    Ok(())
 }
 
 /// Parse user comments from active review file and insert into index.
@@ -164,10 +440,44 @@ where
     normalized
 }
 
+fn build_targets_from_comments(
+    selected_targets: &[SelectedTarget],
+    comments: std::collections::BTreeSet<review::comment::Comment>,
+) -> Vec<review::ReviewTarget> {
+    let mut grouped: std::collections::BTreeMap<
+        std::path::PathBuf,
+        std::collections::BTreeSet<review::comment::Comment>,
+    > = std::collections::BTreeMap::new();
+
+    for comment in comments {
+        grouped
+            .entry(comment.path.clone())
+            .or_default()
+            .insert(comment);
+    }
+
+    for target in selected_targets {
+        grouped
+            .entry(target.relative_path.clone())
+            .or_default();
+    }
+
+    grouped
+        .into_iter()
+        .map(|(file_path, comments)| review::ReviewTarget { file_path, comments })
+        .collect()
+}
+
+#[derive(Debug, Clone)]
+struct SelectedTarget {
+    absolute_path: std::path::PathBuf,
+    relative_path: std::path::PathBuf,
+}
+
 fn resolve_target_path(
     workspace_path: &std::path::PathBuf,
     target_file: &str,
-) -> Result<(std::path::PathBuf, std::path::PathBuf)> {
+) -> Result<SelectedTarget> {
     let target_path = std::path::PathBuf::from(target_file);
     let target_path = if target_path.is_absolute() {
         target_path
@@ -184,14 +494,33 @@ fn resolve_target_path(
         .strip_prefix(workspace_path)
         .unwrap_or(target_path.as_path())
         .to_path_buf();
-    Ok((target_path, target_relative))
+    Ok(SelectedTarget {
+        absolute_path: target_path,
+        relative_path: target_relative,
+    })
 }
 
-fn select_target_file(
+fn resolve_target_paths(
+    workspace_path: &std::path::PathBuf,
+    target_files: &[String],
+) -> Result<Vec<SelectedTarget>> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut targets = Vec::new();
+    for target_file in target_files {
+        let target = resolve_target_path(workspace_path, target_file)?;
+        if seen.insert(target.relative_path.clone()) {
+            targets.push(target);
+        }
+    }
+    Ok(targets)
+}
+
+fn select_target_files(
     workspace_path: &std::path::PathBuf,
     review: &review::Review,
     config: &common::config::Config,
-) -> Result<(std::path::PathBuf, std::path::PathBuf)> {
+    skip_coordination: bool,
+) -> Result<Vec<SelectedTarget>> {
     let analysis = review::workspace::analyse(workspace_path)?;
     let mut candidates = Vec::new();
     for (path, entry) in analysis.iter() {
@@ -214,7 +543,7 @@ fn select_target_file(
     let request_candidates = candidates
         .iter()
         .take(50)
-        .map(|(path, _)| review::remote::ReviewTarget {
+        .map(|(path, _)| review::remote::ReviewCandidate {
             registry_host: registry.host_name.clone(),
             package_name: review.package.name.clone(),
             package_version: review.package.version.clone(),
@@ -223,17 +552,22 @@ fn select_target_file(
         })
         .collect::<Vec<_>>();
 
-    if let Ok(Some(target)) = review::remote::request_target(request_candidates, config) {
-        let target_relative = std::path::PathBuf::from(target.file_path);
-        let target_path = workspace_path.join(&target_relative);
-        if target_path.is_file() {
-            println!("Selected target file: {}", target_relative.display());
-            return Ok((target_path, target_relative));
+    if !skip_coordination {
+        if let Ok(Some(target)) = review::remote::request_target(request_candidates, config) {
+            let target_relative = std::path::PathBuf::from(target.file_path);
+            let target_path = workspace_path.join(&target_relative);
+            if target_path.is_file() {
+                println!("Selected target file: {}", target_relative.display());
+                return Ok(vec![SelectedTarget {
+                    absolute_path: target_path,
+                    relative_path: target_relative,
+                }]);
+            }
+            log::warn!(
+                "Target file from API not found locally: {}",
+                target_path.display()
+            );
         }
-        log::warn!(
-            "Target file from API not found locally: {}",
-            target_path.display()
-        );
     }
 
     let target_relative = candidates[0].0.clone();
@@ -242,22 +576,27 @@ fn select_target_file(
         "Selected target file (local order): {}",
         target_relative.display()
     );
-    Ok((target_path, target_relative))
+    Ok(vec![SelectedTarget {
+        absolute_path: target_path,
+        relative_path: target_relative,
+    }])
 }
 
-fn build_metadata(
+fn build_reviewer_details(
     config: &common::config::Config,
     agent_name: &str,
     agent_model: &str,
     prompt_version: &str,
-) -> Result<review::ReviewMetadata> {
-    Ok(review::ReviewMetadata {
+    review_scope: review::ReviewScope,
+) -> Result<review::ReviewerDetails> {
+    Ok(review::ReviewerDetails {
         reviewer_uuid: config.core.reviewer_uuid.clone(),
         agent_name: agent_name.to_string(),
         agent_model: agent_model.to_string(),
         prompt_version: prompt_version.to_string(),
+        review_scope,
         created_at: now_epoch_seconds()?,
-        tool_version: env!("CARGO_PKG_VERSION").to_string(),
+        vouch_version: env!("CARGO_PKG_VERSION").to_string(),
     })
 }
 
@@ -266,6 +605,140 @@ fn now_epoch_seconds() -> Result<String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|err| format_err!("Failed to read system time: {}", err))?;
     Ok(now.as_secs().to_string())
+}
+
+fn is_network_error(err: &anyhow::Error) -> bool {
+    if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
+        return reqwest_err.is_connect() || reqwest_err.is_timeout();
+    }
+    false
+}
+
+fn format_agent_label(
+    agent: review::tool::AgentKind,
+    agent_model: Option<&str>,
+    agent_reasoning_effort: Option<&str>,
+) -> String {
+    let mut details = Vec::new();
+    if let Some(model) = agent_model {
+        if !model.trim().is_empty() {
+            details.push(model.to_string());
+        }
+    }
+    if agent == review::tool::AgentKind::Codex {
+        if let Some(effort) = agent_reasoning_effort {
+            if !effort.trim().is_empty() {
+                details.push(effort.to_string());
+            }
+        }
+    }
+    if details.is_empty() {
+        return agent.name().to_string();
+    }
+    format!("{} ({})", agent.name(), details.join(", "))
+}
+
+fn aggregate_confidence(
+    confidence_values: &[review::ReviewConfidence],
+) -> Option<review::ReviewConfidence> {
+    if confidence_values.is_empty() {
+        return None;
+    }
+    if confidence_values
+        .iter()
+        .any(|value| matches!(value, review::ReviewConfidence::Low))
+    {
+        return Some(review::ReviewConfidence::Low);
+    }
+    if confidence_values
+        .iter()
+        .any(|value| matches!(value, review::ReviewConfidence::Medium))
+    {
+        return Some(review::ReviewConfidence::Medium);
+    }
+    Some(review::ReviewConfidence::High)
+}
+
+fn find_matching_local_review(
+    config: &common::config::Config,
+    package_name: &str,
+    package_version: &str,
+    artifact_hash: &str,
+    target_paths: &std::collections::BTreeSet<std::path::PathBuf>,
+    expected_scope: review::ReviewScope,
+    expected_agent_name: &str,
+    expected_agent_model: Option<&str>,
+    expected_prompt_version: &str,
+) -> Result<Option<review::fs::StoredReview>> {
+    let stored_reviews = review::fs::list_with_status()?;
+    let mut best_submitted: Option<review::fs::StoredReview> = None;
+    let mut best_pending: Option<review::fs::StoredReview> = None;
+
+    for stored in stored_reviews {
+        let current = &stored.review;
+        if current.package.name != package_name
+            || current.package.version != package_version
+            || current.package.artifact_hash != artifact_hash
+        {
+            continue;
+        }
+        if current.reviewer_details.reviewer_uuid != config.core.reviewer_uuid {
+            continue;
+        }
+        if current.reviewer_details.agent_name != expected_agent_name {
+            continue;
+        }
+        if current.reviewer_details.review_scope != expected_scope {
+            continue;
+        }
+        if current.reviewer_details.prompt_version != expected_prompt_version {
+            continue;
+        }
+        if let Some(model) = expected_agent_model {
+            if current.reviewer_details.agent_model != model {
+                continue;
+            }
+        }
+
+        let stored_target_paths = current
+            .targets
+            .iter()
+            .map(|target| target.file_path.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        if &stored_target_paths != target_paths {
+            continue;
+        }
+
+        match stored.status {
+            review::fs::ReviewStorageStatus::Submitted => {
+                if is_newer_review(&stored, best_submitted.as_ref()) {
+                    best_submitted = Some(stored);
+                }
+            }
+            review::fs::ReviewStorageStatus::Pending => {
+                if is_newer_review(&stored, best_pending.as_ref()) {
+                    best_pending = Some(stored);
+                }
+            }
+        }
+    }
+
+    Ok(best_submitted.or(best_pending))
+}
+
+fn is_newer_review(
+    candidate: &review::fs::StoredReview,
+    current_best: Option<&review::fs::StoredReview>,
+) -> bool {
+    let candidate_ts = parse_created_at(&candidate.review.reviewer_details.created_at);
+    let best_ts = current_best
+        .map(|review| parse_created_at(&review.review.reviewer_details.created_at))
+        .unwrap_or(0);
+    candidate_ts > best_ts || current_best.is_none()
+}
+
+fn parse_created_at(value: &str) -> u64 {
+    value.parse::<u64>().unwrap_or(0)
 }
 
 /// Setup review for editing.
@@ -326,10 +799,11 @@ fn setup_review(
         id: 0,
         peer,
         package,
-        comments: std::collections::BTreeSet::new(),
-        metadata: review::ReviewMetadata::default(),
-        target_file: None,
+        targets: Vec::new(),
+        reviewer_details: review::ReviewerDetails::default(),
+        agent_summary: String::new(),
         overall_security_summary: review::SecuritySummary::default(),
+        overall_security_confidence: None,
     };
     Ok((review, workspace_manifest))
 }

@@ -8,25 +8,41 @@ pub mod remote;
 pub mod tool;
 pub mod workspace;
 
-pub use crate::review::common::{Priority, Review, ReviewMetadata, SecuritySummary};
+pub use crate::review::common::{
+    Priority, Review, ReviewerDetails, ReviewScope, ReviewTarget, ReviewConfidence,
+    SecuritySummary,
+};
 
 pub fn overall_security_summary(review: &Review) -> Result<SecuritySummary> {
-    if review.comments.is_empty() {
-        return Ok(SecuritySummary::None);
-    }
-
     let mut summary = SecuritySummary::Low;
-    for comment in &review.comments {
-        match comment.security {
-            Priority::Critical => return Ok(SecuritySummary::Critical),
-            Priority::Medium => summary = SecuritySummary::Medium,
-            Priority::Low => {}
+    let mut saw_comment = false;
+    for target in &review.targets {
+        for comment in &target.comments {
+            saw_comment = true;
+            match comment.security {
+                Priority::Critical => return Ok(SecuritySummary::Critical),
+                Priority::Medium => summary = SecuritySummary::Medium,
+                Priority::Low => {}
+            }
         }
+    }
+    if !saw_comment {
+        return Ok(SecuritySummary::None);
     }
     Ok(summary)
 }
 
-pub fn store(review: &Review) -> Result<()> {
-    fs::add(&review)?;
-    Ok(())
+pub fn store_pending(review: &Review) -> Result<std::path::PathBuf> {
+    fs::add(&review, fs::ReviewStorageStatus::Pending)
+}
+
+pub fn store_submitted(review: &Review) -> Result<std::path::PathBuf> {
+    fs::add(&review, fs::ReviewStorageStatus::Submitted)
+}
+
+pub fn promote_pending(
+    review: &Review,
+    pending_path: &std::path::PathBuf,
+) -> Result<std::path::PathBuf> {
+    fs::promote(&review, pending_path)
 }

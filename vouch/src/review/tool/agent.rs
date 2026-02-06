@@ -9,11 +9,11 @@ use std::str::FromStr;
 
 use crate::review::comment::{Comment, Selection};
 use crate::review::comment::common::Position;
-use crate::review::common::Priority;
+use crate::review::common::{Priority, ReviewConfidence};
 
 const PROMPT_VERSION: &str = "v1";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentKind {
     Codex,
     Claude,
@@ -33,16 +33,34 @@ impl AgentKind {
             AgentKind::Claude => "claude",
         }
     }
+
+    pub fn is_installed(&self) -> bool {
+        is_command_available(self.binary_name())
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.to_ascii_lowercase().as_str() {
+            "codex" => Some(AgentKind::Codex),
+            "claude" => Some(AgentKind::Claude),
+            _ => None,
+        }
+    }
 }
 
 pub struct AgentRunResult {
     pub model: String,
     pub comments: Vec<Comment>,
+    pub summary: Option<String>,
+    pub confidence: Option<ReviewConfidence>,
 }
 
 #[derive(Debug, Deserialize)]
 struct AgentOutput {
     model: String,
+    #[serde(default)]
+    summary: Option<String>,
+    #[serde(default)]
+    confidence: Option<ReviewConfidence>,
     comments: Vec<AgentComment>,
 }
 
@@ -75,7 +93,7 @@ pub fn prompt_version() -> &'static str {
     PROMPT_VERSION
 }
 
-pub fn select_installed_agent() -> Result<AgentKind> {
+pub fn select_installed_agent(preferred: Option<AgentKind>) -> Result<AgentKind> {
     let mut available = Vec::new();
     if is_command_available("codex") {
         available.push(AgentKind::Codex);
@@ -88,6 +106,12 @@ pub fn select_installed_agent() -> Result<AgentKind> {
         return Err(format_err!(
             "No supported agents found. Install codex or claude."
         ));
+    }
+
+    if let Some(preferred) = preferred {
+        if available.contains(&preferred) {
+            return Ok(preferred);
+        }
     }
 
     if available.len() == 1 {
@@ -117,14 +141,30 @@ pub fn run(
     workspace_path: &std::path::PathBuf,
     display_path: &str,
     file_contents: &str,
+    agent_model: Option<&str>,
+    agent_reasoning_effort: Option<&str>,
 ) -> Result<AgentRunResult> {
     let prompt = build_prompt(display_path, file_contents);
 
+    if agent == AgentKind::Codex {
+        return run_codex_exec(
+            workspace_path,
+            &prompt,
+            agent_model,
+            agent_reasoning_effort,
+        );
+    }
+
+    log::debug!(
+        "Launching agent: {} (cwd: {})",
+        build_agent_log(agent, agent_model, agent_reasoning_effort),
+        workspace_path.display()
+    );
     let mut child = Command::new(agent.binary_name())
         .current_dir(workspace_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|err| {
             format_err!(
@@ -138,19 +178,72 @@ pub fn run(
         .stdin
         .as_mut()
         .ok_or(format_err!("Failed to open agent stdin"))?;
-    stdin.write_all(prompt.as_bytes())?;
+    if let Err(err) = stdin.write_all(prompt.as_bytes()) {
+        if err.kind() == std::io::ErrorKind::BrokenPipe {
+            let output = child.wait_with_output()?;
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout_raw = String::from_utf8_lossy(&output.stdout);
+            let stdout_trimmed = stdout_raw.trim();
+            let mut details = Vec::new();
+            if stderr.is_empty() {
+                details.push("stderr: <empty>".to_string());
+            } else {
+                details.push(format!("stderr: {}", truncate_for_log(&stderr, 4000)));
+            }
+            if !stdout_trimmed.is_empty() {
+                details.push(format!(
+                    "stdout: {}",
+                    truncate_for_log(stdout_trimmed, 4000)
+                ));
+            }
+            if let Some(message) = detect_agent_failure(agent, stdout_trimmed, &stderr) {
+                return Err(format_err!("{}", message));
+            }
+            return Err(format_err!(
+                "{} terminated early (broken pipe). {}",
+                agent.binary_name(),
+                details.join(" ")
+            ));
+        }
+        return Err(err.into());
+    }
 
     let output = child.wait_with_output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout_raw = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() {
+        if let Some(message) = detect_agent_failure(agent, stdout_raw.trim(), &stderr) {
+            return Err(format_err!("{}", message));
+        }
+        let mut details = Vec::new();
+        if stderr.is_empty() {
+            details.push("stderr: <empty>".to_string());
+        } else {
+            details.push(format!("stderr: {}", truncate_for_log(&stderr, 4000)));
+        }
+        let stdout_trimmed = stdout_raw.trim();
+        if !stdout_trimmed.is_empty() {
+            details.push(format!(
+                "stdout: {}",
+                truncate_for_log(stdout_trimmed, 4000)
+            ));
+        }
         return Err(format_err!(
-            "{} exited with status {}",
+            "{} exited with status {}. {}",
             agent.binary_name(),
-            output.status
+            output.status,
+            details.join(" ")
         ));
     }
 
-    let stdout = String::from_utf8(output.stdout)?;
-    let output = parse_agent_output(&stdout)?;
+    let stdout = stdout_raw.to_string();
+    let output = parse_agent_output(&stdout).map_err(|err| {
+        if stderr.is_empty() {
+            err
+        } else {
+            format_err!("{}; stderr: {}", err, stderr)
+        }
+    })?;
     let comments = output
         .comments
         .into_iter()
@@ -160,29 +253,240 @@ pub fn run(
     Ok(AgentRunResult {
         model: output.model,
         comments,
+        summary: output.summary.and_then(|value| {
+            let trimmed = value.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        }),
+        confidence: output.confidence,
     })
+}
+
+fn run_codex_exec(
+    workspace_path: &std::path::PathBuf,
+    prompt: &str,
+    agent_model: Option<&str>,
+    agent_reasoning_effort: Option<&str>,
+) -> Result<AgentRunResult> {
+    log::debug!(
+        "Launching agent: {} (cwd: {})",
+        build_agent_log(AgentKind::Codex, agent_model, agent_reasoning_effort),
+        workspace_path.display()
+    );
+
+    let output_file = tempfile::NamedTempFile::new()?;
+    let output_path = output_file.path().to_path_buf();
+
+    let mut cmd = Command::new(AgentKind::Codex.binary_name());
+    cmd.arg("exec");
+    apply_codex_exec_args(&mut cmd, agent_model, agent_reasoning_effort, &output_path);
+    cmd.arg("-");
+    cmd.current_dir(workspace_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|err| {
+        format_err!("Failed to start codex: {}", err)
+    })?;
+
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or(format_err!("Failed to open codex stdin"))?;
+    stdin.write_all(prompt.as_bytes())?;
+    drop(stdin);
+
+    let output = child.wait_with_output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let stdout_raw = String::from_utf8_lossy(&output.stdout);
+
+    if !output.status.success() {
+        let mut details = Vec::new();
+        if stderr.is_empty() {
+            details.push("stderr: <empty>".to_string());
+        } else {
+            details.push(format!("stderr: {}", truncate_for_log(&stderr, 4000)));
+        }
+        let stdout_trimmed = stdout_raw.trim();
+        if !stdout_trimmed.is_empty() {
+            details.push(format!(
+                "stdout: {}",
+                truncate_for_log(stdout_trimmed, 4000)
+            ));
+        }
+        return Err(format_err!(
+            "codex exited with status {}. {}",
+            output.status,
+            details.join(" ")
+        ));
+    }
+
+    let output_payload = std::fs::read_to_string(&output_path).unwrap_or_default();
+    let output_payload = if output_payload.trim().is_empty() {
+        stdout_raw.to_string()
+    } else {
+        output_payload
+    };
+
+    let output = parse_agent_output(&output_payload).map_err(|err| {
+        let stdout_trimmed = stdout_raw.trim();
+        if stdout_trimmed.is_empty() {
+            err
+        } else {
+            format_err!("{}; stdout: {}", err, truncate_for_log(stdout_trimmed, 4000))
+        }
+    })?;
+    let comments = output
+        .comments
+        .into_iter()
+        .map(|comment| comment.into_comment())
+        .collect();
+
+    Ok(AgentRunResult {
+        model: output.model,
+        comments,
+        summary: output.summary.and_then(|value| {
+            let trimmed = value.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        }),
+        confidence: output.confidence,
+    })
+}
+
+fn truncate_for_log(value: &str, max_len: usize) -> String {
+    if value.len() <= max_len {
+        return value.to_string();
+    }
+    let mut truncated = value[..max_len].to_string();
+    truncated.push_str("…<truncated>");
+    truncated
+}
+
+fn apply_codex_exec_args(
+    cmd: &mut Command,
+    agent_model: Option<&str>,
+    agent_reasoning_effort: Option<&str>,
+    output_path: &std::path::Path,
+) {
+    if let Some(model) = agent_model {
+        cmd.arg("--model");
+        cmd.arg(model);
+    }
+    if let Some(effort) = agent_reasoning_effort {
+        cmd.arg("--config");
+        cmd.arg(format!("model_reasoning_effort=\"{}\"", effort));
+    }
+    cmd.arg("--skip-git-repo-check");
+    cmd.arg("--output-last-message");
+    cmd.arg(output_path);
+}
+
+fn build_agent_log(
+    agent: AgentKind,
+    agent_model: Option<&str>,
+    agent_reasoning_effort: Option<&str>,
+) -> String {
+    let mut parts = vec![agent.binary_name().to_string()];
+    if agent == AgentKind::Codex {
+        parts.push("exec".to_string());
+        if let Some(model) = agent_model {
+            parts.push("--model".to_string());
+            parts.push(model.to_string());
+        }
+        if let Some(effort) = agent_reasoning_effort {
+            parts.push("--config".to_string());
+            parts.push(format!("model_reasoning_effort=\"{}\"", effort));
+        }
+    }
+    parts.join(" ")
+}
+
+fn detect_agent_failure(
+    agent: AgentKind,
+    stdout: &str,
+    stderr: &str,
+) -> Option<String> {
+    if agent != AgentKind::Claude {
+        return None;
+    }
+
+    let combined = format!("{} {}", stdout, stderr).to_lowercase();
+    let limit_markers = [
+        "hit your limit",
+        "rate limit",
+        "quota",
+        "usage limit",
+        "limit · resets",
+    ];
+    if !limit_markers.iter().any(|marker| combined.contains(marker)) {
+        return None;
+    }
+
+    let reset_hint = extract_reset_hint(stdout)
+        .or_else(|| extract_reset_hint(stderr))
+        .unwrap_or_else(|| "reset time not provided".to_string());
+
+    Some(format!(
+        "Claude usage limit reached ({reset_hint}). Try again after reset or use --agent codex.",
+        reset_hint = reset_hint
+    ))
+}
+
+fn extract_reset_hint(value: &str) -> Option<String> {
+    for part in value.split('·') {
+        let trimmed = part.trim();
+        if trimmed.to_lowercase().contains("reset") {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
 }
 
 fn build_prompt(display_path: &str, file_contents: &str) -> String {
     format!(
-        r#"You are a security and complexity reviewer for open-source dependency code.
+        r#"You are a malicious-code reviewer for open-source dependency archives.
+Your goal is to detect evidence of supply-chain compromise or malicious behavior.
+This is NOT a general vulnerability audit: avoid generic "unsafe pattern" findings unless they
+are used to execute hidden/encoded/remote/untrusted payloads or are unsafe-by-default.
+
 Review ONLY the single file below. You are in read-only mode.
 You may inspect other files in the package if your tool supports it, but only report issues in the target file.
 
 Focus areas (security):
-- remote code execution, deserialization hazards, eval/exec, command injection
-- filesystem/network misuse, credential leaks, unsafe crypto, auth bypass
-- suspicious supply-chain behavior (exfiltration, hidden downloads, obfuscation)
+- install-time execution (preinstall/postinstall), hidden subprocess execution
+- credential/secret harvesting (env vars, .npmrc, .ssh, cloud metadata, tokens)
+- data exfiltration (network calls, webhooks, DNS, pastebins)
+- hidden downloads or dynamic code loading (remote fetch + eval/exec, require from URL)
+- obfuscation/deobfuscation used to construct or execute payloads (base64, XOR, RC4)
+- persistence or environment tampering (shell profiles, PATH, startup files)
+- crypto-mining or unrelated system probing
 
 Focus areas (complexity):
-- unusually complex or hard-to-audit logic that increases security risk
-- hidden control flow, reflection/metaprogramming, overly clever parsing
-- deeply nested conditionals or state machines without clear invariants
+- heavy obfuscation or packing, control-flow flattening
+- reflection/dynamic dispatch that hides behavior
+- deliberately confusing parsing/decoding pipelines that mask intent
 
 Rules:
 - Output ONLY valid JSON, no markdown, no extra keys.
-- If there are no concrete issues, return an empty comments list.
-- Comments must be specific and actionable, tied to the shown code.
+- Always include a brief summary and confidence, even if there are no comments.
+- If there are no concrete malicious or supply-chain indicators, return an empty comments list.
+- Comments must be specific and actionable, tied to the shown code, and include evidence:
+  behavior + trigger + impact + why it is suspicious.
+- Bundled/minified code is in scope, but only report when behavior is clearly malicious or suspicious-by-default.
+- Do NOT flag common patterns (eval/new Function/dynamic require) unless tied to executing
+  encoded/remote/untrusted input or concealing a payload.
+- Do not flag clearly intentional, explicitly signposted risky capabilities when they are consistent
+  with the package's apparent purpose.
+- Do flag misleading, hidden, or insecure-by-default behavior, including security-sensitive actions that are implicit,
+  surprising, or not opt-in.
+- Prefer false negatives over low-confidence findings; if uncertain, return no comments.
 - Use selection only when you can point to exact lines; otherwise omit it.
 - Line/character numbers are 1-based.
 - Do not speculate about other files.
@@ -190,6 +494,8 @@ Rules:
 Return ONLY valid JSON with this schema. Do NOT include any preamble or code fences.
 {{
   "model": "<model name used>",
+  "summary": "<one or two sentence summary of the review in your own words>",
+  "confidence": "high|medium|low",
   "comments": [
     {{
       "comment": "string (what is the issue and why it matters)",
@@ -271,6 +577,19 @@ fn parse_agent_value(value: Value) -> Result<AgentOutput> {
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
+    let summary = value
+        .get("summary")
+        .and_then(|v| v.as_str())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let confidence_value = value
+        .get("confidence")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("overall_security_confidence").and_then(|v| v.as_str()));
+    let confidence = match confidence_value {
+        Some(value) => ReviewConfidence::from_str(value).ok(),
+        None => None,
+    };
     let comments_value = value
         .get("comments")
         .ok_or(format_err!("Agent output missing comments array"))?;
@@ -324,7 +643,12 @@ fn parse_agent_value(value: Value) -> Result<AgentOutput> {
         });
     }
 
-    Ok(AgentOutput { model, comments })
+    Ok(AgentOutput {
+        model,
+        summary,
+        confidence,
+        comments,
+    })
 }
 
 fn parse_priority(

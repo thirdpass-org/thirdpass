@@ -26,6 +26,18 @@ fn ensure_core_config() -> Result<()> {
         config.core.api_base = "https://api.vouch.review".to_string();
         changed = true;
     }
+    if config.review_tool.agent.is_none() {
+        config.review_tool.agent = Some("codex".to_string());
+        changed = true;
+    }
+    if config.review_tool.agent_model.is_none() {
+        config.review_tool.agent_model = Some("gpt-5.2-codex".to_string());
+        changed = true;
+    }
+    if config.review_tool.agent_reasoning_effort.is_none() {
+        config.review_tool.agent_reasoning_effort = Some("high".to_string());
+        changed = true;
+    }
     if changed {
         config.dump()?;
     }

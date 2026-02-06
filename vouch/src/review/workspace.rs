@@ -6,6 +6,7 @@ use crate::common::{self, fs::archive::ArchiveType};
 use crate::review;
 
 static MANIFEST_FILE_NAME: &str = "manifest.json";
+static CACHED_ARCHIVE_FILE_NAME: &str = "archive";
 
 // TODO: Make paths relative.
 #[derive(
@@ -31,6 +32,72 @@ fn archive_file_name(archive_type: common::fs::archive::ArchiveType) -> Result<S
     ))
 }
 
+fn cached_archive_path(
+    package_name: &str,
+    package_version: &str,
+    registry_host_name: &str,
+    archive_type: common::fs::archive::ArchiveType,
+) -> Result<std::path::PathBuf> {
+    let paths = common::fs::DataPaths::new()?;
+    let package_path =
+        review::fs::get_unique_package_path(package_name, package_version, registry_host_name)?;
+    let file_name = format!(
+        "{}.{}",
+        CACHED_ARCHIVE_FILE_NAME,
+        archive_type.try_to_string()?
+    );
+    Ok(paths
+        .archives_directory
+        .join(package_path)
+        .join(file_name))
+}
+
+fn find_cached_archive(
+    package_name: &str,
+    package_version: &str,
+    registry_host_name: &str,
+) -> Result<Option<std::path::PathBuf>> {
+    let paths = common::fs::DataPaths::new()?;
+    let package_path =
+        review::fs::get_unique_package_path(package_name, package_version, registry_host_name)?;
+    let archive_directory = paths.archives_directory.join(package_path);
+    if !archive_directory.is_dir() {
+        return Ok(None);
+    }
+
+    let mut candidates = Vec::new();
+    for entry in std::fs::read_dir(&archive_directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let file_name = match path.file_name().and_then(|name| name.to_str()) {
+            Some(file_name) => file_name,
+            None => continue,
+        };
+        if file_name.starts_with(&format!("{}.", CACHED_ARCHIVE_FILE_NAME)) {
+            candidates.push(path);
+        }
+    }
+
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    candidates.sort();
+    Ok(candidates.pop())
+}
+
+fn ensure_cached_archive_parent(path: &std::path::PathBuf) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).context(format!(
+            "Can't create archive cache directory: {}",
+            parent.display()
+        ))?;
+    }
+    Ok(())
+}
+
 /// Ensure review workspace setup is complete.
 ///
 /// Download and unpack package for review.
@@ -47,25 +114,45 @@ pub fn ensure(
         return Ok(workspace_manifest);
     }
 
-    let archive_type =
-        common::fs::archive::ArchiveType::try_from(&std::path::PathBuf::from(artifact_url.path()))?;
-    if archive_type == ArchiveType::Unknown {
-        return Err(format_err!(
-            "Unsupported archive file type: {}",
-            artifact_url
-        ));
-    }
-
     let package_unique_directory =
         setup_unique_package_directory(&package_name, &package_version, &registry_host_name)?;
-    let archive_path = package_unique_directory.join(archive_file_name(archive_type)?);
+    let cached_archive =
+        match find_cached_archive(package_name, package_version, registry_host_name)? {
+            Some(path) => path,
+            None => {
+                let archive_type = common::fs::archive::ArchiveType::try_from(
+                    &std::path::PathBuf::from(artifact_url.path()),
+                )?;
+                if archive_type == ArchiveType::Unknown {
+                    return Err(format_err!(
+                        "Unsupported archive file type: {}",
+                        artifact_url
+                    ));
+                }
 
-    common::fs::archive::download(&artifact_url, &archive_path)?;
-    let (artifact_hash, _) = common::fs::hash(&archive_path)?;
+                let cached_archive = cached_archive_path(
+                    package_name,
+                    package_version,
+                    registry_host_name,
+                    archive_type.clone(),
+                )?;
+
+                if !cached_archive.is_file() {
+                    let download_path =
+                        package_unique_directory.join(archive_file_name(archive_type)?);
+                    common::fs::archive::download(&artifact_url, &download_path)?;
+                    ensure_cached_archive_parent(&cached_archive)?;
+                    std::fs::copy(&download_path, &cached_archive)?;
+                    std::fs::remove_file(&download_path)?;
+                }
+                cached_archive
+            }
+        };
+
+    let (artifact_hash, _) = common::fs::hash(&cached_archive)?;
 
     let workspace_directory =
-        common::fs::archive::extract(&archive_path, &package_unique_directory)?;
-    std::fs::remove_file(&archive_path)?;
+        common::fs::archive::extract(&cached_archive, &package_unique_directory)?;
 
     let workspace_directory = normalize_workspace_directory_name(
         &workspace_directory,
@@ -77,7 +164,7 @@ pub fn ensure(
     let workspace_manifest = Manifest {
         workspace_path: workspace_directory,
         manifest_path: get_manifest_path(&package_unique_directory),
-        artifact_path: archive_path,
+        artifact_path: cached_archive,
         artifact_hash: artifact_hash,
     };
     write_manifest(&workspace_manifest)?;

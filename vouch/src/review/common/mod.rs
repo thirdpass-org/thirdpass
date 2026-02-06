@@ -10,14 +10,24 @@ use serde;
 use std::hash::Hash;
 
 pub mod priority;
+pub mod confidence;
 pub mod metadata;
 pub mod security_summary;
 pub mod summary;
 
-pub use metadata::ReviewMetadata;
+pub use confidence::ReviewConfidence;
+pub use metadata::{ReviewerDetails, ReviewScope};
 pub use priority::Priority;
 pub use security_summary::SecuritySummary;
 pub use summary::Summary;
+
+#[derive(
+    Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
+pub struct ReviewTarget {
+    pub file_path: std::path::PathBuf,
+    pub comments: std::collections::BTreeSet<crate::review::comment::Comment>,
+}
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Review {
@@ -26,21 +36,23 @@ pub struct Review {
     #[serde(skip)]
     pub peer: crate::peer::Peer,
     pub package: crate::package::Package,
-    pub comments: std::collections::BTreeSet<crate::review::comment::Comment>,
+    pub targets: Vec<ReviewTarget>,
     #[serde(default)]
-    pub metadata: ReviewMetadata,
-    #[serde(default)]
-    pub target_file: Option<std::path::PathBuf>,
+    pub reviewer_details: ReviewerDetails,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub agent_summary: String,
     #[serde(default)]
     pub overall_security_summary: SecuritySummary,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overall_security_confidence: Option<ReviewConfidence>,
 }
 
 impl Ord for Review {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (&self.peer, &self.package, &self.comments, &self.id).cmp(&(
+        (&self.peer, &self.package, &self.targets, &self.id).cmp(&(
             &other.peer,
             &other.package,
-            &other.comments,
+            &other.targets,
             &other.id,
         ))
     }

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{format_err, Result};
 mod agent;
 mod vscode;
 
@@ -34,8 +34,37 @@ pub fn run_manual(
     Ok(())
 }
 
-pub fn select_agent() -> Result<AgentKind> {
-    agent::select_installed_agent()
+pub fn select_agent(
+    config: &mut common::config::Config,
+    override_agent: Option<AgentKind>,
+) -> Result<AgentKind> {
+    if let Some(agent) = override_agent {
+        if !agent.is_installed() {
+            return Err(format_err!(
+                "Requested agent '{}' is not installed.",
+                agent.name()
+            ));
+        }
+        let agent_name = agent.name();
+        if config.review_tool.agent.as_deref() != Some(agent_name) {
+            config.review_tool.agent = Some(agent_name.to_string());
+            config.dump()?;
+        }
+        return Ok(agent);
+    }
+
+    let preferred = config
+        .review_tool
+        .agent
+        .as_deref()
+        .and_then(AgentKind::from_name);
+    let agent = agent::select_installed_agent(preferred)?;
+    let agent_name = agent.name();
+    if config.review_tool.agent.as_deref() != Some(agent_name) {
+        config.review_tool.agent = Some(agent_name.to_string());
+        config.dump()?;
+    }
+    Ok(agent)
 }
 
 pub fn run_agent(
@@ -43,8 +72,17 @@ pub fn run_agent(
     workspace_path: &std::path::PathBuf,
     display_path: &str,
     file_contents: &str,
+    agent_model: Option<&str>,
+    agent_reasoning_effort: Option<&str>,
 ) -> Result<AgentRunResult> {
-    agent::run(agent, workspace_path, display_path, file_contents)
+    agent::run(
+        agent,
+        workspace_path,
+        display_path,
+        file_contents,
+        agent_model,
+        agent_reasoning_effort,
+    )
 }
 
 /// Setup reviews directory within workspace.

@@ -20,7 +20,10 @@ pub fn get_unique_package_path(
         .join(&package_version))
 }
 
-fn get_storage_file_path(review: &review::Review) -> Result<std::path::PathBuf> {
+fn get_storage_file_path(
+    review: &review::Review,
+    base_directory: &std::path::PathBuf,
+) -> Result<std::path::PathBuf> {
     // TODO: Handle multiple registries.
     let review_directory_path = get_unique_package_path(
         &review.package.name,
@@ -34,14 +37,12 @@ fn get_storage_file_path(review: &review::Review) -> Result<std::path::PathBuf> 
             .host_name,
     )?;
 
-    let paths = common::fs::DataPaths::new()?;
-    let reviewer = if review.metadata.reviewer_uuid.is_empty() {
+    let reviewer = if review.reviewer_details.reviewer_uuid.is_empty() {
         "unknown".to_string()
     } else {
-        review.metadata.reviewer_uuid.clone()
+        review.reviewer_details.reviewer_uuid.clone()
     };
-    let package_specific_directory = paths
-        .reviews_directory
+    let package_specific_directory = base_directory
         .join(review_directory_path)
         .join(&review.package.artifact_hash)
         .join(reviewer);
@@ -57,8 +58,16 @@ fn review_file_name() -> std::path::PathBuf {
 }
 
 /// Store a review.
-pub fn add(review: &review::Review) -> Result<()> {
-    let file_path = get_storage_file_path(&review)?;
+pub fn add(
+    review: &review::Review,
+    status: ReviewStorageStatus,
+) -> Result<std::path::PathBuf> {
+    let paths = common::fs::DataPaths::new()?;
+    let base_directory = match status {
+        ReviewStorageStatus::Submitted => &paths.reviews_directory,
+        ReviewStorageStatus::Pending => &paths.pending_reviews_directory,
+    };
+    let file_path = get_storage_file_path(&review, base_directory)?;
     let parent_directory = file_path.parent().ok_or(format_err!(
         "Can't find parent directory for file path: {}",
         file_path.display()
@@ -81,10 +90,17 @@ pub fn add(review: &review::Review) -> Result<()> {
             file_path.display()
         ))?;
     file.write_all(serde_json::to_string_pretty(&review)?.as_bytes())?;
-    Ok(())
+    Ok(file_path)
 }
 
 pub fn list() -> Result<Vec<review::Review>> {
+    Ok(list_with_status()?
+        .into_iter()
+        .map(|stored| stored.review)
+        .collect())
+}
+
+pub fn list_with_status() -> Result<Vec<StoredReview>> {
     let paths = common::fs::DataPaths::new()?;
     if !paths.reviews_directory.exists() {
         return Ok(Vec::new());
@@ -99,7 +115,16 @@ pub fn list() -> Result<Vec<review::Review>> {
             Ok(mut review) => {
                 review.overall_security_summary =
                     crate::review::overall_security_summary(&review)?;
-                reviews.push(review);
+                let status = if file.starts_with(&paths.pending_reviews_directory) {
+                    ReviewStorageStatus::Pending
+                } else {
+                    ReviewStorageStatus::Submitted
+                };
+                reviews.push(StoredReview {
+                    path: file,
+                    status,
+                    review,
+                });
             }
             Err(err) => {
                 log::warn!("Failed to parse review file {}: {}", file.display(), err);
@@ -107,6 +132,47 @@ pub fn list() -> Result<Vec<review::Review>> {
         }
     }
     Ok(reviews)
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ReviewStorageStatus {
+    Pending,
+    Submitted,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredReview {
+    pub path: std::path::PathBuf,
+    pub status: ReviewStorageStatus,
+    pub review: review::Review,
+}
+
+pub fn promote(
+    review: &review::Review,
+    pending_path: &std::path::PathBuf,
+) -> Result<std::path::PathBuf> {
+    let paths = common::fs::DataPaths::new()?;
+    let file_name = pending_path.file_name().ok_or(format_err!(
+        "Failed to read review filename: {}",
+        pending_path.display()
+    ))?;
+    let destination_base = &paths.reviews_directory;
+    let destination_directory = get_storage_file_path(review, destination_base)?
+        .parent()
+        .ok_or(format_err!(
+            "Failed to build destination directory for review."
+        ))?
+        .to_path_buf();
+    std::fs::create_dir_all(&destination_directory).context(format!(
+        "Can't create directory: {}",
+        destination_directory.display()
+    ))?;
+    let destination_path = destination_directory.join(file_name);
+    if destination_path.exists() {
+        std::fs::remove_file(&destination_path)?;
+    }
+    std::fs::rename(&pending_path, &destination_path)?;
+    Ok(destination_path)
 }
 
 fn collect_review_files(

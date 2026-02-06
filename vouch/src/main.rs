@@ -11,7 +11,10 @@ mod review;
 
 fn main() {
     let env = env_logger::Env::new().filter_or("VOUCH_LOG", "off");
-    env_logger::Builder::from_env(env).init();
+    env_logger::Builder::from_env(env)
+        .filter_module("tokei::language::language_type", log::LevelFilter::Error)
+        .filter_module("h2", log::LevelFilter::Info)
+        .init();
 
     let args: Vec<String> = std::env::args().collect();
     let (vouch_args, extension_args) = split_extension_args(&args);

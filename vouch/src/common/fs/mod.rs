@@ -79,7 +79,9 @@ pub struct DataPaths {
     pub root_directory: std::path::PathBuf,
 
     pub reviews_directory: std::path::PathBuf,
+    pub pending_reviews_directory: std::path::PathBuf,
     pub ongoing_reviews_directory: std::path::PathBuf,
+    pub archives_directory: std::path::PathBuf,
 }
 
 impl DataPaths {
@@ -88,7 +90,9 @@ impl DataPaths {
             root_directory: root_directory.clone(),
 
             reviews_directory: root_directory.join("reviews"),
+            pending_reviews_directory: root_directory.join("reviews").join(".pending"),
             ongoing_reviews_directory: root_directory.join("reviews").join(".ongoing"),
+            archives_directory: root_directory.join("archives"),
         })
     }
 
@@ -104,7 +108,9 @@ impl DataPaths {
     pub fn is_protected(&self, absolute_path: &std::path::PathBuf) -> bool {
         absolute_path == &self.root_directory
             || absolute_path == &self.reviews_directory
+            || absolute_path == &self.pending_reviews_directory
             || absolute_path == &self.ongoing_reviews_directory
+            || absolute_path == &self.archives_directory
     }
 }
 

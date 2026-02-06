@@ -28,7 +28,7 @@ pub fn ensure(
             review.package.name, review.package.version
         ),
         is_primary: Some(true),
-        comments: review.comments.clone(),
+        comments: flatten_comments(review),
     };
 
     let mut file = std::fs::OpenOptions::new()
@@ -52,4 +52,16 @@ pub fn parse(
 
     let active_review: review::active::ActiveReview = serde_json::from_reader(reader)?;
     Ok(active_review.comments)
+}
+
+fn flatten_comments(
+    review: &review::Review,
+) -> std::collections::BTreeSet<review::comment::Comment> {
+    let mut comments = std::collections::BTreeSet::new();
+    for target in &review.targets {
+        for comment in &target.comments {
+            comments.insert(comment.clone());
+        }
+    }
+    comments
 }

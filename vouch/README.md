@@ -1,41 +1,120 @@
 <h1 align="center">Vouch</h1>
 
-<p align="center">🔍 Crowd-powered dependency intelligence for the open-source supply chain. 🔍</p>
+<p align="center"><strong>Collaborative dependency review for open-source packages.</strong></p>
 
 <p align="center">
   <a href="https://matrix.to/#/#vouch:matrix.org"><img src="https://img.shields.io/matrix/vouch:matrix.org?label=chat&logo=matrix" alt="Matrix"></a>
 </p>
 
-Open source software dependencies are commonly used without review. Running unreviewed code poses security risks. Vouch lets contributors donate AI tokens and compute to generate trusted code reviews at scale. The goal is simple: **make the software dependency supply chain safer for everyone**.
+Most dependency code is shipped without meaningful review. Vouch enables
+collaborative dependency review: contributors run reviews, publish structured
+findings, and the ecosystem reuses that signal.
 
-Vouch is built to:
-1. minimize the cost of reviewing dependencies
-2. generate and share verified review signals across ecosystems
-3. help teams catch malicious or risky packages before they ship
-
-<br>
+Think of it as channeling LLM inference tokens into open-source dependency due
+diligence.
 
 <p align="center">
   <img src="assets/vouch_review_is-even_v3.gif" alt="Using Vouch to review Javascript package is-even." />
 </p>
 
-## Getting Started
+## Why Vouch
 
-### Setup
+- **Collaborative coverage:** many contributors review, everyone benefits.
+- **Reusable security signal:** findings are structured and tied to package
+  version + file scope.
+- **Faster risk decisions:** `vouch check` helps teams evaluate dependency
+  posture from shared reviews.
 
-Setup runs automatically on first use and initializes local configuration and data directories.
+## 60-second quickstart
 
-### Extensions
+Run a dependency review and submit it:
 
-Extensions enable Vouch to create reviews for packages from different ecosystems. For example, the [Python extension](https://github.com/vouch-dev/vouch-py) adds support for [pypi.org](https://pypi.org) packages. By default, Vouch includes extensions for Python and Javascript. Add an extension using the following command:
+```bash
+cargo run -p vouch -- review d3 4.10.0
+```
 
-`vouch extension add py`
+Review specific files in one run:
 
-or via any GitHub repository URL:
+```bash
+cargo run -p vouch -- review d3 4.10.0 \
+  --file src/index.js \
+  --file src/core.js
+```
 
-`vouch extension add https://github.com/vouch-dev/vouch-py`
+Evaluate a project's dependencies against available reviews:
 
-#### Official Extensions
+```bash
+cargo run -p vouch -- check
+```
+
+## How it works
+
+1. Vouch fetches and unpacks the exact dependency artifact.
+2. An agent (Codex or Claude) reviews selected target files.
+3. Findings are saved locally and submitted to the shared review service.
+4. Other users consume that signal via `vouch check`.
+
+This is not one-off scanning. It is cumulative review intelligence.
+
+## Core commands
+
+Review a package version:
+
+```bash
+vouch review <package> <version>
+```
+
+Submit existing matching local work without re-running the agent:
+
+```bash
+vouch review d3 4.10.0 --file src/index.js --submit-existing
+```
+
+Check dependencies:
+
+```bash
+vouch check
+```
+
+## Agent configuration
+
+Choose default reviewing agent:
+
+```bash
+vouch review d3 4.10.0 --agent codex
+vouch review d3 4.10.0 --agent claude
+```
+
+Set Codex defaults:
+
+```bash
+vouch review d3 4.10.0 --agent codex --agent-model gpt-5.2-codex
+vouch review d3 4.10.0 --agent codex --agent-reasoning-effort high
+```
+
+## Extensions
+
+Vouch supports multiple ecosystems via extensions.
+
+Install an extension:
+
+```bash
+vouch extension add py
+```
+
+Install from repository URL:
+
+```bash
+vouch extension add https://github.com/vouch-dev/vouch-py
+```
+
+List installed extensions:
+
+```bash
+vouch extension list
+```
+
+Official extensions:
 
 | Name                                                        | Ecosystem      | Package Registries |
 |-------------------------------------------------------------|----------------|--------------------|
@@ -43,34 +122,9 @@ or via any GitHub repository URL:
 | [vouch-js](https://github.com/vouch-dev/vouch-js)           | Javascript     | npmjs.com          |
 | [vouch-ansible](https://github.com/vouch-dev/vouch-ansible) | Ansible Galaxy | galaxy.ansible.com |
 
-### Review
+## Notes
 
-By default, Vouch runs an AI agent (Codex or Claude) to review a target file. If `--file` is omitted, Vouch selects a file automatically based on server priorities or local ordering. Use `--manual` to review via [VSCode](https://code.visualstudio.com/) and the Vouch extension.
-
-Lets review the [NPM](https://www.npmjs.com/) Javascript package [d3](https://www.npmjs.com/package/d3) at version `4.10.0`, targeting `src/index.js`:
-
-`vouch review d3 4.10.0 --file src/index.js`
-
-Automatic file selection:
-
-`vouch review d3 4.10.0`
-
-By default, reviews are submitted to the central API. Use `--no-submit` to keep a review local only.
-
-Manual review:
-
-`vouch review d3 4.10.0 --file src/index.js --manual`
-
-### Check
-
-Reviews created using Vouch can be used to evaluate software project dependencies. Vouch extensions can discover ecosystem specific dependency definition files. For example, the Python extension parses `Pipfile.lock` files.
-
-The `check` command automatically pulls the latest reviews from the central API, then generates an evaluation report of local project dependencies:
-
-`vouch check`
-
-## Why Vouch
-
-- **Crowd-powered coverage:** contribute your AI tokens and compute to review open-source code at scale.
-- **High-signal outputs:** structured findings focused on security and complexity, not noisy vulnerability lists.
-- **Actionable intelligence:** a growing review dataset designed to plug into tooling and CI workflows.
+- Setup runs automatically on first command.
+- Source archives and reviews are stored in Vouch's per-user data directory.
+- Use `vouch review --help` and `vouch check --help` for full flags.
+- If you need a local-only run, use `--skip-coordination`.

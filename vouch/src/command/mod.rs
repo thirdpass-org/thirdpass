@@ -58,3 +58,88 @@ pub struct Opts {
     #[structopt(subcommand)]
     pub command: Command,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use structopt::StructOpt;
+
+    #[test]
+    fn cli_builds_without_panic() {
+        let result = std::panic::catch_unwind(|| Opts::clap());
+        assert!(result.is_ok(), "CLI definition panicked while building.");
+    }
+
+    #[test]
+    fn cli_parses_review_agent_flag() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&[
+                "vouch",
+                "review",
+                "d3",
+                "4.10.0",
+                "--agent",
+                "claude",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Review(args) => {
+                assert_eq!(args.agent.as_deref(), Some("claude"));
+            }
+            _ => panic!("Expected review command."),
+        }
+    }
+
+    #[test]
+    fn cli_parses_review_agent_overrides() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&[
+                "vouch",
+                "review",
+                "d3",
+                "4.10.0",
+                "--agent-model",
+                "gpt-5.2-codex",
+                "--agent-reasoning-effort",
+                "high",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Review(args) => {
+                assert_eq!(args.agent_model.as_deref(), Some("gpt-5.2-codex"));
+                assert_eq!(args.agent_reasoning_effort.as_deref(), Some("high"));
+            }
+            _ => panic!("Expected review command."),
+        }
+    }
+
+    #[test]
+    fn cli_parses_submit_existing_flag() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&[
+                "vouch",
+                "review",
+                "d3",
+                "4.10.0",
+                "--file",
+                "build/d3.js",
+                "--submit-existing",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Review(args) => {
+                assert!(args.submit_existing);
+            }
+            _ => panic!("Expected review command."),
+        }
+    }
+}
