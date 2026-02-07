@@ -3,13 +3,15 @@ use anyhow::Result;
 use crate::common;
 use crate::extension;
 
+use super::output;
 use super::report;
-use super::table;
+use super::OutputFormat;
 
 pub fn report(
     extension_names: &std::collections::BTreeSet<String>,
     extension_args: &Vec<String>,
     config: &common::config::Config,
+    output_format: OutputFormat,
 ) -> Result<()> {
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;
     let working_directory = std::env::current_dir()?;
@@ -21,6 +23,7 @@ pub fn report(
         &extension_args,
         &working_directory,
     )?;
+    let mut groups = Vec::new();
     for (extension, extension_all_dependencies) in
         extensions.iter().zip(all_dependencies_specs.into_iter())
     {
@@ -36,12 +39,15 @@ pub fn report(
                 continue;
             }
         };
-        for (index, fs_dependencies) in extension_all_dependencies.iter().enumerate() {
-            dependencies_found |= !fs_dependencies.dependencies.is_empty();
-            report_dependencies(&fs_dependencies, &config)?;
-            let is_last = index == extension_all_dependencies.len() - 1;
-            if !is_last {
-                println!("");
+        for (_index, fs_dependencies) in extension_all_dependencies.iter().enumerate() {
+            let dependency_group = report_dependencies(
+                &fs_dependencies,
+                &config,
+                false,
+            )?;
+            if let Some(dependency_group) = dependency_group {
+                dependencies_found = true;
+                groups.push(dependency_group);
             }
         }
     }
@@ -51,6 +57,8 @@ pub fn report(
             "No dependency specification files found in \
             working directory or parent directories."
         )
+    } else {
+        output::print(&groups, output_format)?;
     }
     Ok(())
 }
@@ -58,7 +66,8 @@ pub fn report(
 fn report_dependencies(
     package_dependencies: &vouch_lib::extension::FileDefinedDependencies,
     config: &common::config::Config,
-) -> Result<()> {
+    first_row_separate: bool,
+) -> Result<Option<output::DependencyGroup>> {
     log::info!(
         "Generating report for dependencies specification file: {}",
         package_dependencies.path.display()
@@ -79,15 +88,13 @@ fn report_dependencies(
 
     log::info!("Number of dependencies found: {}", dependency_reports.len());
     if dependency_reports.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
 
-    let table = table::get(&dependency_reports, false)?;
-    println!(
-        "Registry: {name}\n{path}",
-        name = package_dependencies.registry_host_name,
-        path = package_dependencies.path.display(),
-    );
-    table.printstd();
-    Ok(())
+    Ok(Some(output::DependencyGroup {
+        registry_host_name: package_dependencies.registry_host_name.clone(),
+        source_path: Some(package_dependencies.path.clone()),
+        dependencies: dependency_reports,
+        first_row_separate,
+    }))
 }

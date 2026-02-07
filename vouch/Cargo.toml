@@ -46,6 +46,7 @@ tar = "0.4.33"
 
 tokei = "12.1.2"
 prettytable-rs = "0.8.0"
+atty = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9" }

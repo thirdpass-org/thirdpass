@@ -142,4 +142,27 @@ mod tests {
             _ => panic!("Expected review command."),
         }
     }
+
+    #[test]
+    fn cli_parses_check_output_flag() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&[
+                "vouch",
+                "check",
+                "d3",
+                "4.10.0",
+                "--output",
+                "json",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Check(args) => {
+                assert_eq!(args.output, check::OutputFormat::Json);
+            }
+            _ => panic!("Expected check command."),
+        }
+    }
 }

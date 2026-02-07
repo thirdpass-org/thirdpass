@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::review;
 
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, serde::Serialize)]
 pub struct DependencyReport {
     pub summary: review::SecuritySummary,
     pub name: String,
@@ -30,12 +30,24 @@ pub fn get_dependency_report(
         }
     };
 
-    let _ = pull_latest_reviews(
+    let sync_note = match pull_latest_reviews(
         registry_host_name,
         &dependency.name,
         &package_version,
         config,
-    );
+    ) {
+        Ok(_) => None,
+        Err(err) => {
+            log::warn!(
+                "Failed to sync latest reviews for {name}@{version} ({registry}): {error}",
+                name = dependency.name,
+                version = package_version,
+                registry = registry_host_name,
+                error = err
+            );
+            Some("sync failed; using local cache".to_string())
+        }
+    };
 
     let reviews = filter_reviews(
         &review::fs::list()?,
@@ -51,20 +63,20 @@ pub fn get_dependency_report(
             name: dependency.name.clone(),
             version: Some(package_version.clone()),
             review_count: Some(0),
-            note: None,
+            note: sync_note,
         });
     }
 
     let stats = get_dependency_stats(&reviews)?;
     let status = get_dependency_status(&stats)?;
-    let note = get_dependency_note(&stats)?;
+    let note = merge_notes(get_dependency_note(&stats), sync_note);
 
     Ok(DependencyReport {
         summary: status,
         name: dependency.name.clone(),
         version: Some(package_version.clone()),
         review_count: Some(reviews.len()),
-        note: Some(note),
+        note,
     })
 }
 
@@ -141,7 +153,7 @@ fn get_dependency_status(stats: &DependencyStats) -> Result<review::SecuritySumm
     Ok(review::SecuritySummary::Low)
 }
 
-fn get_dependency_note(stats: &DependencyStats) -> Result<String> {
+fn get_dependency_note(stats: &DependencyStats) -> Option<String> {
     let mut note_parts = Vec::<_>::new();
     if stats.count_critical_comments > 0 {
         note_parts.push(format!("critical ({})", stats.count_critical_comments));
@@ -151,5 +163,24 @@ fn get_dependency_note(stats: &DependencyStats) -> Result<String> {
         note_parts.push(format!("medium ({})", stats.count_medium_comments));
     }
 
-    Ok(note_parts.join("; "))
+    if note_parts.is_empty() {
+        None
+    } else {
+        Some(note_parts.join("; "))
+    }
+}
+
+fn merge_notes(
+    primary_note: Option<String>,
+    secondary_note: Option<String>,
+) -> Option<String> {
+    match (primary_note, secondary_note) {
+        (None, None) => None,
+        (Some(note), None) => Some(note),
+        (None, Some(note)) => Some(note),
+        (Some(primary), Some(secondary)) => Some(format!(
+            "{}; {}",
+            primary, secondary
+        )),
+    }
 }

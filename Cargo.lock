@@ -2560,6 +2560,7 @@ name = "vouch"
 version = "0.3.2"
 dependencies = [
  "anyhow",
+ "atty",
  "blake3",
  "console 0.15.11",
  "crossbeam",
