@@ -12,7 +12,10 @@ pub struct ReviewTool {
     #[serde(rename = "agent-model", skip_serializing_if = "Option::is_none")]
     pub agent_model: Option<String>,
 
-    #[serde(rename = "agent-reasoning-effort", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "agent-reasoning-effort",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub agent_reasoning_effort: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -102,7 +105,10 @@ pub fn get(review_tool: &ReviewTool, name: &str) -> Result<String> {
         "name" => Ok(review_tool.name.to_string()),
         "install-check" => Ok(review_tool.install_check.to_string()),
         "agent-model" => Ok(review_tool.agent_model.clone().unwrap_or_default()),
-        "agent-reasoning-effort" => Ok(review_tool.agent_reasoning_effort.clone().unwrap_or_default()),
+        "agent-reasoning-effort" => Ok(review_tool
+            .agent_reasoning_effort
+            .clone()
+            .unwrap_or_default()),
         "agent" => Ok(review_tool.agent.clone().unwrap_or_default()),
         _ => Err(format_err!(name_error_message.clone())),
     }

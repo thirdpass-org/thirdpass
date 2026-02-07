@@ -43,13 +43,10 @@ pub fn report(
             }
         };
 
-        for (_index, package_dependencies) in extension_all_package_dependencies.iter().enumerate() {
-            let dependency_group = report_dependencies(
-                &package_name,
-                &package_dependencies,
-                &config,
-                true,
-            )?;
+        for (_index, package_dependencies) in extension_all_package_dependencies.iter().enumerate()
+        {
+            let dependency_group =
+                report_dependencies(&package_name, &package_dependencies, &config, true)?;
             dependencies_found = true;
             groups.push(dependency_group);
         }

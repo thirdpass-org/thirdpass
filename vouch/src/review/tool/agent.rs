@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 
-use crate::review::comment::{Comment, Selection};
 use crate::review::comment::common::Position;
+use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewConfidence};
 
 const PROMPT_VERSION: &str = "v1";
@@ -147,12 +147,7 @@ pub fn run(
     let prompt = build_prompt(display_path, file_contents);
 
     if agent == AgentKind::Codex {
-        return run_codex_exec(
-            workspace_path,
-            &prompt,
-            agent_model,
-            agent_reasoning_effort,
-        );
+        return run_codex_exec(workspace_path, &prompt, agent_model, agent_reasoning_effort);
     }
 
     log::debug!(
@@ -166,13 +161,7 @@ pub fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|err| {
-            format_err!(
-                "Failed to start {}: {}",
-                agent.binary_name(),
-                err
-            )
-        })?;
+        .map_err(|err| format_err!("Failed to start {}: {}", agent.binary_name(), err))?;
 
     let stdin = child
         .stdin
@@ -288,9 +277,9 @@ fn run_codex_exec(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|err| {
-        format_err!("Failed to start codex: {}", err)
-    })?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|err| format_err!("Failed to start codex: {}", err))?;
 
     let mut stdin = child
         .stdin
@@ -336,7 +325,11 @@ fn run_codex_exec(
         if stdout_trimmed.is_empty() {
             err
         } else {
-            format_err!("{}; stdout: {}", err, truncate_for_log(stdout_trimmed, 4000))
+            format_err!(
+                "{}; stdout: {}",
+                err,
+                truncate_for_log(stdout_trimmed, 4000)
+            )
         }
     })?;
     let comments = output
@@ -408,11 +401,7 @@ fn build_agent_log(
     parts.join(" ")
 }
 
-fn detect_agent_failure(
-    agent: AgentKind,
-    stdout: &str,
-    stderr: &str,
-) -> Option<String> {
+fn detect_agent_failure(agent: AgentKind, stdout: &str, stderr: &str) -> Option<String> {
     if agent != AgentKind::Claude {
         return None;
     }
@@ -585,7 +574,11 @@ fn parse_agent_value(value: Value) -> Result<AgentOutput> {
     let confidence_value = value
         .get("confidence")
         .and_then(|v| v.as_str())
-        .or_else(|| value.get("overall_security_confidence").and_then(|v| v.as_str()));
+        .or_else(|| {
+            value
+                .get("overall_security_confidence")
+                .and_then(|v| v.as_str())
+        });
     let confidence = match confidence_value {
         Some(value) => ReviewConfidence::from_str(value).ok(),
         None => None,
@@ -676,10 +669,7 @@ fn parse_priority(
     Priority::Low
 }
 
-fn parse_complexity(
-    priority_value: Option<&str>,
-    complexity_finding: Option<bool>,
-) -> Priority {
+fn parse_complexity(priority_value: Option<&str>, complexity_finding: Option<bool>) -> Priority {
     if let Some(value) = priority_value {
         if let Ok(priority) = Priority::from_str(value) {
             return priority;

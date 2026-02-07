@@ -1,4 +1,3 @@
-use anyhow::{format_err, Result};
 use crate::common;
 use crate::package;
 use crate::peer;
@@ -6,6 +5,7 @@ use crate::registry;
 use crate::review;
 use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewConfidence, ReviewerDetails, SecuritySummary};
+use anyhow::{format_err, Result};
 use vouch_lib::schema as api;
 
 pub type ReviewCandidate = api::ReviewCandidate;
@@ -155,10 +155,7 @@ pub fn store_records(
     Ok(stored)
 }
 
-fn store_record(
-    record: api::ReviewRecord,
-    config: &common::config::Config,
-) -> Result<()> {
+fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> Result<()> {
     let api::ReviewRecord {
         target,
         reviewer_details,
@@ -170,12 +167,14 @@ fn store_record(
     } = record;
     let registry = build_registry(&target)?;
     let package = build_package(&target, &registry);
-    let peer =
-        peer::reviewer_peer(&reviewer_details.reviewer_uuid, &config.core.api_base)?;
+    let peer = peer::reviewer_peer(&reviewer_details.reviewer_uuid, &config.core.api_base)?;
     let targets = files
         .into_iter()
         .map(|file| {
-            let api::ReviewFile { file_path, comments } = file;
+            let api::ReviewFile {
+                file_path,
+                comments,
+            } = file;
             let comments = comments
                 .into_iter()
                 .map(|comment| from_remote_comment(comment, &file_path))
@@ -360,10 +359,7 @@ fn build_registry(target: &api::ReviewTarget) -> Result<registry::Registry> {
     })
 }
 
-fn build_package(
-    target: &api::ReviewTarget,
-    registry: &registry::Registry,
-) -> package::Package {
+fn build_package(target: &api::ReviewTarget, registry: &registry::Registry) -> package::Package {
     package::Package {
         id: 0,
         name: target.package_name.clone(),

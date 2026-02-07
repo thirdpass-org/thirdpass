@@ -170,17 +170,11 @@ fn get_dependency_note(stats: &DependencyStats) -> Option<String> {
     }
 }
 
-fn merge_notes(
-    primary_note: Option<String>,
-    secondary_note: Option<String>,
-) -> Option<String> {
+fn merge_notes(primary_note: Option<String>, secondary_note: Option<String>) -> Option<String> {
     match (primary_note, secondary_note) {
         (None, None) => None,
         (Some(note), None) => Some(note),
         (None, Some(note)) => Some(note),
-        (Some(primary), Some(secondary)) => Some(format!(
-            "{}; {}",
-            primary, secondary
-        )),
+        (Some(primary), Some(secondary)) => Some(format!("{}; {}", primary, secondary)),
     }
 }

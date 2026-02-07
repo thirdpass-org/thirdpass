@@ -9,14 +9,14 @@
 use serde;
 use std::hash::Hash;
 
-pub mod priority;
 pub mod confidence;
 pub mod metadata;
+pub mod priority;
 pub mod security_summary;
 pub mod summary;
 
 pub use confidence::ReviewConfidence;
-pub use metadata::{ReviewerDetails, ReviewScope};
+pub use metadata::{ReviewScope, ReviewerDetails};
 pub use priority::Priority;
 pub use security_summary::SecuritySummary;
 pub use summary::Summary;

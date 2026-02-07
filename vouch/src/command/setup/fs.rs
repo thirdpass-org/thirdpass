@@ -38,10 +38,7 @@ fn setup_data_directory_contents(paths: &common::fs::DataPaths) -> Result<()> {
 /// Setup config directory.
 ///
 /// If config file exists and force is false, file will not be modified.
-fn setup_config(
-    paths: &common::fs::ConfigPaths,
-    force: bool,
-) -> Result<()> {
+fn setup_config(paths: &common::fs::ConfigPaths, force: bool) -> Result<()> {
     std::fs::create_dir_all(&paths.root_directory)?;
     std::fs::create_dir_all(&paths.extensions_directory)?;
 

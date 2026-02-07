@@ -58,10 +58,7 @@ fn review_file_name() -> std::path::PathBuf {
 }
 
 /// Store a review.
-pub fn add(
-    review: &review::Review,
-    status: ReviewStorageStatus,
-) -> Result<std::path::PathBuf> {
+pub fn add(review: &review::Review, status: ReviewStorageStatus) -> Result<std::path::PathBuf> {
     let paths = common::fs::DataPaths::new()?;
     let base_directory = match status {
         ReviewStorageStatus::Submitted => &paths.reviews_directory,
@@ -113,8 +110,7 @@ pub fn list_with_status() -> Result<Vec<StoredReview>> {
         let reader = std::io::BufReader::new(std::fs::File::open(&file)?);
         match serde_json::from_reader::<_, review::Review>(reader) {
             Ok(mut review) => {
-                review.overall_security_summary =
-                    crate::review::overall_security_summary(&review)?;
+                review.overall_security_summary = crate::review::overall_security_summary(&review)?;
                 let status = if file.starts_with(&paths.pending_reviews_directory) {
                     ReviewStorageStatus::Pending
                 } else {

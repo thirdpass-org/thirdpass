@@ -9,8 +9,7 @@ pub mod tool;
 pub mod workspace;
 
 pub use crate::review::common::{
-    Priority, Review, ReviewerDetails, ReviewScope, ReviewTarget, ReviewConfidence,
-    SecuritySummary,
+    Priority, Review, ReviewConfidence, ReviewScope, ReviewTarget, ReviewerDetails, SecuritySummary,
 };
 
 pub fn overall_security_summary(review: &Review) -> Result<SecuritySummary> {

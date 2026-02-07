@@ -68,12 +68,8 @@ pub fn run_command(args: &Arguments, extension_args: &Vec<String>) -> Result<()>
     let config = config;
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
-    let output = if args.output == OutputFormat::Table
-        && !atty::is(atty::Stream::Stdout)
-    {
-        log::warn!(
-            "Falling back to plain output because stdout is not a TTY."
-        );
+    let output = if args.output == OutputFormat::Table && !atty::is(atty::Stream::Stdout) {
+        log::warn!("Falling back to plain output because stdout is not a TTY.");
         OutputFormat::Plain
     } else {
         args.output
@@ -104,8 +100,14 @@ mod tests {
 
     #[test]
     fn output_format_parses_expected_values() {
-        assert_eq!(OutputFormat::from_str("table").unwrap(), OutputFormat::Table);
-        assert_eq!(OutputFormat::from_str("plain").unwrap(), OutputFormat::Plain);
+        assert_eq!(
+            OutputFormat::from_str("table").unwrap(),
+            OutputFormat::Table
+        );
+        assert_eq!(
+            OutputFormat::from_str("plain").unwrap(),
+            OutputFormat::Plain
+        );
         assert_eq!(OutputFormat::from_str("json").unwrap(), OutputFormat::Json);
     }
 }

@@ -40,11 +40,7 @@ pub fn report(
             }
         };
         for (_index, fs_dependencies) in extension_all_dependencies.iter().enumerate() {
-            let dependency_group = report_dependencies(
-                &fs_dependencies,
-                &config,
-                false,
-            )?;
+            let dependency_group = report_dependencies(&fs_dependencies, &config, false)?;
             if let Some(dependency_group) = dependency_group {
                 dependencies_found = true;
                 groups.push(dependency_group);

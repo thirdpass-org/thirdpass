@@ -11,9 +11,7 @@ impl Default for ReviewScope {
     }
 }
 
-#[derive(
-    Debug, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize, Default,
-)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 pub struct ReviewerDetails {
     pub reviewer_uuid: String,
     pub agent_name: String,

@@ -8,8 +8,8 @@
 use anyhow::Result;
 use std::convert::TryFrom;
 
-pub mod config;
 pub mod api;
+pub mod config;
 pub mod fs;
 pub mod index;
 
@@ -18,8 +18,7 @@ pub static HTTP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CA
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct GitUrl(url::Url);
 
-impl GitUrl {
-}
+impl GitUrl {}
 
 impl std::convert::TryFrom<&str> for GitUrl {
     type Error = url::ParseError;

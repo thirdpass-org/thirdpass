@@ -200,10 +200,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             return Ok(());
         }
 
-        println!(
-            "Submitting existing review: {}",
-            existing.path.display()
-        );
+        println!("Submitting existing review: {}", existing.path.display());
         let submit_result = review::remote::submit(&existing.review, &config);
         review::workspace::remove(&workspace_manifest)?;
 
@@ -460,14 +457,15 @@ fn build_targets_from_comments(
     }
 
     for target in selected_targets {
-        grouped
-            .entry(target.relative_path.clone())
-            .or_default();
+        grouped.entry(target.relative_path.clone()).or_default();
     }
 
     grouped
         .into_iter()
-        .map(|(file_path, comments)| review::ReviewTarget { file_path, comments })
+        .map(|(file_path, comments)| review::ReviewTarget {
+            file_path,
+            comments,
+        })
         .collect()
 }
 

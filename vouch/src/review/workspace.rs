@@ -46,10 +46,7 @@ fn cached_archive_path(
         CACHED_ARCHIVE_FILE_NAME,
         archive_type.try_to_string()?
     );
-    Ok(paths
-        .archives_directory
-        .join(package_path)
-        .join(file_name))
+    Ok(paths.archives_directory.join(package_path).join(file_name))
 }
 
 fn find_cached_archive(
