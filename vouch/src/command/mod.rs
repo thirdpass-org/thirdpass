@@ -40,14 +40,13 @@ pub enum Command {
     #[structopt(name = "check")]
     Check(check::Arguments),
 
-    /// Configure settings.
+    /// Read and update persisted configuration.
     #[structopt(name = "config")]
     Config(config::Arguments),
 
     /// Manage extensions.
     #[structopt(name = "extension")]
     Extension(extension::Subcommands),
-
 }
 
 #[derive(Debug, StructOpt, Clone)]
@@ -73,14 +72,7 @@ mod tests {
     #[test]
     fn cli_parses_review_agent_flag() {
         let parsed = std::panic::catch_unwind(|| {
-            Opts::from_iter_safe(&[
-                "vouch",
-                "review",
-                "d3",
-                "4.10.0",
-                "--agent",
-                "claude",
-            ])
+            Opts::from_iter_safe(&["vouch", "review", "d3", "4.10.0", "--agent", "claude"])
         });
 
         assert!(parsed.is_ok(), "CLI parsing panicked.");
@@ -146,14 +138,7 @@ mod tests {
     #[test]
     fn cli_parses_check_output_flag() {
         let parsed = std::panic::catch_unwind(|| {
-            Opts::from_iter_safe(&[
-                "vouch",
-                "check",
-                "d3",
-                "4.10.0",
-                "--output",
-                "json",
-            ])
+            Opts::from_iter_safe(&["vouch", "check", "d3", "4.10.0", "--output", "json"])
         });
 
         assert!(parsed.is_ok(), "CLI parsing panicked.");
@@ -164,5 +149,70 @@ mod tests {
             }
             _ => panic!("Expected check command."),
         }
+    }
+
+    #[test]
+    fn cli_parses_config_get_without_field() {
+        let parsed = std::panic::catch_unwind(|| Opts::from_iter_safe(&["vouch", "config", "get"]));
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Config(args) => match args.subcommand {
+                Some(config::Subcommand::Get(get_args)) => {
+                    assert_eq!(get_args.name, None);
+                }
+                _ => panic!("Expected config get command."),
+            },
+            _ => panic!("Expected config command."),
+        }
+    }
+
+    #[test]
+    fn cli_parses_config_get_with_field() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&["vouch", "config", "get", "review-tool.agent"])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Config(args) => match args.subcommand {
+                Some(config::Subcommand::Get(get_args)) => {
+                    assert_eq!(get_args.name.as_deref(), Some("review-tool.agent"));
+                }
+                _ => panic!("Expected config get command."),
+            },
+            _ => panic!("Expected config command."),
+        }
+    }
+
+    #[test]
+    fn cli_parses_config_set() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&["vouch", "config", "set", "review-tool.agent", "claude"])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Config(args) => match args.subcommand {
+                Some(config::Subcommand::Set(set_args)) => {
+                    assert_eq!(set_args.name, "review-tool.agent");
+                    assert_eq!(set_args.value, "claude");
+                }
+                _ => panic!("Expected config set command."),
+            },
+            _ => panic!("Expected config command."),
+        }
+    }
+
+    #[test]
+    fn cli_rejects_legacy_config_shape() {
+        let parsed =
+            std::panic::catch_unwind(|| Opts::from_iter_safe(&["vouch", "config", "core.api-key"]));
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        assert!(parsed.unwrap().is_err(), "Expected parsing to fail.");
     }
 }
