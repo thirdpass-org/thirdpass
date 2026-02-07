@@ -32,7 +32,7 @@ pub fn run_command(command: Command, extension_args: &Vec<String>) -> Result<()>
 
 #[derive(Debug, StructOpt, Clone)]
 pub enum Command {
-    /// Review a package.
+    /// Review a package release and submit findings.
     #[structopt(name = "review")]
     Review(review::Arguments),
 

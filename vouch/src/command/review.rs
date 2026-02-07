@@ -14,47 +14,50 @@ use crate::review;
 #[structopt(
     name = "no_version",
     no_version,
-    global_settings = &[structopt::clap::AppSettings::DisableVersion]
+    global_settings = &[structopt::clap::AppSettings::DisableVersion],
+    about = "Review a package release and submit findings.",
+    after_help = "Examples:\n    vouch review d3 4.10.0\n    vouch review d3 --extension js\n    vouch review d3 4.10.0 --file src/index.js --file src/color.js\n    vouch review d3 4.10.0 --agent codex --agent-model gpt-5.2-codex --agent-reasoning-effort high\n    vouch review d3 4.10.0 --submit-existing\n    vouch review d3 4.10.0 --skip-coordination"
 )]
 pub struct Arguments {
-    /// Package name.
+    /// Package name to review.
     #[structopt(name = "package-name")]
     pub package_name: String,
 
-    /// Package version.
+    /// Package version to review. If omitted, the latest version is used.
     #[structopt(name = "package-version")]
     pub package_version: Option<String>,
 
-    /// Specify an extension for handling the package.
-    /// Example values: py, js, rs
+    /// Restrict registry lookup to specific extension names (repeatable).
+    /// Example values: py, js, rs.
     #[structopt(long = "extension", short = "e", name = "name")]
     pub extension_names: Option<Vec<String>>,
 
-    /// Target file path within the package (repeat to review multiple files).
+    /// Relative file path within the package to review (repeatable).
+    /// If omitted, targets are assigned automatically.
     #[structopt(long = "file", name = "path")]
     pub target_files: Vec<String>,
 
-    /// Use manual review via VSCode.
+    /// Run manual review in VS Code instead of an automated agent review.
     #[structopt(long = "manual")]
     pub manual: bool,
 
-    /// Override the agent selection (codex or claude). Persists as default.
+    /// Select review agent (`codex` or `claude`). Persists as default.
     #[structopt(long = "agent", value_name = "agent")]
     pub agent: Option<String>,
 
-    /// Override the agent model (Codex only). Persists as default.
+    /// Set default model for Codex runs. Persists as default.
     #[structopt(long = "agent-model", value_name = "model")]
     pub agent_model: Option<String>,
 
-    /// Override the agent reasoning effort (Codex only). Persists as default.
+    /// Set default reasoning effort for Codex runs. Persists as default.
     #[structopt(long = "agent-reasoning-effort", value_name = "effort")]
     pub agent_reasoning_effort: Option<String>,
 
-    /// Submit an existing matching local review instead of running a new review.
+    /// Submit a matching local review artifact without creating a new one.
     #[structopt(long = "submit-existing")]
     pub submit_existing: bool,
 
-    /// Skip coordination with the central API (target assignment and submission).
+    /// Skip central API coordination (no target assignment or submission).
     #[structopt(long = "skip-coordination", alias = "no-submit")]
     pub skip_coordination: bool,
 }
