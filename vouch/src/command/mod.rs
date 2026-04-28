@@ -5,6 +5,7 @@ mod check;
 mod config;
 mod extension;
 mod review;
+mod review_deps;
 mod setup;
 
 pub fn run_command(command: Command, extension_args: &Vec<String>) -> Result<()> {
@@ -13,6 +14,10 @@ pub fn run_command(command: Command, extension_args: &Vec<String>) -> Result<()>
         Command::Review(args) => {
             log::info!("Running command: review");
             review::run_command(&args)?;
+        }
+        Command::ReviewDeps(args) => {
+            log::info!("Running command: review-deps");
+            review_deps::run_command(&args, &extension_args)?;
         }
         Command::Check(args) => {
             log::info!("Running command: check");
@@ -35,6 +40,10 @@ pub enum Command {
     /// Review a package release and submit findings.
     #[structopt(name = "review")]
     Review(review::Arguments),
+
+    /// Review a dependency discovered from the current project.
+    #[structopt(name = "review-deps")]
+    ReviewDeps(review_deps::Arguments),
 
     /// Check dependencies against reviews.
     #[structopt(name = "check")]
