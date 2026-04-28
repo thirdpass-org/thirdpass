@@ -6,6 +6,7 @@ mod config;
 mod extension;
 mod review;
 mod review_deps;
+mod review_global;
 mod setup;
 
 pub fn run_command(command: Command, extension_args: &Vec<String>) -> Result<()> {
@@ -18,6 +19,10 @@ pub fn run_command(command: Command, extension_args: &Vec<String>) -> Result<()>
         Command::ReviewDeps(args) => {
             log::info!("Running command: review-deps");
             review_deps::run_command(&args, &extension_args)?;
+        }
+        Command::ReviewGlobal(args) => {
+            log::info!("Running command: review-global");
+            review_global::run_command(&args)?;
         }
         Command::Check(args) => {
             log::info!("Running command: check");
@@ -44,6 +49,10 @@ pub enum Command {
     /// Review a dependency discovered from the current project.
     #[structopt(name = "review-deps")]
     ReviewDeps(review_deps::Arguments),
+
+    /// Review a globally assigned high-priority target.
+    #[structopt(name = "review-global")]
+    ReviewGlobal(review_global::Arguments),
 
     /// Check dependencies against reviews.
     #[structopt(name = "check")]

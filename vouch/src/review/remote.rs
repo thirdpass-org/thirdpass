@@ -108,6 +108,27 @@ pub fn request_target(
     let payload = api::ReviewRequest {
         candidates: Some(candidates),
     };
+    let assignment = match post_review_request(&payload, config) {
+        Ok(assignment) => assignment,
+        Err(err) => {
+            log::warn!("Failed to request target from API: {}", err);
+            return Ok(None);
+        }
+    };
+    Ok(assignment.target)
+}
+
+pub fn request_global_target(
+    config: &common::config::Config,
+) -> Result<Option<api::ReviewCandidate>> {
+    let payload = api::ReviewRequest { candidates: None };
+    Ok(post_review_request(&payload, config)?.target)
+}
+
+fn post_review_request(
+    payload: &api::ReviewRequest,
+    config: &common::config::Config,
+) -> Result<api::ReviewAssignment> {
     let client = reqwest::blocking::Client::new();
     let base = crate::common::api::normalize_base(&config.core.api_base)?;
     let url = crate::common::api::join(&base, "v1/review-requests")?;
@@ -117,27 +138,13 @@ pub fn request_target(
     if !config.core.api_key.is_empty() {
         request = request.header("X-API-Key", config.core.api_key.clone());
     }
-    let response = match request.json(&payload).send() {
-        Ok(response) => response,
-        Err(err) => {
-            log::warn!("Failed to request target from API: {}", err);
-            return Ok(None);
-        }
-    };
+    let response = request.json(&payload).send()?;
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().unwrap_or_default();
-        log::warn!("Review request failed ({}): {}", status, body);
-        return Ok(None);
+        return Err(format_err!("Review request failed ({}): {}", status, body));
     }
-    let assignment = match response.json::<api::ReviewAssignment>() {
-        Ok(assignment) => assignment,
-        Err(err) => {
-            log::warn!("Failed to parse review request response: {}", err);
-            return Ok(None);
-        }
-    };
-    Ok(assignment.target)
+    Ok(response.json::<api::ReviewAssignment>()?)
 }
 
 pub fn store_records(
