@@ -475,6 +475,13 @@ struct SelectedTarget {
     relative_path: std::path::PathBuf,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct ReviewCandidateFile {
+    relative_path: std::path::PathBuf,
+    line_count: usize,
+    already_reviewed: bool,
+}
+
 fn resolve_target_path(
     workspace_path: &std::path::PathBuf,
     target_file: &str,
@@ -523,32 +530,45 @@ fn select_target_files(
     skip_coordination: bool,
 ) -> Result<Vec<SelectedTarget>> {
     let analysis = review::workspace::analyse(workspace_path)?;
-    let mut candidates = Vec::new();
-    for (path, entry) in analysis.iter() {
-        if let common::fs::PathType::File = entry.path_type {
-            candidates.push((path.clone(), entry.line_count));
-        }
-    }
-    candidates.sort_by(|a, b| b.1.cmp(&a.1));
-    if candidates.is_empty() {
-        return Err(format_err!("No files found to review."));
-    }
-
     let registry = review
         .package
         .registries
         .iter()
         .next()
         .ok_or(format_err!("Package does not have associated registries."))?;
+    let locally_reviewed_paths =
+        get_locally_reviewed_target_paths(review, config, &registry.host_name)?;
+
+    let mut candidates = Vec::new();
+    for (path, entry) in analysis.iter() {
+        if let common::fs::PathType::File = entry.path_type {
+            candidates.push(ReviewCandidateFile {
+                relative_path: path.clone(),
+                line_count: entry.line_count,
+                already_reviewed: locally_reviewed_paths.contains(path),
+            });
+        }
+    }
+    sort_review_candidates(&mut candidates);
+    if candidates.is_empty() {
+        return Err(format_err!("No files found to review."));
+    }
+
+    if candidates
+        .iter()
+        .all(|candidate| candidate.already_reviewed)
+    {
+        println!("All candidate files already reviewed locally; reusing reviewed candidates.");
+    }
 
     let request_candidates = candidates
         .iter()
         .take(50)
-        .map(|(path, _)| review::remote::ReviewCandidate {
+        .map(|candidate| review::remote::ReviewCandidate {
             registry_host: registry.host_name.clone(),
             package_name: review.package.name.clone(),
             package_version: review.package.version.clone(),
-            file_path: path.display().to_string(),
+            file_path: candidate.relative_path.display().to_string(),
             artifact_hash: review.package.artifact_hash.clone(),
         })
         .collect::<Vec<_>>();
@@ -571,7 +591,7 @@ fn select_target_files(
         }
     }
 
-    let target_relative = candidates[0].0.clone();
+    let target_relative = candidates[0].relative_path.clone();
     let target_path = workspace_path.join(&target_relative);
     println!(
         "Selected target file (local order): {}",
@@ -581,6 +601,55 @@ fn select_target_files(
         absolute_path: target_path,
         relative_path: target_relative,
     }])
+}
+
+fn sort_review_candidates(candidates: &mut Vec<ReviewCandidateFile>) {
+    candidates.sort_by(|a, b| {
+        a.already_reviewed
+            .cmp(&b.already_reviewed)
+            .then_with(|| b.line_count.cmp(&a.line_count))
+            .then_with(|| a.relative_path.cmp(&b.relative_path))
+    });
+}
+
+fn get_locally_reviewed_target_paths(
+    current: &review::Review,
+    config: &common::config::Config,
+    registry_host_name: &str,
+) -> Result<std::collections::BTreeSet<std::path::PathBuf>> {
+    let mut reviewed_paths = std::collections::BTreeSet::new();
+    for stored in review::fs::list_with_status()? {
+        if !matches_current_review_artifact(
+            &stored.review,
+            current,
+            &config.core.reviewer_uuid,
+            registry_host_name,
+        ) {
+            continue;
+        }
+
+        for target in stored.review.targets {
+            reviewed_paths.insert(target.file_path);
+        }
+    }
+    Ok(reviewed_paths)
+}
+
+fn matches_current_review_artifact(
+    candidate: &review::Review,
+    current: &review::Review,
+    reviewer_uuid: &str,
+    registry_host_name: &str,
+) -> bool {
+    candidate.reviewer_details.reviewer_uuid == reviewer_uuid
+        && candidate.package.name == current.package.name
+        && candidate.package.version == current.package.version
+        && candidate.package.artifact_hash == current.package.artifact_hash
+        && candidate
+            .package
+            .registries
+            .iter()
+            .any(|registry| registry.host_name == registry_host_name)
 }
 
 fn build_reviewer_details(
@@ -838,4 +907,112 @@ fn get_primary_registry_metadata(
             "Failed to find primary registry metadata from extension."
         ))?;
     Ok(primary_registry.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sort_review_candidates_prefers_unreviewed_files() {
+        let mut candidates = vec![
+            candidate_file("already-reviewed-large.js", 300, true),
+            candidate_file("unreviewed-small.js", 50, false),
+            candidate_file("unreviewed-large.js", 200, false),
+            candidate_file("already-reviewed-small.js", 20, true),
+        ];
+
+        sort_review_candidates(&mut candidates);
+
+        let paths = candidates
+            .iter()
+            .map(|candidate| candidate.relative_path.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            paths,
+            vec![
+                "unreviewed-large.js",
+                "unreviewed-small.js",
+                "already-reviewed-large.js",
+                "already-reviewed-small.js",
+            ]
+        );
+    }
+
+    #[test]
+    fn matches_current_review_artifact_requires_same_reviewer_and_artifact() -> Result<()> {
+        let current = stored_review("reviewer-a", "registry.example", "pkg", "1.0.0", "hash-a")?;
+        let matching = stored_review("reviewer-a", "registry.example", "pkg", "1.0.0", "hash-a")?;
+        let other_reviewer =
+            stored_review("reviewer-b", "registry.example", "pkg", "1.0.0", "hash-a")?;
+        let other_hash = stored_review("reviewer-a", "registry.example", "pkg", "1.0.0", "hash-b")?;
+
+        assert!(matches_current_review_artifact(
+            &matching,
+            &current,
+            "reviewer-a",
+            "registry.example"
+        ));
+        assert!(!matches_current_review_artifact(
+            &other_reviewer,
+            &current,
+            "reviewer-a",
+            "registry.example"
+        ));
+        assert!(!matches_current_review_artifact(
+            &other_hash,
+            &current,
+            "reviewer-a",
+            "registry.example"
+        ));
+        Ok(())
+    }
+
+    fn candidate_file(
+        path: &str,
+        line_count: usize,
+        already_reviewed: bool,
+    ) -> ReviewCandidateFile {
+        ReviewCandidateFile {
+            relative_path: std::path::PathBuf::from(path),
+            line_count,
+            already_reviewed,
+        }
+    }
+
+    fn stored_review(
+        reviewer_uuid: &str,
+        registry_host_name: &str,
+        package_name: &str,
+        package_version: &str,
+        artifact_hash: &str,
+    ) -> Result<review::Review> {
+        let mut registries = std::collections::BTreeSet::new();
+        registries.insert(registry::Registry {
+            id: 0,
+            host_name: registry_host_name.to_string(),
+            human_url: url::Url::parse("https://registry.example/pkg")?,
+            artifact_url: url::Url::parse("https://registry.example/pkg.tgz")?,
+        });
+
+        Ok(review::Review {
+            id: 0,
+            peer: peer::Peer::default(),
+            package: package::Package {
+                id: 0,
+                name: package_name.to_string(),
+                version: package_version.to_string(),
+                registries,
+                artifact_hash: artifact_hash.to_string(),
+            },
+            targets: Vec::new(),
+            reviewer_details: review::ReviewerDetails {
+                reviewer_uuid: reviewer_uuid.to_string(),
+                ..Default::default()
+            },
+            agent_summary: String::new(),
+            overall_security_summary: review::SecuritySummary::default(),
+            overall_security_confidence: None,
+        })
+    }
 }
