@@ -2590,6 +2590,7 @@ dependencies = [
  "vouch-js",
  "vouch-lib",
  "vouch-py",
+ "vouch-rs",
  "winapi 0.3.9",
  "zip",
 ]
@@ -2641,6 +2642,20 @@ dependencies = [
  "structopt",
  "strum",
  "strum_macros",
+ "url",
+ "vouch-lib",
+]
+
+[[package]]
+name = "vouch-rs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "reqwest 0.10.10",
+ "serde",
+ "serde_json",
+ "structopt",
+ "tempdir",
  "url",
  "vouch-lib",
 ]

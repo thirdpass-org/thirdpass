@@ -16,7 +16,7 @@ impl std::convert::TryFrom<&std::path::PathBuf> for ArchiveType {
     fn try_from(path: &std::path::PathBuf) -> Result<Self, Self::Error> {
         Ok(match get_file_extension(&path)?.as_str() {
             "zip" => Self::Zip,
-            "tar.gz" => Self::TarGz,
+            "tar.gz" | "crate" => Self::TarGz,
             "tgz" => Self::Tgz,
             _ => Self::Unknown,
         })
@@ -68,6 +68,13 @@ mod tests {
         let result = get_file_extension(&std::path::PathBuf::from("/d3/d3-4.10.0.tar.gz"))?;
         let expected = "tar.gz".to_string();
         assert!(result == expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_crate_archives_are_treated_as_tar_gz() -> Result<()> {
+        let result = ArchiveType::try_from(&std::path::PathBuf::from("/serde/serde-1.0.0.crate"))?;
+        assert_eq!(result, ArchiveType::TarGz);
         Ok(())
     }
 }

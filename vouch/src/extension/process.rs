@@ -13,6 +13,7 @@ pub fn get_all() -> Result<Vec<Box<dyn vouch_lib::extension::Extension>>> {
     let mut all_extensions = vec![
         Box::new(vouch_py_lib::PyExtension::new()) as Box<dyn vouch_lib::extension::Extension>,
         Box::new(vouch_js_lib::JsExtension::new()) as Box<dyn vouch_lib::extension::Extension>,
+        Box::new(vouch_rs_lib::RsExtension::new()) as Box<dyn vouch_lib::extension::Extension>,
     ];
 
     for extension in get_process_extensions()? {
