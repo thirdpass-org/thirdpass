@@ -19,7 +19,7 @@ pub struct Arguments {
     pub extension_names: Option<Vec<String>>,
 
     /// Run manual review in VS Code instead of an automated agent review.
-    #[structopt(long = "manual")]
+    #[structopt(long = "manual", hidden = true)]
     pub manual: bool,
 
     /// Select review agent (`codex` or `claude`). Persists as default.

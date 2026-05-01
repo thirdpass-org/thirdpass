@@ -88,6 +88,24 @@ mod tests {
     }
 
     #[test]
+    fn cli_help_hides_manual_review_flags() {
+        for help in [
+            short_help_for::<review::Arguments>(),
+            long_help_for::<review::Arguments>(),
+            short_help_for::<review_any::Arguments>(),
+            long_help_for::<review_any::Arguments>(),
+            short_help_for::<review_deps::Arguments>(),
+            long_help_for::<review_deps::Arguments>(),
+        ] {
+            assert!(
+                !help.contains("--manual"),
+                "manual review flag should stay hidden from CLI help:\n{}",
+                help
+            );
+        }
+    }
+
+    #[test]
     fn cli_parses_review_agent_flag() {
         let parsed = std::panic::catch_unwind(|| {
             Opts::from_iter_safe(&["vouch", "review", "d3", "4.10.0", "--agent", "claude"])
@@ -232,5 +250,20 @@ mod tests {
 
         assert!(parsed.is_ok(), "CLI parsing panicked.");
         assert!(parsed.unwrap().is_err(), "Expected parsing to fail.");
+    }
+
+    fn short_help_for<T: StructOpt>() -> String {
+        let app = T::clap();
+        let mut output = Vec::new();
+        app.write_help(&mut output).expect("failed to write help");
+        String::from_utf8(output).expect("help output is not UTF-8")
+    }
+
+    fn long_help_for<T: StructOpt>() -> String {
+        let mut app = T::clap();
+        let mut output = Vec::new();
+        app.write_long_help(&mut output)
+            .expect("failed to write long help");
+        String::from_utf8(output).expect("long help output is not UTF-8")
     }
 }
