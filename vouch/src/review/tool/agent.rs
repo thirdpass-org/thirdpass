@@ -240,7 +240,7 @@ pub fn run(
         .collect();
 
     Ok(AgentRunResult {
-        model: output.model,
+        model: recorded_codex_model(agent_model, output.model),
         comments,
         summary: output.summary.and_then(|value| {
             let trimmed = value.trim().to_string();
@@ -351,6 +351,14 @@ fn run_codex_exec(
         }),
         confidence: output.confidence,
     })
+}
+
+fn recorded_codex_model(requested_model: Option<&str>, reported_model: String) -> String {
+    requested_model
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or(reported_model)
 }
 
 fn truncate_for_log(value: &str, max_len: usize) -> String {
@@ -717,4 +725,22 @@ fn parse_selection(entry: &Value) -> Option<Selection> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::recorded_codex_model;
+
+    #[test]
+    fn recorded_codex_model_prefers_requested_model() {
+        assert_eq!(
+            recorded_codex_model(Some("gpt-5.5"), "GPT-5".to_string()),
+            "gpt-5.5"
+        );
+    }
+
+    #[test]
+    fn recorded_codex_model_uses_reported_model_without_request() {
+        assert_eq!(recorded_codex_model(None, "GPT-5".to_string()), "GPT-5");
+    }
 }
