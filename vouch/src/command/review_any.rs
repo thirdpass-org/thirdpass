@@ -10,7 +10,7 @@ use crate::review;
     name = "no_version",
     no_version,
     global_settings = &[structopt::clap::AppSettings::DisableVersion],
-    about = "Review a globally assigned high-priority target."
+    about = "Review any assigned high-priority target."
 )]
 pub struct Arguments {
     /// Run manual review in VS Code instead of an automated agent review.
@@ -29,7 +29,7 @@ pub struct Arguments {
     #[structopt(long = "agent-reasoning-effort", value_name = "effort")]
     pub agent_reasoning_effort: Option<String>,
 
-    /// Skip review submission after the global assignment is reviewed.
+    /// Skip review submission after the assigned target is reviewed.
     #[structopt(long = "skip-coordination", alias = "no-submit")]
     pub skip_coordination: bool,
 }
@@ -38,9 +38,8 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
 
-    let target = review::remote::request_global_target(&config)?.ok_or(format_err!(
-        "No global review target is currently available."
-    ))?;
+    let target = review::remote::request_global_target(&config)?
+        .ok_or(format_err!("No review target is currently available."))?;
     let extension_name = config
         .extensions
         .registries
@@ -52,7 +51,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         ))?;
 
     println!(
-        "Selected global review target: {} {} {} ({})",
+        "Selected review target: {} {} {} ({})",
         target.package_name, target.package_version, target.file_path, target.registry_host
     );
 
@@ -75,11 +74,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_parses_review_global_args() {
+    fn command_parses_review_any_args() {
         let parsed = std::panic::catch_unwind(|| {
             crate::command::Opts::from_iter_safe(&[
                 "vouch",
-                "review-global",
+                "review-any",
                 "--agent",
                 "codex",
                 "--agent-model",
@@ -93,13 +92,13 @@ mod tests {
         assert!(parsed.is_ok(), "CLI parsing panicked.");
         let parsed = parsed.unwrap().expect("CLI parsing failed.");
         match parsed.command {
-            crate::command::Command::ReviewGlobal(args) => {
+            crate::command::Command::ReviewAny(args) => {
                 assert_eq!(args.agent.as_deref(), Some("codex"));
                 assert_eq!(args.agent_model.as_deref(), Some("gpt-5.2-codex"));
                 assert_eq!(args.agent_reasoning_effort.as_deref(), Some("high"));
                 assert!(args.skip_coordination);
             }
-            _ => panic!("Expected review-global command."),
+            _ => panic!("Expected review-any command."),
         }
     }
 }
