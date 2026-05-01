@@ -1,6 +1,7 @@
 use anyhow::Result;
 use structopt::{self, StructOpt};
 
+mod admin;
 mod check;
 mod config;
 mod extension;
@@ -27,6 +28,10 @@ pub fn run_command(command: Command, extension_args: &Vec<String>) -> Result<()>
         Command::Check(args) => {
             log::info!("Running command: check");
             check::run_command(&args, &extension_args)?;
+        }
+        Command::Admin(args) => {
+            log::info!("Running command: admin");
+            admin::run_subcommand(&args)?;
         }
         Command::Config(args) => {
             log::info!("Running command: config");
@@ -57,6 +62,10 @@ pub enum Command {
     /// Check dependencies against reviews.
     #[structopt(name = "check")]
     Check(check::Arguments),
+
+    /// Run server administration commands.
+    #[structopt(name = "admin")]
+    Admin(admin::Subcommands),
 
     /// Read and update persisted configuration.
     #[structopt(name = "config")]
@@ -184,6 +193,33 @@ mod tests {
                 assert_eq!(args.output, check::OutputFormat::Json);
             }
             _ => panic!("Expected check command."),
+        }
+    }
+
+    #[test]
+    fn cli_parses_admin_quarantine_review() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&[
+                "vouch",
+                "admin",
+                "quarantine-review",
+                "review-1",
+                "--api-base",
+                "http://127.0.0.1:3000",
+                "--admin-key",
+                "local-key",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Admin(admin::Subcommands::QuarantineReview(args)) => {
+                assert_eq!(args.review_id, "review-1");
+                assert_eq!(args.api_base.as_deref(), Some("http://127.0.0.1:3000"));
+                assert_eq!(args.admin_key.as_deref(), Some("local-key"));
+            }
+            _ => panic!("Expected admin quarantine-review command."),
         }
     }
 
