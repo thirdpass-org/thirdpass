@@ -68,6 +68,7 @@ pub struct ReviewerDetails {
     pub reviewer_uuid: String,
     pub agent_name: String,
     pub agent_model: String,
+    pub agent_reasoning_effort: String,
     pub prompt_version: String,
     pub review_scope: ReviewScope,
     pub created_at: String,

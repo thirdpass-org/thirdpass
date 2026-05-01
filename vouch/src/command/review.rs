@@ -135,34 +135,51 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             .iter()
             .map(|target| target.relative_path.clone())
             .collect::<std::collections::BTreeSet<_>>();
-        let (expected_agent_name, expected_agent_model, expected_prompt_version, expected_scope) =
-            if args.manual {
-                (
-                    "manual".to_string(),
-                    Some("".to_string()),
-                    "manual".to_string(),
-                    review::ReviewScope::TargetFilePartial,
+        let (
+            expected_agent_name,
+            expected_agent_model,
+            expected_agent_reasoning_effort,
+            expected_prompt_version,
+            expected_scope,
+        ) = if args.manual {
+            (
+                "manual".to_string(),
+                Some("".to_string()),
+                "manual".to_string(),
+                "manual".to_string(),
+                review::ReviewScope::TargetFilePartial,
+            )
+        } else {
+            let expected_agent_name = override_agent
+                .map(|agent| agent.name().to_string())
+                .or_else(|| config.review_tool.agent.clone())
+                .unwrap_or_else(|| "codex".to_string());
+            let expected_model = if expected_agent_name == "codex" {
+                args.agent_model
+                    .as_deref()
+                    .or(config.review_tool.agent_model.as_deref())
+                    .map(|model| model.to_string())
+            } else {
+                None
+            };
+            let expected_effort = if expected_agent_name == "codex" {
+                recorded_agent_reasoning_effort(
+                    &expected_agent_name,
+                    args.agent_reasoning_effort
+                        .as_deref()
+                        .or(config.review_tool.agent_reasoning_effort.as_deref()),
                 )
             } else {
-                let expected_agent_name = override_agent
-                    .map(|agent| agent.name().to_string())
-                    .or_else(|| config.review_tool.agent.clone())
-                    .unwrap_or_else(|| "codex".to_string());
-                let expected_model = if expected_agent_name == "codex" {
-                    args.agent_model
-                        .as_deref()
-                        .or(config.review_tool.agent_model.as_deref())
-                        .map(|model| model.to_string())
-                } else {
-                    None
-                };
-                (
-                    expected_agent_name,
-                    expected_model,
-                    review::tool::agent_prompt_version().to_string(),
-                    review::ReviewScope::TargetFileFull,
-                )
+                recorded_agent_reasoning_effort(&expected_agent_name, None)
             };
+            (
+                expected_agent_name,
+                expected_model,
+                expected_effort,
+                review::tool::agent_prompt_version().to_string(),
+                review::ReviewScope::TargetFileFull,
+            )
+        };
 
         let existing = match find_matching_local_review(
             &config,
@@ -173,6 +190,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             expected_scope,
             &expected_agent_name,
             expected_agent_model.as_deref(),
+            &expected_agent_reasoning_effort,
             &expected_prompt_version,
         ) {
             Ok(existing) => existing,
@@ -186,7 +204,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             None => {
                 review::workspace::remove(&workspace_manifest)?;
                 return Err(format_err!(
-                    "No matching local review found for this scope/model. Run without --submit-existing first."
+                    "No matching local review found for this scope/model/effort. Run without --submit-existing first."
                 ));
             }
         };
@@ -227,6 +245,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         targets,
         agent_name,
         agent_model,
+        agent_reasoning_effort,
         prompt_version,
         review_scope,
         agent_summary,
@@ -241,6 +260,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             targets,
             "manual".to_string(),
             "".to_string(),
+            "manual".to_string(),
             "manual".to_string(),
             review::ReviewScope::TargetFilePartial,
             String::new(),
@@ -348,6 +368,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             targets,
             agent.name().to_string(),
             agent_model.unwrap_or_else(|| "unknown".to_string()),
+            recorded_agent_reasoning_effort(agent.name(), effective_agent_reasoning_effort),
             review::tool::agent_prompt_version().to_string(),
             review::ReviewScope::TargetFileFull,
             agent_summary,
@@ -360,6 +381,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         &config,
         &agent_name,
         &agent_model,
+        &agent_reasoning_effort,
         &prompt_version,
         review_scope,
     )?;
@@ -656,6 +678,7 @@ fn build_reviewer_details(
     config: &common::config::Config,
     agent_name: &str,
     agent_model: &str,
+    agent_reasoning_effort: &str,
     prompt_version: &str,
     review_scope: review::ReviewScope,
 ) -> Result<review::ReviewerDetails> {
@@ -663,11 +686,27 @@ fn build_reviewer_details(
         reviewer_uuid: config.core.reviewer_uuid.clone(),
         agent_name: agent_name.to_string(),
         agent_model: agent_model.to_string(),
+        agent_reasoning_effort: agent_reasoning_effort.to_string(),
         prompt_version: prompt_version.to_string(),
         review_scope,
         created_at: now_epoch_seconds()?,
         vouch_version: env!("CARGO_PKG_VERSION").to_string(),
     })
+}
+
+fn recorded_agent_reasoning_effort(
+    agent_name: &str,
+    agent_reasoning_effort: Option<&str>,
+) -> String {
+    if agent_name == "manual" {
+        return "manual".to_string();
+    }
+
+    agent_reasoning_effort
+        .map(str::trim)
+        .filter(|effort| !effort.is_empty())
+        .unwrap_or("default")
+        .to_string()
 }
 
 fn now_epoch_seconds() -> Result<String> {
@@ -738,6 +777,7 @@ fn find_matching_local_review(
     expected_scope: review::ReviewScope,
     expected_agent_name: &str,
     expected_agent_model: Option<&str>,
+    expected_agent_reasoning_effort: &str,
     expected_prompt_version: &str,
 ) -> Result<Option<review::fs::StoredReview>> {
     let stored_reviews = review::fs::list_with_status()?;
@@ -768,6 +808,9 @@ fn find_matching_local_review(
             if current.reviewer_details.agent_model != model {
                 continue;
             }
+        }
+        if current.reviewer_details.agent_reasoning_effort != expected_agent_reasoning_effort {
+            continue;
         }
 
         let stored_target_paths = current
