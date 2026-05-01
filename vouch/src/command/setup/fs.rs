@@ -52,7 +52,7 @@ fn setup_config(paths: &common::fs::ConfigPaths, force: bool) -> Result<()> {
         config.review_tool.name = "agent".to_string();
         config.review_tool.install_check = false;
         config.review_tool.agent = Some("codex".to_string());
-        config.review_tool.agent_model = Some("gpt-5.2-codex".to_string());
+        config.review_tool.agent_model = Some("gpt-5.5".to_string());
         config.review_tool.agent_reasoning_effort = Some("high".to_string());
         extension::manage::update_config(&mut config)?;
         config.dump()?;

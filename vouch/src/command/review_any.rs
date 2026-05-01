@@ -82,7 +82,7 @@ mod tests {
                 "--agent",
                 "codex",
                 "--agent-model",
-                "gpt-5.2-codex",
+                "gpt-5.5",
                 "--agent-reasoning-effort",
                 "high",
                 "--skip-coordination",
@@ -94,7 +94,7 @@ mod tests {
         match parsed.command {
             crate::command::Command::ReviewAny(args) => {
                 assert_eq!(args.agent.as_deref(), Some("codex"));
-                assert_eq!(args.agent_model.as_deref(), Some("gpt-5.2-codex"));
+                assert_eq!(args.agent_model.as_deref(), Some("gpt-5.5"));
                 assert_eq!(args.agent_reasoning_effort.as_deref(), Some("high"));
                 assert!(args.skip_coordination);
             }

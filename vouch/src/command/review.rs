@@ -16,7 +16,7 @@ use crate::review;
     no_version,
     global_settings = &[structopt::clap::AppSettings::DisableVersion],
     about = "Review a package release and submit findings.",
-    after_help = "Examples:\n    vouch review d3 4.10.0\n    vouch review d3 --extension js\n    vouch review d3 4.10.0 --file src/index.js --file src/color.js\n    vouch review d3 4.10.0 --agent codex --agent-model gpt-5.2-codex --agent-reasoning-effort high\n    vouch review d3 4.10.0 --submit-existing\n    vouch review d3 4.10.0 --skip-coordination"
+    after_help = "Examples:\n    vouch review d3 4.10.0\n    vouch review d3 --extension js\n    vouch review d3 4.10.0 --file src/index.js --file src/color.js\n    vouch review d3 4.10.0 --agent codex --agent-model gpt-5.5 --agent-reasoning-effort high\n    vouch review d3 4.10.0 --submit-existing\n    vouch review d3 4.10.0 --skip-coordination"
 )]
 pub struct Arguments {
     /// Package name to review.
