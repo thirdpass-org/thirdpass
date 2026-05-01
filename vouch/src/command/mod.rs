@@ -224,6 +224,33 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_admin_unquarantine_review() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&[
+                "vouch",
+                "admin",
+                "unquarantine-review",
+                "review-1",
+                "--api-base",
+                "http://127.0.0.1:3000",
+                "--admin-key",
+                "local-key",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Admin(admin::Subcommands::UnquarantineReview(args)) => {
+                assert_eq!(args.review_id, "review-1");
+                assert_eq!(args.api_base.as_deref(), Some("http://127.0.0.1:3000"));
+                assert_eq!(args.admin_key.as_deref(), Some("local-key"));
+            }
+            _ => panic!("Expected admin unquarantine-review command."),
+        }
+    }
+
+    #[test]
     fn cli_parses_config_get_without_field() {
         let parsed = std::panic::catch_unwind(|| Opts::from_iter_safe(&["vouch", "config", "get"]));
 
