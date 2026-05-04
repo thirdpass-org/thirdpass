@@ -26,6 +26,8 @@ pub use summary::Summary;
 )]
 pub struct ReviewTarget {
     pub file_path: std::path::PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_hash: Option<vouch_lib::schema::FileHash>,
     pub comments: std::collections::BTreeSet<crate::review::comment::Comment>,
 }
 

@@ -365,6 +365,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                 .collect::<std::collections::BTreeSet<_>>();
             targets.push(review::ReviewTarget {
                 file_path: target.relative_path.clone(),
+                file_hash: Some(target.file_hash.clone()),
                 comments,
             });
         }
@@ -491,23 +492,33 @@ fn build_targets_from_comments(
             .insert(comment);
     }
 
+    let mut targets = Vec::new();
     for target in selected_targets {
-        grouped.entry(target.relative_path.clone()).or_default();
+        let comments = grouped.remove(&target.relative_path).unwrap_or_default();
+        targets.push(review::ReviewTarget {
+            file_path: target.relative_path.clone(),
+            file_hash: Some(target.file_hash.clone()),
+            comments,
+        });
     }
 
-    grouped
-        .into_iter()
-        .map(|(file_path, comments)| review::ReviewTarget {
-            file_path,
-            comments,
-        })
-        .collect()
+    targets.extend(
+        grouped
+            .into_iter()
+            .map(|(file_path, comments)| review::ReviewTarget {
+                file_path,
+                file_hash: None,
+                comments,
+            }),
+    );
+    targets
 }
 
 #[derive(Debug, Clone)]
 struct SelectedTarget {
     absolute_path: std::path::PathBuf,
     relative_path: std::path::PathBuf,
+    file_hash: vouch_lib::schema::FileHash,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -537,9 +548,24 @@ fn resolve_target_path(
         .strip_prefix(workspace_path)
         .unwrap_or(target_path.as_path())
         .to_path_buf();
+    selected_target(target_path, target_relative)
+}
+
+fn selected_target(
+    absolute_path: std::path::PathBuf,
+    relative_path: std::path::PathBuf,
+) -> Result<SelectedTarget> {
+    let (hash, path_type) = common::fs::hash(&absolute_path)?;
+    if !matches!(path_type, common::fs::PathType::File) {
+        return Err(format_err!(
+            "Target path is not a file: {}",
+            absolute_path.display()
+        ));
+    }
     Ok(SelectedTarget {
-        absolute_path: target_path,
-        relative_path: target_relative,
+        absolute_path,
+        relative_path,
+        file_hash: vouch_lib::schema::FileHash::blake3(hash),
     })
 }
 
@@ -614,10 +640,7 @@ fn select_target_files(
             let target_path = workspace_path.join(&target_relative);
             if target_path.is_file() {
                 println!("Selected target file: {}", target_relative.display());
-                return Ok(vec![SelectedTarget {
-                    absolute_path: target_path,
-                    relative_path: target_relative,
-                }]);
+                return Ok(vec![selected_target(target_path, target_relative)?]);
             }
             log::warn!(
                 "Target file from API not found locally: {}",
@@ -632,10 +655,7 @@ fn select_target_files(
         "Selected target file (local order): {}",
         target_relative.display()
     );
-    Ok(vec![SelectedTarget {
-        absolute_path: target_path,
-        relative_path: target_relative,
-    }])
+    Ok(vec![selected_target(target_path, target_relative)?])
 }
 
 fn sort_review_candidates(candidates: &mut Vec<ReviewCandidateFile>) {
@@ -1030,6 +1050,24 @@ mod tests {
             "reviewer-a",
             "registry.example"
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn resolve_target_path_records_blake3_file_hash() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let workspace = tmp.path().to_path_buf();
+        let contents = b"console.log('review me');\n";
+        std::fs::write(workspace.join("index.js"), contents)?;
+
+        let target = resolve_target_path(&workspace, "index.js")?;
+        let expected_hash = blake3::hash(contents).to_hex().as_str().to_string();
+
+        assert_eq!(target.relative_path, std::path::PathBuf::from("index.js"));
+        assert_eq!(
+            target.file_hash,
+            vouch_lib::schema::FileHash::blake3(expected_hash)
+        );
         Ok(())
     }
 

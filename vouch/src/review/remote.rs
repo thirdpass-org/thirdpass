@@ -24,20 +24,7 @@ pub fn submit(review: &review::Review, config: &common::config::Config) -> Resul
         package_version: review.package.version.clone(),
         package_hash: review.package.package_hash.clone(),
     };
-    let files = review
-        .targets
-        .iter()
-        .map(|target| api::ReviewFile {
-            file_path: target.file_path.display().to_string(),
-            file_hash: None,
-            comments: target
-                .comments
-                .iter()
-                .cloned()
-                .map(to_remote_comment)
-                .collect(),
-        })
-        .collect::<Vec<_>>();
+    let files = to_api_review_files(&review.targets);
 
     let payload = api::ReviewSubmission {
         target,
@@ -186,7 +173,7 @@ fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> R
         .map(|file| {
             let api::ReviewFile {
                 file_path,
-                file_hash: _,
+                file_hash,
                 comments,
             } = file;
             let comments = comments
@@ -195,6 +182,7 @@ fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> R
                 .collect::<std::collections::BTreeSet<_>>();
             review::ReviewTarget {
                 file_path: std::path::PathBuf::from(file_path),
+                file_hash,
                 comments,
             }
         })
@@ -215,6 +203,22 @@ fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> R
 
     review::store_submitted(&review)?;
     Ok(())
+}
+
+fn to_api_review_files(targets: &[review::ReviewTarget]) -> Vec<api::ReviewFile> {
+    targets
+        .iter()
+        .map(|target| api::ReviewFile {
+            file_path: target.file_path.display().to_string(),
+            file_hash: target.file_hash.clone(),
+            comments: target
+                .comments
+                .iter()
+                .cloned()
+                .map(to_remote_comment)
+                .collect(),
+        })
+        .collect()
 }
 
 fn to_remote_comment(comment: Comment) -> api::ReviewComment {
@@ -382,5 +386,26 @@ fn build_package(target: &api::ReviewTarget, registry: &registry::Registry) -> p
         version: target.package_version.clone(),
         registries: maplit::btreeset! { registry.clone() },
         package_hash: target.package_hash.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_api_review_files_preserves_file_hash() {
+        let file_hash = api::FileHash::blake3("abc123");
+        let targets = vec![review::ReviewTarget {
+            file_path: std::path::PathBuf::from("index.js"),
+            file_hash: Some(file_hash.clone()),
+            comments: std::collections::BTreeSet::new(),
+        }];
+
+        let files = to_api_review_files(&targets);
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_path, "index.js");
+        assert_eq!(files[0].file_hash, Some(file_hash));
     }
 }

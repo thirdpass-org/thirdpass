@@ -18,7 +18,7 @@ pub struct ReviewFile {
 }
 
 /// Content hash for a file included in a review.
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct FileHash {
     /// Algorithm used to produce the hash digest.
     pub algorithm: FileHashAlgorithm,
@@ -37,7 +37,7 @@ impl FileHash {
 }
 
 /// Supported content hash algorithms for reviewed files.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum FileHashAlgorithm {
     /// The Blake3 cryptographic hash algorithm.
