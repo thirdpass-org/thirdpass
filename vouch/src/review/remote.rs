@@ -29,6 +29,7 @@ pub fn submit(review: &review::Review, config: &common::config::Config) -> Resul
         .iter()
         .map(|target| api::ReviewFile {
             file_path: target.file_path.display().to_string(),
+            file_hash: None,
             comments: target
                 .comments
                 .iter()
@@ -185,6 +186,7 @@ fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> R
         .map(|file| {
             let api::ReviewFile {
                 file_path,
+                file_hash: _,
                 comments,
             } = file;
             let comments = comments

@@ -12,7 +12,36 @@ pub struct ReviewTarget {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewFile {
     pub file_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_hash: Option<FileHash>,
     pub comments: Vec<ReviewComment>,
+}
+
+/// Content hash for a file included in a review.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct FileHash {
+    /// Algorithm used to produce the hash digest.
+    pub algorithm: FileHashAlgorithm,
+    /// Lowercase hexadecimal hash digest.
+    pub value: String,
+}
+
+impl FileHash {
+    /// Build a Blake3 file hash from a lowercase hexadecimal digest.
+    pub fn blake3(value: impl Into<String>) -> Self {
+        Self {
+            algorithm: FileHashAlgorithm::Blake3,
+            value: value.into(),
+        }
+    }
+}
+
+/// Supported content hash algorithms for reviewed files.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum FileHashAlgorithm {
+    /// The Blake3 cryptographic hash algorithm.
+    Blake3,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,5 +233,45 @@ impl FromStr for ReviewConfidence {
             "low" => Ok(ReviewConfidence::Low),
             _ => Err(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn review_file_serializes_blake3_hash_metadata() {
+        let file = ReviewFile {
+            file_path: "src/index.js".to_string(),
+            file_hash: Some(FileHash::blake3("abc123")),
+            comments: vec![],
+        };
+
+        let value = serde_json::to_value(file).expect("failed to serialize review file");
+
+        assert_eq!(
+            value,
+            json!({
+                "file_path": "src/index.js",
+                "file_hash": {
+                    "algorithm": "blake3",
+                    "value": "abc123"
+                },
+                "comments": []
+            })
+        );
+    }
+
+    #[test]
+    fn review_file_defaults_missing_file_hash() {
+        let file: ReviewFile = serde_json::from_value(json!({
+            "file_path": "src/index.js",
+            "comments": []
+        }))
+        .expect("failed to deserialize review file");
+
+        assert_eq!(file.file_hash, None);
     }
 }
