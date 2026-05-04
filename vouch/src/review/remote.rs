@@ -35,11 +35,8 @@ pub fn submit(review: &review::Review, config: &common::config::Config) -> Resul
         } else {
             Some(review.agent_summary.clone())
         },
-        overall_security_summary: Some(to_api_security_summary(&review.overall_security_summary)),
-        overall_security_confidence: review
-            .overall_security_confidence
-            .as_ref()
-            .map(to_api_confidence),
+        overall_security_summary: None,
+        overall_security_confidence: None,
     };
 
     let client = reqwest::blocking::Client::new();
@@ -174,6 +171,9 @@ fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> R
             let api::ReviewFile {
                 file_path,
                 file_hash,
+                summary,
+                security_summary,
+                confidence,
                 comments,
             } = file;
             let comments = comments
@@ -183,6 +183,9 @@ fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> R
             review::ReviewTarget {
                 file_path: std::path::PathBuf::from(file_path),
                 file_hash,
+                agent_summary: summary,
+                security_summary: security_summary.as_ref().map(from_api_security_summary),
+                confidence: confidence.as_ref().map(from_api_confidence),
                 comments,
             }
         })
@@ -211,6 +214,12 @@ fn to_api_review_files(targets: &[review::ReviewTarget]) -> Vec<api::ReviewFile>
         .map(|target| api::ReviewFile {
             file_path: target.file_path.display().to_string(),
             file_hash: target.file_hash.clone(),
+            summary: target.agent_summary.clone(),
+            security_summary: target
+                .security_summary
+                .as_ref()
+                .map(to_api_security_summary),
+            confidence: target.confidence.as_ref().map(to_api_confidence),
             comments: target
                 .comments
                 .iter()
@@ -399,6 +408,9 @@ mod tests {
         let targets = vec![review::ReviewTarget {
             file_path: std::path::PathBuf::from("index.js"),
             file_hash: Some(file_hash.clone()),
+            agent_summary: Some("Reviewed the file.".to_string()),
+            security_summary: Some(SecuritySummary::Low),
+            confidence: Some(ReviewConfidence::High),
             comments: std::collections::BTreeSet::new(),
         }];
 
@@ -407,5 +419,8 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].file_path, "index.js");
         assert_eq!(files[0].file_hash, Some(file_hash));
+        assert_eq!(files[0].summary.as_deref(), Some("Reviewed the file."));
+        assert_eq!(files[0].security_summary, Some(api::SecuritySummary::Low));
+        assert_eq!(files[0].confidence, Some(api::ReviewConfidence::High));
     }
 }

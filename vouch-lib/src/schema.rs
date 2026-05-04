@@ -11,9 +11,21 @@ pub struct ReviewTarget {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewFile {
+    /// Path of the reviewed file relative to the package root.
     pub file_path: String,
+    /// Content hash for the reviewed file, when the client can compute it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_hash: Option<FileHash>,
+    /// Agent-written summary for this individual file review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// Security severity for this individual file review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security_summary: Option<SecuritySummary>,
+    /// Agent confidence for this individual file review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<ReviewConfidence>,
+    /// Specific comments reported for the reviewed file.
     pub comments: Vec<ReviewComment>,
 }
 
@@ -129,7 +141,7 @@ impl ReviewScope {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Priority {
     Critical,
@@ -137,7 +149,7 @@ pub enum Priority {
     Low,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum SecuritySummary {
     Critical,
@@ -146,7 +158,7 @@ pub enum SecuritySummary {
     None,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ReviewConfidence {
     High,
@@ -246,6 +258,9 @@ mod tests {
         let file = ReviewFile {
             file_path: "src/index.js".to_string(),
             file_hash: Some(FileHash::blake3("abc123")),
+            summary: Some("Reviewed the entrypoint.".to_string()),
+            security_summary: Some(SecuritySummary::Low),
+            confidence: Some(ReviewConfidence::High),
             comments: vec![],
         };
 
@@ -259,6 +274,9 @@ mod tests {
                     "algorithm": "blake3",
                     "value": "abc123"
                 },
+                "summary": "Reviewed the entrypoint.",
+                "security_summary": "low",
+                "confidence": "high",
                 "comments": []
             })
         );
@@ -273,5 +291,8 @@ mod tests {
         .expect("failed to deserialize review file");
 
         assert_eq!(file.file_hash, None);
+        assert_eq!(file.summary, None);
+        assert_eq!(file.security_summary, None);
+        assert_eq!(file.confidence, None);
     }
 }

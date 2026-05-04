@@ -254,7 +254,6 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         review_strategy,
         review_scope,
         agent_summary,
-        overall_security_confidence,
     ) = if args.manual {
         if override_agent.is_some() {
             review::tool::select_agent(&mut config, override_agent)?;
@@ -269,7 +268,6 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             review::tool::review_strategy().to_string(),
             review::ReviewScope::TargetFilePartial,
             String::new(),
-            None,
         )
     } else {
         let agent = review::tool::select_agent(&mut config, override_agent)?;
@@ -295,7 +293,6 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         let mut targets = Vec::new();
         let mut agent_model = None::<String>;
         let mut agent_summary = String::new();
-        let mut confidence_values = Vec::new();
 
         for target in &selected_targets {
             let target_display = target.relative_path.display().to_string();
@@ -330,18 +327,19 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                 Some(current) if current == agent_run.model => Some(current),
                 Some(_) => Some("mixed".to_string()),
             };
-            if let Some(summary) = agent_run.summary.as_deref() {
-                let summary = summary.trim();
-                if !summary.is_empty() {
-                    if !agent_summary.is_empty() {
-                        agent_summary.push('\n');
-                    }
-                    agent_summary.push_str(summary);
+            let file_agent_summary = agent_run
+                .summary
+                .as_deref()
+                .map(str::trim)
+                .filter(|summary| !summary.is_empty())
+                .map(ToOwned::to_owned);
+            if let Some(summary) = file_agent_summary.as_deref() {
+                if !agent_summary.is_empty() {
+                    agent_summary.push('\n');
                 }
+                agent_summary.push_str(summary);
             }
-            if let Some(confidence) = agent_run.confidence {
-                confidence_values.push(confidence);
-            }
+            let file_confidence = agent_run.confidence.clone();
             let comments = normalize_comments(agent_run.comments)
                 .into_iter()
                 .map(|mut comment| {
@@ -349,9 +347,13 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                     comment
                 })
                 .collect::<std::collections::BTreeSet<_>>();
+            let security_summary = review::security_summary_for_comments(&comments);
             targets.push(review::ReviewTarget {
                 file_path: target.relative_path.clone(),
                 file_hash: Some(target.file_hash.clone()),
+                agent_summary: file_agent_summary,
+                security_summary: Some(security_summary),
+                confidence: file_confidence,
                 comments,
             });
         }
@@ -364,7 +366,6 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             review::tool::review_strategy().to_string(),
             review::ReviewScope::TargetFileFull,
             agent_summary,
-            aggregate_confidence(&confidence_values),
         )
     };
 
@@ -379,7 +380,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     )?;
     review.agent_summary = agent_summary;
     review.overall_security_summary = review::overall_security_summary(&review)?;
-    review.overall_security_confidence = overall_security_confidence;
+    review.overall_security_confidence = None;
 
     let pending_review_path = review::store_pending(&review)?;
     println!("Review saved.");
@@ -484,19 +485,24 @@ fn build_targets_from_comments(
         targets.push(review::ReviewTarget {
             file_path: target.relative_path.clone(),
             file_hash: Some(target.file_hash.clone()),
+            agent_summary: None,
+            security_summary: Some(review::security_summary_for_comments(&comments)),
+            confidence: None,
             comments,
         });
     }
 
-    targets.extend(
-        grouped
-            .into_iter()
-            .map(|(file_path, comments)| review::ReviewTarget {
-                file_path,
-                file_hash: None,
-                comments,
-            }),
-    );
+    targets.extend(grouped.into_iter().map(|(file_path, comments)| {
+        let security_summary = review::security_summary_for_comments(&comments);
+        review::ReviewTarget {
+            file_path,
+            file_hash: None,
+            agent_summary: None,
+            security_summary: Some(security_summary),
+            confidence: None,
+            comments,
+        }
+    }));
     targets
 }
 
@@ -770,27 +776,6 @@ fn format_agent_token(
         }
     }
     details.join("-")
-}
-
-fn aggregate_confidence(
-    confidence_values: &[review::ReviewConfidence],
-) -> Option<review::ReviewConfidence> {
-    if confidence_values.is_empty() {
-        return None;
-    }
-    if confidence_values
-        .iter()
-        .any(|value| matches!(value, review::ReviewConfidence::Low))
-    {
-        return Some(review::ReviewConfidence::Low);
-    }
-    if confidence_values
-        .iter()
-        .any(|value| matches!(value, review::ReviewConfidence::Medium))
-    {
-        return Some(review::ReviewConfidence::Medium);
-    }
-    Some(review::ReviewConfidence::High)
 }
 
 fn find_matching_local_review(
