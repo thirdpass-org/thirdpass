@@ -328,7 +328,7 @@ mod tests {
                 "agent_name": "codex",
                 "agent_model": "gpt-5.5",
                 "agent_reasoning_effort": "high",
-                "review_strategy": "supply-chain-dependency/v1",
+                "review_strategy": "package-release/v1",
                 "review_scope": "target_file_full",
                 "created_at": "2026-05-04T00:00:00Z",
                 "vouch_version": "0.3.2"

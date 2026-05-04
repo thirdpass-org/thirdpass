@@ -11,7 +11,7 @@ use crate::review::comment::common::Position;
 use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewConfidence};
 
-const REVIEW_STRATEGY: &str = "supply-chain-dependency/v1";
+const REVIEW_STRATEGY: &str = "package-release/v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentKind {
@@ -732,8 +732,8 @@ mod tests {
     use super::{recorded_codex_model, review_strategy};
 
     #[test]
-    fn review_strategy_identifies_supply_chain_dependency_strategy() {
-        assert_eq!(review_strategy(), "supply-chain-dependency/v1");
+    fn review_strategy_identifies_package_release_strategy() {
+        assert_eq!(review_strategy(), "package-release/v1");
     }
 
     #[test]
