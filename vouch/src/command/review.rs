@@ -227,25 +227,19 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         let submit_result = review::remote::submit(&existing.review, &config);
         review::workspace::remove(&workspace_manifest)?;
 
-        let submitted_review_id = match submit_result {
-            Ok(review_id) => review_id,
-            Err(err) => {
-                if is_network_error(&err) {
-                    log::warn!(
-                        "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
-                        err
-                    );
-                    return Ok(());
-                }
-                return Err(err);
+        if let Err(err) = submit_result {
+            if is_network_error(&err) {
+                log::warn!(
+                    "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
+                    err
+                );
+                return Ok(());
             }
-        };
+            return Err(err);
+        }
 
         review::promote_pending(&existing.review, &existing.path)?;
-        println!(
-            "Submitted review {} for {} to {}.",
-            submitted_review_id, package_label, api_base
-        );
+        println!("Review submitted.");
         return Ok(());
     }
 
@@ -404,13 +398,12 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     println!("Review saved.");
 
     let submit_result = if args.skip_coordination {
-        Ok(None)
+        Ok(false)
     } else {
         let package_label = package_target_label(&review);
         let api_base = submission_api_base(&config)?;
         println!("Submitting review for {} to {}.", package_label, api_base);
-        review::remote::submit(&review, &config)
-            .map(|review_id| Some((review_id, package_label, api_base)))
+        review::remote::submit(&review, &config).map(|_| true)
     };
 
     review::workspace::remove(&workspace_manifest)?;
@@ -431,11 +424,8 @@ pub fn run_command(args: &Arguments) -> Result<()> {
 
     if !args.skip_coordination {
         review::promote_pending(&review, &pending_review_path)?;
-        if let Some((review_id, package_label, api_base)) = submitted_review {
-            println!(
-                "Submitted review {} for {} to {}.",
-                review_id, package_label, api_base
-            );
+        if submitted_review {
+            println!("Review submitted.");
         }
     }
 
