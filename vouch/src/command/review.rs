@@ -286,11 +286,12 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             } else {
                 (None, None)
             };
-        let agent_label = format_agent_label(
+        let agent_token = format_agent_token(
             agent,
             effective_agent_model,
             effective_agent_reasoning_effort,
         );
+        println!("Review agent: {}", agent_token);
         let mut targets = Vec::new();
         let mut agent_model = None::<String>;
         let mut agent_summary = String::new();
@@ -305,11 +306,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                 .tick_strings(&["|", "/", "-", "\\"]);
             spinner.set_style(spinner_style);
             spinner.enable_steady_tick(std::time::Duration::from_millis(120));
-            spinner.set_message(format!(
-                "Running agent {} on {}",
-                style(&agent_label).cyan(),
-                style(&target_display).dim()
-            ));
+            spinner.set_message(format!("Reviewing {}", style(&target_display).dim()));
             let agent_run = review::tool::run_agent(
                 agent,
                 &workspace_manifest.workspace_path,
@@ -320,22 +317,11 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             );
             let agent_run = match agent_run {
                 Ok(agent_run) => {
-                    let completed_label = format_agent_label(
-                        agent,
-                        Some(agent_run.model.as_str()),
-                        effective_agent_reasoning_effort,
-                    );
-                    spinner.finish_with_message(format!(
-                        "Agent {} completed",
-                        style(completed_label).green()
-                    ));
+                    spinner.finish_with_message(format!("Reviewed {}", target_display));
                     agent_run
                 }
                 Err(err) => {
-                    spinner.abandon_with_message(format!(
-                        "Agent {} failed",
-                        style(&agent_label).red()
-                    ));
+                    spinner.abandon_with_message(format!("Failed {}", target_display));
                     return Err(err);
                 }
             };
@@ -765,12 +751,12 @@ fn submission_api_base(config: &common::config::Config) -> Result<String> {
     Ok(base.as_str().trim_end_matches('/').to_string())
 }
 
-fn format_agent_label(
+fn format_agent_token(
     agent: review::tool::AgentKind,
     agent_model: Option<&str>,
     agent_reasoning_effort: Option<&str>,
 ) -> String {
-    let mut details = Vec::new();
+    let mut details = vec![agent.name().to_string()];
     if let Some(model) = agent_model {
         if !model.trim().is_empty() {
             details.push(model.to_string());
@@ -783,10 +769,7 @@ fn format_agent_label(
             }
         }
     }
-    if details.is_empty() {
-        return agent.name().to_string();
-    }
-    format!("{} ({})", agent.name(), details.join(", "))
+    details.join("-")
 }
 
 fn aggregate_confidence(
@@ -1069,6 +1052,18 @@ mod tests {
             vouch_lib::schema::FileHash::blake3(expected_hash)
         );
         Ok(())
+    }
+
+    #[test]
+    fn format_agent_token_combines_codex_details() {
+        assert_eq!(
+            format_agent_token(
+                review::tool::AgentKind::Codex,
+                Some("gpt-5.5"),
+                Some("high")
+            ),
+            "codex-gpt-5.5-high"
+        );
     }
 
     fn candidate_file(
