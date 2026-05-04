@@ -218,23 +218,34 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             return Ok(());
         }
 
-        println!("Submitting existing review: {}", existing.path.display());
+        let package_label = package_target_label(&existing.review);
+        let api_base = submission_api_base(&config)?;
+        println!(
+            "Submitting existing review for {} to {}.",
+            package_label, api_base
+        );
         let submit_result = review::remote::submit(&existing.review, &config);
         review::workspace::remove(&workspace_manifest)?;
 
-        if let Err(err) = submit_result {
-            if is_network_error(&err) {
-                log::warn!(
-                    "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
-                    err
-                );
-                return Ok(());
+        let submitted_review_id = match submit_result {
+            Ok(review_id) => review_id,
+            Err(err) => {
+                if is_network_error(&err) {
+                    log::warn!(
+                        "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
+                        err
+                    );
+                    return Ok(());
+                }
+                return Err(err);
             }
-            return Err(err);
-        }
+        };
 
         review::promote_pending(&existing.review, &existing.path)?;
-        println!("Existing review submitted.");
+        println!(
+            "Submitted review {} for {} to {}.",
+            submitted_review_id, package_label, api_base
+        );
         return Ok(());
     }
 
@@ -393,27 +404,39 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     println!("Review saved.");
 
     let submit_result = if args.skip_coordination {
-        Ok(())
+        Ok(None)
     } else {
-        println!("Submitting review to central API.");
+        let package_label = package_target_label(&review);
+        let api_base = submission_api_base(&config)?;
+        println!("Submitting review for {} to {}.", package_label, api_base);
         review::remote::submit(&review, &config)
+            .map(|review_id| Some((review_id, package_label, api_base)))
     };
 
     review::workspace::remove(&workspace_manifest)?;
 
-    if let Err(err) = submit_result {
-        if is_network_error(&err) {
-            log::warn!(
-                "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
-                err
-            );
-            return Ok(());
+    let submitted_review = match submit_result {
+        Ok(submitted_review) => submitted_review,
+        Err(err) => {
+            if is_network_error(&err) {
+                log::warn!(
+                    "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
+                    err
+                );
+                return Ok(());
+            }
+            return Err(err);
         }
-        return Err(err);
-    }
+    };
 
     if !args.skip_coordination {
         review::promote_pending(&review, &pending_review_path)?;
+        if let Some((review_id, package_label, api_base)) = submitted_review {
+            println!(
+                "Submitted review {} for {} to {}.",
+                review_id, package_label, api_base
+            );
+        }
     }
 
     Ok(())
@@ -721,6 +744,15 @@ fn is_network_error(err: &anyhow::Error) -> bool {
         return reqwest_err.is_connect() || reqwest_err.is_timeout();
     }
     false
+}
+
+fn package_target_label(review: &review::Review) -> String {
+    format!("{}@{}", review.package.name, review.package.version)
+}
+
+fn submission_api_base(config: &common::config::Config) -> Result<String> {
+    let base = common::api::normalize_base(&config.core.api_base)?;
+    Ok(base.as_str().trim_end_matches('/').to_string())
 }
 
 fn format_agent_label(

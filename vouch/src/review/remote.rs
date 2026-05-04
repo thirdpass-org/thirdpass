@@ -11,7 +11,12 @@ use vouch_lib::schema as api;
 pub type ReviewCandidate = api::ReviewCandidate;
 pub type ReviewQuery = api::ReviewQuery;
 
-pub fn submit(review: &review::Review, config: &common::config::Config) -> Result<()> {
+#[derive(Debug, serde::Deserialize)]
+struct ReviewSubmitResponse {
+    id: String,
+}
+
+pub fn submit(review: &review::Review, config: &common::config::Config) -> Result<String> {
     let registry = get_primary_registry(&review.package)?;
     let target = api::ReviewTarget {
         registry_host: registry.host_name.clone(),
@@ -68,7 +73,7 @@ pub fn submit(review: &review::Review, config: &common::config::Config) -> Resul
             body
         ));
     }
-    Ok(())
+    Ok(response.json::<ReviewSubmitResponse>()?.id)
 }
 
 pub fn fetch(
