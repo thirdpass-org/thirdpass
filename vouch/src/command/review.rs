@@ -224,7 +224,11 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             "Submitting existing review for {} to {}.",
             package_label, api_base
         );
-        let submit_result = review::remote::submit(&existing.review, &config);
+        let submit_result = (|| {
+            let package_manifest =
+                review::workspace::package_manifest(&workspace_manifest.workspace_path)?;
+            review::remote::submit(&existing.review, &package_manifest, &config)
+        })();
         review::workspace::remove(&workspace_manifest)?;
 
         if let Err(err) = submit_result {
@@ -391,7 +395,12 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         let package_label = package_target_label(&review);
         let api_base = submission_api_base(&config)?;
         println!("Submitting review for {} to {}.", package_label, api_base);
-        review::remote::submit(&review, &config).map(|_| true)
+        (|| {
+            let package_manifest =
+                review::workspace::package_manifest(&workspace_manifest.workspace_path)?;
+            review::remote::submit(&review, &package_manifest, &config)
+        })()
+        .map(|_| true)
     };
 
     review::workspace::remove(&workspace_manifest)?;

@@ -29,6 +29,22 @@ pub struct ReviewFile {
     pub comments: Vec<ReviewComment>,
 }
 
+/// File inventory for a package archive.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct PackageManifest {
+    /// Regular files found in the extracted package archive.
+    pub files: Vec<PackageManifestFile>,
+}
+
+/// Metadata for a regular file in a package archive.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
+pub struct PackageManifestFile {
+    /// Path of the file relative to the package root.
+    pub path: String,
+    /// Size of the file contents in bytes.
+    pub size_bytes: u64,
+}
+
 /// Content hash for a file included in a review.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct FileHash {
@@ -83,6 +99,8 @@ pub struct ReviewSubmission {
     #[serde(alias = "metadata")]
     pub reviewer_details: ReviewerDetails,
     pub files: Vec<ReviewFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_manifest: Option<PackageManifest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overall_security_summary: Option<SecuritySummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -294,5 +312,31 @@ mod tests {
         assert_eq!(file.summary, None);
         assert_eq!(file.security_summary, None);
         assert_eq!(file.confidence, None);
+    }
+
+    #[test]
+    fn review_submission_defaults_missing_package_manifest() {
+        let submission: ReviewSubmission = serde_json::from_value(json!({
+            "target": {
+                "registry_host": "npmjs.com",
+                "package_name": "axios",
+                "package_version": "1.6.8",
+                "package_hash": "sha256:abc"
+            },
+            "reviewer_details": {
+                "reviewer_uuid": "reviewer-1",
+                "agent_name": "codex",
+                "agent_model": "gpt-5.5",
+                "agent_reasoning_effort": "high",
+                "review_strategy": "supply-chain-dependency/v1",
+                "review_scope": "target_file_full",
+                "created_at": "2026-05-04T00:00:00Z",
+                "vouch_version": "0.3.2"
+            },
+            "files": []
+        }))
+        .expect("failed to deserialize review submission");
+
+        assert_eq!(submission.package_manifest, None);
     }
 }

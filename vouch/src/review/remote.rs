@@ -16,7 +16,11 @@ struct ReviewSubmitResponse {
     id: String,
 }
 
-pub fn submit(review: &review::Review, config: &common::config::Config) -> Result<String> {
+pub fn submit(
+    review: &review::Review,
+    package_manifest: &api::PackageManifest,
+    config: &common::config::Config,
+) -> Result<String> {
     let registry = get_primary_registry(&review.package)?;
     let target = api::ReviewTarget {
         registry_host: registry.host_name.clone(),
@@ -29,6 +33,7 @@ pub fn submit(review: &review::Review, config: &common::config::Config) -> Resul
     let payload = api::ReviewSubmission {
         target,
         files,
+        package_manifest: Some(package_manifest.clone()),
         reviewer_details: to_api_reviewer_details(&review.reviewer_details),
         agent_summary: if review.agent_summary.trim().is_empty() {
             None
