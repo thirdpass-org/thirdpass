@@ -139,14 +139,14 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             expected_agent_name,
             expected_agent_model,
             expected_agent_reasoning_effort,
-            expected_prompt_version,
+            expected_review_strategy,
             expected_scope,
         ) = if args.manual {
             (
                 "manual".to_string(),
                 Some("".to_string()),
                 "manual".to_string(),
-                "manual".to_string(),
+                review::tool::review_strategy().to_string(),
                 review::ReviewScope::TargetFilePartial,
             )
         } else {
@@ -176,7 +176,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                 expected_agent_name,
                 expected_model,
                 expected_effort,
-                review::tool::agent_prompt_version().to_string(),
+                review::tool::review_strategy().to_string(),
                 review::ReviewScope::TargetFileFull,
             )
         };
@@ -191,7 +191,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             &expected_agent_name,
             expected_agent_model.as_deref(),
             &expected_agent_reasoning_effort,
-            &expected_prompt_version,
+            &expected_review_strategy,
         ) {
             Ok(existing) => existing,
             Err(err) => {
@@ -246,7 +246,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         agent_name,
         agent_model,
         agent_reasoning_effort,
-        prompt_version,
+        review_strategy,
         review_scope,
         agent_summary,
         overall_security_confidence,
@@ -261,7 +261,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             "manual".to_string(),
             "".to_string(),
             "manual".to_string(),
-            "manual".to_string(),
+            review::tool::review_strategy().to_string(),
             review::ReviewScope::TargetFilePartial,
             String::new(),
             None,
@@ -369,7 +369,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             agent.name().to_string(),
             agent_model.unwrap_or_else(|| "unknown".to_string()),
             recorded_agent_reasoning_effort(agent.name(), effective_agent_reasoning_effort),
-            review::tool::agent_prompt_version().to_string(),
+            review::tool::review_strategy().to_string(),
             review::ReviewScope::TargetFileFull,
             agent_summary,
             aggregate_confidence(&confidence_values),
@@ -382,7 +382,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         &agent_name,
         &agent_model,
         &agent_reasoning_effort,
-        &prompt_version,
+        &review_strategy,
         review_scope,
     )?;
     review.agent_summary = agent_summary;
@@ -679,7 +679,7 @@ fn build_reviewer_details(
     agent_name: &str,
     agent_model: &str,
     agent_reasoning_effort: &str,
-    prompt_version: &str,
+    review_strategy: &str,
     review_scope: review::ReviewScope,
 ) -> Result<review::ReviewerDetails> {
     Ok(review::ReviewerDetails {
@@ -687,7 +687,7 @@ fn build_reviewer_details(
         agent_name: agent_name.to_string(),
         agent_model: agent_model.to_string(),
         agent_reasoning_effort: agent_reasoning_effort.to_string(),
-        prompt_version: prompt_version.to_string(),
+        review_strategy: review_strategy.to_string(),
         review_scope,
         created_at: now_epoch_seconds()?,
         vouch_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -778,7 +778,7 @@ fn find_matching_local_review(
     expected_agent_name: &str,
     expected_agent_model: Option<&str>,
     expected_agent_reasoning_effort: &str,
-    expected_prompt_version: &str,
+    expected_review_strategy: &str,
 ) -> Result<Option<review::fs::StoredReview>> {
     let stored_reviews = review::fs::list_with_status()?;
     let mut best_submitted: Option<review::fs::StoredReview> = None;
@@ -801,7 +801,7 @@ fn find_matching_local_review(
         if current.reviewer_details.review_scope != expected_scope {
             continue;
         }
-        if current.reviewer_details.prompt_version != expected_prompt_version {
+        if current.reviewer_details.review_strategy != expected_review_strategy {
             continue;
         }
         if let Some(model) = expected_agent_model {

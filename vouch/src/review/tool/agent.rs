@@ -11,7 +11,7 @@ use crate::review::comment::common::Position;
 use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewConfidence};
 
-const PROMPT_VERSION: &str = "v1";
+const REVIEW_STRATEGY: &str = "supply-chain-dependency/v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentKind {
@@ -89,8 +89,8 @@ impl AgentComment {
     }
 }
 
-pub fn prompt_version() -> &'static str {
-    PROMPT_VERSION
+pub fn review_strategy() -> &'static str {
+    REVIEW_STRATEGY
 }
 
 pub fn select_installed_agent(preferred: Option<AgentKind>) -> Result<AgentKind> {
@@ -729,7 +729,12 @@ fn parse_selection(entry: &Value) -> Option<Selection> {
 
 #[cfg(test)]
 mod tests {
-    use super::recorded_codex_model;
+    use super::{recorded_codex_model, review_strategy};
+
+    #[test]
+    fn review_strategy_identifies_supply_chain_dependency_strategy() {
+        assert_eq!(review_strategy(), "supply-chain-dependency/v1");
+    }
 
     #[test]
     fn recorded_codex_model_prefers_requested_model() {
