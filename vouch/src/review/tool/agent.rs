@@ -339,7 +339,7 @@ fn run_codex_exec(
         .collect();
 
     Ok(AgentRunResult {
-        model: output.model,
+        model: recorded_codex_model(agent_model, output.model),
         comments,
         summary: output.summary.and_then(|value| {
             let trimmed = value.trim().to_string();
