@@ -6,7 +6,7 @@ pub struct ReviewTarget {
     pub registry_host: String,
     pub package_name: String,
     pub package_version: String,
-    pub artifact_hash: String,
+    pub package_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -154,7 +154,7 @@ pub struct ReviewCandidate {
     pub package_name: String,
     pub package_version: String,
     pub file_path: String,
-    pub artifact_hash: String,
+    pub package_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

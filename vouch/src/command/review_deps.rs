@@ -307,7 +307,7 @@ mod tests {
                 name: package_name.to_string(),
                 version: package_version.to_string(),
                 registries,
-                artifact_hash: "artifact-hash".to_string(),
+                package_hash: "package-hash".to_string(),
             },
             targets: Vec::new(),
             reviewer_details: review::ReviewerDetails {

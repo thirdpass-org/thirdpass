@@ -44,7 +44,7 @@ fn get_storage_file_path(
     };
     let package_specific_directory = base_directory
         .join(review_directory_path)
-        .join(&review.package.artifact_hash)
+        .join(&review.package.package_hash)
         .join(reviewer);
     Ok(package_specific_directory.join(review_file_name()))
 }

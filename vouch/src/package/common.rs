@@ -10,7 +10,7 @@ pub struct Package {
     pub name: String,
     pub version: String,
     pub registries: std::collections::BTreeSet<registry::Registry>,
-    pub artifact_hash: String,
+    pub package_hash: String,
 }
 
 impl Ord for Package {
@@ -19,14 +19,14 @@ impl Ord for Package {
             &self.name,
             &self.version,
             &self.registries,
-            &self.artifact_hash,
+            &self.package_hash,
             &self.id,
         )
             .cmp(&(
                 &other.name,
                 &other.version,
                 &other.registries,
-                &other.artifact_hash,
+                &other.package_hash,
                 &other.id,
             ))
     }

@@ -185,7 +185,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             &config,
             &review.package.name,
             &review.package.version,
-            &review.package.artifact_hash,
+            &review.package.package_hash,
             &target_paths,
             expected_scope,
             &expected_agent_name,
@@ -614,7 +614,7 @@ fn select_target_files(
             package_name: review.package.name.clone(),
             package_version: review.package.version.clone(),
             file_path: candidate.relative_path.display().to_string(),
-            artifact_hash: review.package.artifact_hash.clone(),
+            package_hash: review.package.package_hash.clone(),
         })
         .collect::<Vec<_>>();
 
@@ -664,7 +664,7 @@ fn get_locally_reviewed_target_paths(
 ) -> Result<std::collections::BTreeSet<std::path::PathBuf>> {
     let mut reviewed_paths = std::collections::BTreeSet::new();
     for stored in review::fs::list_with_status()? {
-        if !matches_current_review_artifact(
+        if !matches_current_review_package(
             &stored.review,
             current,
             &config.core.reviewer_uuid,
@@ -680,7 +680,7 @@ fn get_locally_reviewed_target_paths(
     Ok(reviewed_paths)
 }
 
-fn matches_current_review_artifact(
+fn matches_current_review_package(
     candidate: &review::Review,
     current: &review::Review,
     reviewer_uuid: &str,
@@ -689,7 +689,7 @@ fn matches_current_review_artifact(
     candidate.reviewer_details.reviewer_uuid == reviewer_uuid
         && candidate.package.name == current.package.name
         && candidate.package.version == current.package.version
-        && candidate.package.artifact_hash == current.package.artifact_hash
+        && candidate.package.package_hash == current.package.package_hash
         && candidate
             .package
             .registries
@@ -804,7 +804,7 @@ fn find_matching_local_review(
     config: &common::config::Config,
     package_name: &str,
     package_version: &str,
-    artifact_hash: &str,
+    package_hash: &str,
     target_paths: &std::collections::BTreeSet<std::path::PathBuf>,
     expected_scope: review::ReviewScope,
     expected_agent_name: &str,
@@ -820,7 +820,7 @@ fn find_matching_local_review(
         let current = &stored.review;
         if current.package.name != package_name
             || current.package.version != package_version
-            || current.package.artifact_hash != artifact_hash
+            || current.package.package_hash != package_hash
         {
             continue;
         }
@@ -937,7 +937,7 @@ fn setup_review(
         name: package_name.to_string(),
         version: package_version,
         registries,
-        artifact_hash: workspace_manifest.artifact_hash.clone(),
+        package_hash: workspace_manifest.package_hash.clone(),
     };
     let peer = peer::reviewer_peer(&config.core.reviewer_uuid, &config.core.api_base)?;
     let review = review::Review {
@@ -1015,26 +1015,26 @@ mod tests {
     }
 
     #[test]
-    fn matches_current_review_artifact_requires_same_reviewer_and_artifact() -> Result<()> {
+    fn matches_current_review_package_requires_same_reviewer_and_package_hash() -> Result<()> {
         let current = stored_review("reviewer-a", "registry.example", "pkg", "1.0.0", "hash-a")?;
         let matching = stored_review("reviewer-a", "registry.example", "pkg", "1.0.0", "hash-a")?;
         let other_reviewer =
             stored_review("reviewer-b", "registry.example", "pkg", "1.0.0", "hash-a")?;
         let other_hash = stored_review("reviewer-a", "registry.example", "pkg", "1.0.0", "hash-b")?;
 
-        assert!(matches_current_review_artifact(
+        assert!(matches_current_review_package(
             &matching,
             &current,
             "reviewer-a",
             "registry.example"
         ));
-        assert!(!matches_current_review_artifact(
+        assert!(!matches_current_review_package(
             &other_reviewer,
             &current,
             "reviewer-a",
             "registry.example"
         ));
-        assert!(!matches_current_review_artifact(
+        assert!(!matches_current_review_package(
             &other_hash,
             &current,
             "reviewer-a",
@@ -1060,7 +1060,7 @@ mod tests {
         registry_host_name: &str,
         package_name: &str,
         package_version: &str,
-        artifact_hash: &str,
+        package_hash: &str,
     ) -> Result<review::Review> {
         let mut registries = std::collections::BTreeSet::new();
         registries.insert(registry::Registry {
@@ -1078,7 +1078,7 @@ mod tests {
                 name: package_name.to_string(),
                 version: package_version.to_string(),
                 registries,
-                artifact_hash: artifact_hash.to_string(),
+                package_hash: package_hash.to_string(),
             },
             targets: Vec::new(),
             reviewer_details: review::ReviewerDetails {

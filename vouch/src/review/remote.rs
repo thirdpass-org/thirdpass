@@ -22,7 +22,7 @@ pub fn submit(review: &review::Review, config: &common::config::Config) -> Resul
         registry_host: registry.host_name.clone(),
         package_name: review.package.name.clone(),
         package_version: review.package.version.clone(),
-        artifact_hash: review.package.artifact_hash.clone(),
+        package_hash: review.package.package_hash.clone(),
     };
     let files = review
         .targets
@@ -379,6 +379,6 @@ fn build_package(target: &api::ReviewTarget, registry: &registry::Registry) -> p
         name: target.package_name.clone(),
         version: target.package_version.clone(),
         registries: maplit::btreeset! { registry.clone() },
-        artifact_hash: target.artifact_hash.clone(),
+        package_hash: target.package_hash.clone(),
     }
 }

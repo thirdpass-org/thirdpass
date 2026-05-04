@@ -16,7 +16,7 @@ pub struct Manifest {
     pub workspace_path: std::path::PathBuf,
     pub manifest_path: std::path::PathBuf,
     pub artifact_path: std::path::PathBuf,
-    pub artifact_hash: String,
+    pub package_hash: String,
 }
 
 /// Create unique archive file name.
@@ -146,7 +146,7 @@ pub fn ensure(
             }
         };
 
-    let (artifact_hash, _) = common::fs::hash(&cached_archive)?;
+    let (package_hash, _) = common::fs::hash(&cached_archive)?;
 
     let workspace_directory =
         common::fs::archive::extract(&cached_archive, &package_unique_directory)?;
@@ -162,7 +162,7 @@ pub fn ensure(
         workspace_path: workspace_directory,
         manifest_path: get_manifest_path(&package_unique_directory),
         artifact_path: cached_archive,
-        artifact_hash: artifact_hash,
+        package_hash: package_hash,
     };
     write_manifest(&workspace_manifest)?;
     Ok(workspace_manifest)
