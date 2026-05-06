@@ -40,35 +40,35 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Get vouch-py
+      - name: Get thirdpass-py
         uses: actions/checkout@v2
         with:
-          repository: 'vouch-dev/vouch-py'
+          repository: 'thirdpass-org/thirdpass-py'
           fetch-depth: 1
-          path: vouch-py
+          path: thirdpass-py
 
-      - name: Set vouch-py symlink
+      - name: Set thirdpass-py symlink
         shell: bash
         run: |
-          ln -s "$(pwd)/vouch-py" ../vouch-py;
+          ln -s "$(pwd)/thirdpass-py" ../thirdpass-py;
 
-      - name: Get vouch-js
+      - name: Get thirdpass-js
         uses: actions/checkout@v2
         with:
-          repository: 'vouch-dev/vouch-js'
+          repository: 'thirdpass-org/thirdpass-js'
           fetch-depth: 1
-          path: vouch-js
+          path: thirdpass-js
 
-      - name: Set vouch-js symlink
+      - name: Set thirdpass-js symlink
         shell: bash
         run: |
-          ln -s "$(pwd)/vouch-js" ../vouch-js;
+          ln -s "$(pwd)/thirdpass-js" ../thirdpass-js;
 
       - name: Set package metadata
         id: meta
         shell: bash
         run: |
-          echo ::set-output name=NAME::vouch
+          echo ::set-output name=NAME::thirdpass
           echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}
 
       - uses: actions-rs/toolchain@v1
@@ -80,7 +80,7 @@ jobs:
         if: "contains(matrix.target, 'x86_64-unknown-linux-musl')"
         run: |
           docker pull clux/muslrust
-          docker run -v $(dirname `pwd`):/volume -v $(pwd)/vouch-py:/volume/vouch-py -v $(pwd)/vouch-js:/volume/vouch-js -w /volume/vouch --rm -t clux/muslrust cargo build --release --all-features --locked --verbose --package ${{ steps.meta.outputs.NAME }}
+          docker run -v $(dirname `pwd`):/volume -v $(pwd)/thirdpass-py:/volume/thirdpass-py -v $(pwd)/thirdpass-js:/volume/thirdpass-js -w /volume/thirdpass --rm -t clux/muslrust cargo build --release --all-features --locked --verbose --package ${{ steps.meta.outputs.NAME }}
 
       - name: Build non-musl
         if: "!contains(matrix.target, 'x86_64-unknown-linux-musl')"

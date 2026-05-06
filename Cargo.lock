@@ -2185,6 +2185,111 @@ dependencies = [
 ]
 
 [[package]]
+name = "thirdpass"
+version = "0.3.2"
+dependencies = [
+ "anyhow",
+ "atty",
+ "blake3",
+ "console 0.15.11",
+ "crossbeam",
+ "crossbeam-utils",
+ "dialoguer",
+ "directories",
+ "dirs 3.0.1",
+ "env_logger",
+ "flate2",
+ "indicatif",
+ "log",
+ "maplit",
+ "prettytable-rs",
+ "regex",
+ "reqwest 0.11.3",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "shellexpand",
+ "structopt",
+ "tar",
+ "tempdir",
+ "tempfile",
+ "thirdpass-js",
+ "thirdpass-lib",
+ "thirdpass-py",
+ "thirdpass-rs",
+ "tokei",
+ "url",
+ "uuid",
+ "winapi 0.3.9",
+ "zip",
+]
+
+[[package]]
+name = "thirdpass-js"
+version = "0.3.1"
+dependencies = [
+ "anyhow",
+ "handlebars",
+ "maplit",
+ "reqwest 0.10.10",
+ "serde",
+ "serde_json",
+ "structopt",
+ "strum",
+ "strum_macros",
+ "tempdir",
+ "thirdpass-lib",
+ "url",
+]
+
+[[package]]
+name = "thirdpass-lib"
+version = "0.3.1"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "log",
+ "reqwest 0.11.3",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "structopt",
+ "url",
+]
+
+[[package]]
+name = "thirdpass-py"
+version = "0.3.1"
+dependencies = [
+ "anyhow",
+ "handlebars",
+ "maplit",
+ "reqwest 0.10.10",
+ "semver",
+ "serde",
+ "serde_json",
+ "structopt",
+ "strum",
+ "strum_macros",
+ "thirdpass-lib",
+ "url",
+]
+
+[[package]]
+name = "thirdpass-rs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "reqwest 0.10.10",
+ "serde",
+ "serde_json",
+ "structopt",
+ "tempdir",
+ "thirdpass-lib",
+ "url",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2554,111 +2659,6 @@ name = "version_check"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5fecdca9a5291cc2b8dcf7dc02453fee791a280f3743cb0905f8822ae463b3fe"
-
-[[package]]
-name = "vouch"
-version = "0.3.2"
-dependencies = [
- "anyhow",
- "atty",
- "blake3",
- "console 0.15.11",
- "crossbeam",
- "crossbeam-utils",
- "dialoguer",
- "directories",
- "dirs 3.0.1",
- "env_logger",
- "flate2",
- "indicatif",
- "log",
- "maplit",
- "prettytable-rs",
- "regex",
- "reqwest 0.11.3",
- "serde",
- "serde_json",
- "serde_yaml",
- "shellexpand",
- "structopt",
- "tar",
- "tempdir",
- "tempfile",
- "tokei",
- "url",
- "uuid",
- "vouch-js",
- "vouch-lib",
- "vouch-py",
- "vouch-rs",
- "winapi 0.3.9",
- "zip",
-]
-
-[[package]]
-name = "vouch-js"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "handlebars",
- "maplit",
- "reqwest 0.10.10",
- "serde",
- "serde_json",
- "structopt",
- "strum",
- "strum_macros",
- "tempdir",
- "url",
- "vouch-lib",
-]
-
-[[package]]
-name = "vouch-lib"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "env_logger",
- "log",
- "reqwest 0.11.3",
- "serde",
- "serde_json",
- "serde_yaml",
- "structopt",
- "url",
-]
-
-[[package]]
-name = "vouch-py"
-version = "0.3.1"
-dependencies = [
- "anyhow",
- "handlebars",
- "maplit",
- "reqwest 0.10.10",
- "semver",
- "serde",
- "serde_json",
- "structopt",
- "strum",
- "strum_macros",
- "url",
- "vouch-lib",
-]
-
-[[package]]
-name = "vouch-rs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "reqwest 0.10.10",
- "serde",
- "serde_json",
- "structopt",
- "tempdir",
- "url",
- "vouch-lib",
-]
 
 [[package]]
 name = "walkdir"
