@@ -45,24 +45,21 @@ jobs:
         with:
           repository: 'thirdpass-org/thirdpass-py'
           fetch-depth: 1
-          path: thirdpass-py
-
-      - name: Set thirdpass-py symlink
-        shell: bash
-        run: |
-          ln -s "$(pwd)/thirdpass-py" ../thirdpass-py;
+          path: extensions/thirdpass-py
 
       - name: Get thirdpass-js
         uses: actions/checkout@v2
         with:
           repository: 'thirdpass-org/thirdpass-js'
           fetch-depth: 1
-          path: thirdpass-js
+          path: extensions/thirdpass-js
 
-      - name: Set thirdpass-js symlink
-        shell: bash
-        run: |
-          ln -s "$(pwd)/thirdpass-js" ../thirdpass-js;
+      - name: Get thirdpass-rs
+        uses: actions/checkout@v2
+        with:
+          repository: 'thirdpass-org/thirdpass-rs'
+          fetch-depth: 1
+          path: extensions/thirdpass-rs
 
       - name: Set package metadata
         id: meta
@@ -80,7 +77,7 @@ jobs:
         if: "contains(matrix.target, 'x86_64-unknown-linux-musl')"
         run: |
           docker pull clux/muslrust
-          docker run -v $(dirname `pwd`):/volume -v $(pwd)/thirdpass-py:/volume/thirdpass-py -v $(pwd)/thirdpass-js:/volume/thirdpass-js -w /volume/thirdpass --rm -t clux/muslrust cargo build --release --all-features --locked --verbose --package ${{ steps.meta.outputs.NAME }}
+          docker run -v $(pwd):/volume -w /volume --rm -t clux/muslrust cargo build --release --all-features --locked --verbose --package ${{ steps.meta.outputs.NAME }}
 
       - name: Build non-musl
         if: "!contains(matrix.target, 'x86_64-unknown-linux-musl')"
