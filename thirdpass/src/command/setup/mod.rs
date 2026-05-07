@@ -23,7 +23,7 @@ fn ensure_core_config() -> Result<()> {
         changed = true;
     }
     if config.core.api_base.is_empty() {
-        config.core.api_base = "https://api.thirdpass.review".to_string();
+        config.core.api_base = "https://thirdpass.dev/api".to_string();
         changed = true;
     }
     if config.review_tool.agent.is_none() {
