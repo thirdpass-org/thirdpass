@@ -13,10 +13,6 @@ findings, and the ecosystem reuses that signal.
 Think of it as channeling LLM inference tokens into open-source dependency due
 diligence.
 
-<p align="center">
-  <img src="assets/thirdpass_review_is-even_v3.gif" alt="Using Thirdpass to review Javascript package is-even." />
-</p>
-
 ## Why Thirdpass
 
 - **Collaborative coverage:** many contributors review, everyone benefits.
