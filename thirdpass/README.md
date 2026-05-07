@@ -32,6 +32,12 @@ This is not one-off scanning. It is cumulative review intelligence.
 
 ## Core commands
 
+Review an assigned high-priority target from the shared pool:
+
+```bash
+thirdpass review-any
+```
+
 Review a package version:
 
 ```bash
