@@ -116,8 +116,9 @@ thirdpass extension list
 
 Official extensions:
 
-| Name                                                        | Ecosystem      | Package Registries |
-|-------------------------------------------------------------|----------------|--------------------|
-| [thirdpass-py](https://github.com/thirdpass-org/thirdpass-py)           | Python         | pypi.org           |
-| [thirdpass-js](https://github.com/thirdpass-org/thirdpass-js)           | Javascript     | npmjs.com          |
-| [thirdpass-ansible](https://github.com/thirdpass-org/thirdpass-ansible) | Ansible Galaxy | galaxy.ansible.com |
+| Name                                                        | Ecosystem      | Package Registries | Availability |
+|-------------------------------------------------------------|----------------|--------------------|--------------|
+| [thirdpass-rs](https://github.com/thirdpass-org/thirdpass-rs)           | Rust           | crates.io          | Inbuilt      |
+| [thirdpass-py](https://github.com/thirdpass-org/thirdpass-py)           | Python         | pypi.org           | Inbuilt      |
+| [thirdpass-js](https://github.com/thirdpass-org/thirdpass-js)           | Javascript     | npmjs.com          | Inbuilt      |
+| [thirdpass-ansible](https://github.com/thirdpass-org/thirdpass-ansible) | Ansible Galaxy | galaxy.ansible.com | External     |
