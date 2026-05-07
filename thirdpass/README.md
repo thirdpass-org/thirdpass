@@ -21,28 +21,6 @@ diligence.
 - **Faster risk decisions:** `thirdpass check` helps teams evaluate dependency
   posture from shared reviews.
 
-## 60-second quickstart
-
-Run a dependency review and submit it:
-
-```bash
-cargo run -p thirdpass -- review d3 4.10.0
-```
-
-Review specific files in one run:
-
-```bash
-cargo run -p thirdpass -- review d3 4.10.0 \
-  --file src/index.js \
-  --file src/core.js
-```
-
-Evaluate a project's dependencies against available reviews:
-
-```bash
-cargo run -p thirdpass -- check
-```
-
 ## How it works
 
 1. Thirdpass fetches and unpacks the exact dependency artifact.
