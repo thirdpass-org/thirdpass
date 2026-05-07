@@ -56,22 +56,6 @@ Check dependencies:
 thirdpass check
 ```
 
-## Agent configuration
-
-Choose default reviewing agent:
-
-```bash
-thirdpass review d3 4.10.0 --agent codex
-thirdpass review d3 4.10.0 --agent claude
-```
-
-Set Codex defaults:
-
-```bash
-thirdpass review d3 4.10.0 --agent codex --agent-model gpt-5.2-codex
-thirdpass review d3 4.10.0 --agent codex --agent-reasoning-effort high
-```
-
 ## Extensions
 
 Thirdpass supports multiple ecosystems via extensions.
