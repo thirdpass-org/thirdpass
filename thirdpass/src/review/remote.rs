@@ -47,12 +47,7 @@ pub fn submit(
     let client = reqwest::blocking::Client::new();
     let base = crate::common::api::normalize_base(&config.core.api_base)?;
     let url = crate::common::api::join(&base, "v1/reviews")?;
-    let mut request = client
-        .post(url)
-        .header("User-Agent", common::HTTP_USER_AGENT);
-    if !config.core.api_key.is_empty() {
-        request = request.header("X-API-Key", config.core.api_key.clone());
-    }
+    let request = common::api::with_client_headers(client.post(url), config);
     let response = request.json(&payload).send()?;
     if !response.status().is_success() {
         let status = response.status();
@@ -73,12 +68,7 @@ pub fn fetch(
     let client = reqwest::blocking::Client::new();
     let base = crate::common::api::normalize_base(&config.core.api_base)?;
     let url = crate::common::api::join(&base, "v1/reviews")?;
-    let mut request = client
-        .get(url)
-        .header("User-Agent", common::HTTP_USER_AGENT);
-    if !config.core.api_key.is_empty() {
-        request = request.header("X-API-Key", config.core.api_key.clone());
-    }
+    let request = common::api::with_client_headers(client.get(url), config);
     let response = request.query(&query).send()?;
     if !response.status().is_success() {
         let status = response.status();
@@ -127,12 +117,7 @@ fn post_review_request(
     let client = reqwest::blocking::Client::new();
     let base = crate::common::api::normalize_base(&config.core.api_base)?;
     let url = crate::common::api::join(&base, "v1/review-requests")?;
-    let mut request = client
-        .post(url)
-        .header("User-Agent", common::HTTP_USER_AGENT);
-    if !config.core.api_key.is_empty() {
-        request = request.header("X-API-Key", config.core.api_key.clone());
-    }
+    let request = common::api::with_client_headers(client.post(url), config);
     let response = request.json(&payload).send()?;
     if !response.status().is_success() {
         let status = response.status();

@@ -152,9 +152,7 @@ fn post_admin_review_action(
         .push(review_id)
         .push(action);
 
-    Ok(client
-        .post(url)
-        .header("User-Agent", common::HTTP_USER_AGENT)
+    Ok(common::api::with_client_headers(client.post(url), &config)
         .bearer_auth(admin_key)
         .send()?)
 }
