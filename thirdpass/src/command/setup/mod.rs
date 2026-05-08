@@ -22,6 +22,10 @@ fn ensure_core_config() -> Result<()> {
         config.core.reviewer_uuid = uuid::Uuid::new_v4().to_hyphenated().to_string();
         changed = true;
     }
+    if config.core.client_id.is_empty() {
+        config.core.client_id = uuid::Uuid::new_v4().to_hyphenated().to_string();
+        changed = true;
+    }
     if config.core.api_base.is_empty() {
         config.core.api_base = "https://thirdpass.dev/api".to_string();
         changed = true;

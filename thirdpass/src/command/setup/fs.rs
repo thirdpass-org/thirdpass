@@ -48,6 +48,7 @@ fn setup_config(paths: &common::fs::ConfigPaths, force: bool) -> Result<()> {
 
         config.core.api_key = "tmp_api_key".to_string();
         config.core.api_base = "https://thirdpass.dev/api".to_string();
+        config.core.client_id = uuid::Uuid::new_v4().to_hyphenated().to_string();
         config.core.reviewer_uuid = uuid::Uuid::new_v4().to_hyphenated().to_string();
         config.review_tool.name = "agent".to_string();
         config.review_tool.install_check = false;
