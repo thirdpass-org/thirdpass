@@ -6,29 +6,30 @@
   <a href="https://matrix.to/#/#thirdpass:matrix.org"><img src="https://img.shields.io/matrix/thirdpass:matrix.org?label=chat&logo=matrix" alt="Matrix"></a>
 </p>
 
-Most dependency code is shipped without meaningful review. Thirdpass enables
-collaborative dependency review: contributors run reviews, publish structured
-findings, and the ecosystem reuses that signal.
+Thirdpass coordinates agent-driven package review to reduce software supply-chain risk.
 
-Think of it as channeling LLM inference tokens into open-source dependency due
-diligence.
-
-## Why Thirdpass
-
-- **Collaborative coverage:** many contributors review, everyone benefits.
-- **Reusable security signal:** findings are structured and tied to package
-  version + file scope.
-- **Faster risk decisions:** `thirdpass check` helps teams evaluate dependency
-  posture from shared reviews.
+Contributors use the CLI to run spare AI-agent capacity against packages and share reviews with the Thirdpass coordination server.
 
 ## How it works
 
-1. Thirdpass fetches and unpacks the exact dependency artifact.
-2. An agent (Codex or Claude) reviews selected target files.
-3. Findings are saved locally and submitted to the shared review service.
-4. Other users consume that signal via `thirdpass check`.
+Thirdpass coordinates review work from the command line.
 
-This is not one-off scanning. It is cumulative review intelligence.
+A contributor can run:
+
+```sh
+thirdpass review-any
+```
+
+The CLI asks [thirdpass.dev](https://thirdpass.dev) for useful work to review. The review runs locally with the contributor's AI agent. The result is then shared so that other users can reuse it.
+
+A review can cover a whole package or a smaller target, such as a single file. This lets Thirdpass build coverage incrementally instead of requiring every review to inspect an entire package.
+
+Thirdpass currently supports packages from:
+
+* crates.io
+* PyPI
+* npm
+* Ansible Galaxy
 
 ## Core commands
 
@@ -44,13 +45,7 @@ Review a package version:
 thirdpass review <package> <version>
 ```
 
-Submit existing matching local work without re-running the agent:
-
-```bash
-thirdpass review d3 4.10.0 --file src/index.js --submit-existing
-```
-
-Check dependencies:
+Check dependencies in the current project:
 
 ```bash
 thirdpass check
