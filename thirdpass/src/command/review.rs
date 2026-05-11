@@ -234,18 +234,27 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         })();
         review::workspace::remove(&workspace_manifest)?;
 
-        if let Err(err) = submit_result {
-            if is_network_error(&err) {
-                log::warn!(
-                    "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
-                    err
-                );
-                return Ok(());
+        let submit_result = match submit_result {
+            Ok(submit_result) => submit_result,
+            Err(err) => {
+                if is_network_error(&err) {
+                    log::warn!(
+                        "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
+                        err
+                    );
+                    return Ok(());
+                }
+                return Err(err);
             }
-            return Err(err);
-        }
+        };
 
-        review::promote_pending(&existing.review, &existing.path)?;
+        let mut submitted_review = existing.review.clone();
+        let reviewer_uuid_changed = apply_server_reviewer_uuid(
+            &mut config,
+            &mut submitted_review,
+            submit_result.reviewer_uuid.as_deref(),
+        )?;
+        finish_submitted_review(&submitted_review, &existing.path, reviewer_uuid_changed)?;
         println!("Review submitted.");
         return Ok(());
     }
@@ -393,7 +402,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     println!("Review saved.");
 
     let submit_result = if args.skip_coordination {
-        Ok(false)
+        Ok(None)
     } else {
         let package_label = package_target_label(&review);
         let api_base = submission_api_base(&config)?;
@@ -403,13 +412,13 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                 review::workspace::package_manifest(&workspace_manifest.workspace_path)?;
             review::remote::submit(&review, &package_manifest, &config)
         })()
-        .map(|_| true)
+        .map(Some)
     };
 
     review::workspace::remove(&workspace_manifest)?;
 
-    let submitted_review = match submit_result {
-        Ok(submitted_review) => submitted_review,
+    let submit_result = match submit_result {
+        Ok(submit_result) => submit_result,
         Err(err) => {
             if is_network_error(&err) {
                 log::warn!(
@@ -423,8 +432,13 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     };
 
     if !args.skip_coordination {
-        review::promote_pending(&review, &pending_review_path)?;
-        if submitted_review {
+        if let Some(submit_result) = submit_result {
+            let reviewer_uuid_changed = apply_server_reviewer_uuid(
+                &mut config,
+                &mut review,
+                submit_result.reviewer_uuid.as_deref(),
+            )?;
+            finish_submitted_review(&review, &pending_review_path, reviewer_uuid_changed)?;
             println!("Review submitted.");
         }
     }
@@ -663,6 +677,44 @@ fn now_epoch_seconds() -> Result<String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|err| format_err!("Failed to read system time: {}", err))?;
     Ok(now.as_secs().to_string())
+}
+
+fn apply_server_reviewer_uuid(
+    config: &mut common::config::Config,
+    review: &mut review::Review,
+    reviewer_uuid: Option<&str>,
+) -> Result<bool> {
+    let Some(reviewer_uuid) = reviewer_uuid
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(false);
+    };
+
+    let changed = review.reviewer_details.reviewer_uuid != reviewer_uuid;
+    review.reviewer_details.reviewer_uuid = reviewer_uuid.to_string();
+    review.peer = peer::reviewer_peer(reviewer_uuid, &config.core.api_base)?;
+
+    if config.core.reviewer_uuid != reviewer_uuid {
+        config.core.reviewer_uuid = reviewer_uuid.to_string();
+        config.dump()?;
+    }
+
+    Ok(changed)
+}
+
+fn finish_submitted_review(
+    review: &review::Review,
+    pending_path: &std::path::PathBuf,
+    rewrite_contents: bool,
+) -> Result<()> {
+    if rewrite_contents {
+        review::store_submitted(review)?;
+        std::fs::remove_file(pending_path)?;
+    } else {
+        review::promote_pending(review, pending_path)?;
+    }
+    Ok(())
 }
 
 fn is_network_error(err: &anyhow::Error) -> bool {

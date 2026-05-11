@@ -14,13 +14,24 @@ pub type ReviewQuery = api::ReviewQuery;
 #[derive(Debug, serde::Deserialize)]
 struct ReviewSubmitResponse {
     id: String,
+    #[serde(default)]
+    reviewer_uuid: Option<String>,
+}
+
+/// Server response metadata for an accepted review submission.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct ReviewSubmitResult {
+    /// Server-assigned review id.
+    pub id: String,
+    /// Server-derived public reviewer UUID, when returned by the API.
+    pub reviewer_uuid: Option<String>,
 }
 
 pub fn submit(
     review: &review::Review,
     package_manifest: &api::PackageManifest,
     config: &common::config::Config,
-) -> Result<String> {
+) -> Result<ReviewSubmitResult> {
     let registry = get_primary_registry(&review.package)?;
     let target = api::ReviewTarget {
         registry_host: registry.host_name.clone(),
@@ -58,7 +69,14 @@ pub fn submit(
             body
         ));
     }
-    Ok(response.json::<ReviewSubmitResponse>()?.id)
+    let response = response.json::<ReviewSubmitResponse>()?;
+    Ok(ReviewSubmitResult {
+        id: response.id,
+        reviewer_uuid: response
+            .reviewer_uuid
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+    })
 }
 
 pub fn fetch(
@@ -412,5 +430,14 @@ mod tests {
         assert_eq!(files[0].summary.as_deref(), Some("Reviewed the file."));
         assert_eq!(files[0].security_summary, Some(api::SecuritySummary::Low));
         assert_eq!(files[0].confidence, Some(api::ReviewConfidence::High));
+    }
+
+    #[test]
+    fn review_submit_response_allows_legacy_missing_reviewer_uuid() {
+        let response: ReviewSubmitResponse =
+            serde_json::from_str(r#"{"id":"rev_1"}"#).expect("failed to parse response");
+
+        assert_eq!(response.id, "rev_1");
+        assert_eq!(response.reviewer_uuid, None);
     }
 }
