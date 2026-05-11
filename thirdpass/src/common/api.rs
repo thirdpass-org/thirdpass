@@ -21,6 +21,7 @@ pub fn with_client_headers(
     request
 }
 
+/// Normalize a configured API base URL while preserving any path prefix.
 pub fn normalize_base(raw: &str) -> Result<url::Url> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -33,12 +34,14 @@ pub fn normalize_base(raw: &str) -> Result<url::Url> {
     }
 
     let mut base = url::Url::parse(&value)?;
-    if !base.as_str().ends_with('/') {
-        base = base.join("/")?;
+    if !base.path().ends_with('/') {
+        let path = format!("{}/", base.path());
+        base.set_path(&path);
     }
     Ok(base)
 }
 
+/// Join a relative API path to a normalized base URL.
 pub fn join(base: &url::Url, path: &str) -> Result<url::Url> {
     Ok(base.join(path)?)
 }
@@ -75,5 +78,13 @@ mod tests {
             .expect("failed to build request");
 
         assert!(request.headers().get(CLIENT_ID_HEADER).is_none());
+    }
+
+    #[test]
+    fn normalize_base_preserves_api_path_prefix() {
+        let base = normalize_base("https://thirdpass.dev/api").expect("failed to normalize base");
+        let url = join(&base, "v1/reviews").expect("failed to join API path");
+
+        assert_eq!(url.as_str(), "https://thirdpass.dev/api/v1/reviews");
     }
 }
