@@ -62,7 +62,7 @@ pub fn report(
 
 fn report_dependencies(
     package_name: &str,
-    package_dependencies: &thirdpass_lib::extension::PackageDependencies,
+    package_dependencies: &thirdpass_core::extension::PackageDependencies,
     config: &common::config::Config,
     first_row_separate: bool,
 ) -> Result<output::DependencyGroup> {
@@ -71,7 +71,7 @@ fn report_dependencies(
 
     let mut dependency_reports = vec![];
     let target_package_dependency_report = report::get_dependency_report(
-        &thirdpass_lib::extension::Dependency {
+        &thirdpass_core::extension::Dependency {
             name: package_name.to_string(),
             version: package_dependencies.package_version.clone(),
         },

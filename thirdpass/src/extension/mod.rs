@@ -13,11 +13,11 @@ mod process;
 pub fn search_registries<'a>(
     package_name: &str,
     package_version: &Option<&str>,
-    extensions: &'a Vec<Box<dyn thirdpass_lib::extension::Extension>>,
-) -> Result<Vec<thirdpass_lib::extension::RegistryPackageMetadata>> {
+    extensions: &'a Vec<Box<dyn thirdpass_core::extension::Extension>>,
+) -> Result<Vec<thirdpass_core::extension::RegistryPackageMetadata>> {
     log::debug!("Querying extensions for package metadata from registries.");
     type SearchResults =
-        Result<Vec<Result<Vec<thirdpass_lib::extension::RegistryPackageMetadata>>>>;
+        Result<Vec<Result<Vec<thirdpass_core::extension::RegistryPackageMetadata>>>>;
     let search_results: SearchResults = crossbeam_utils::thread::scope(|s| {
         let threads: Vec<_> = extensions
             .iter()
@@ -42,10 +42,10 @@ pub fn search_registries<'a>(
 /// Parses potentially multi-result search output. Handles no result or multiple result cases.
 fn select_search_result<'a>(
     extensions_search_results: Vec<(
-        Result<Vec<thirdpass_lib::extension::RegistryPackageMetadata>>,
-        &'a Box<dyn thirdpass_lib::extension::Extension>,
+        Result<Vec<thirdpass_core::extension::RegistryPackageMetadata>>,
+        &'a Box<dyn thirdpass_core::extension::Extension>,
     )>,
-) -> Result<Vec<thirdpass_lib::extension::RegistryPackageMetadata>> {
+) -> Result<Vec<thirdpass_core::extension::RegistryPackageMetadata>> {
     let mut selection = Err(format_err!(
         "Extensions have failed to find package in package registries."
     ));
@@ -81,10 +81,10 @@ fn select_search_result<'a>(
 ///
 /// Conducts a parallel search across extensions.
 pub fn identify_file_defined_dependencies(
-    extensions: &Vec<Box<dyn thirdpass_lib::extension::Extension>>,
+    extensions: &Vec<Box<dyn thirdpass_core::extension::Extension>>,
     extension_args: &Vec<String>,
     working_directory: &std::path::PathBuf,
-) -> Result<Vec<Result<Vec<thirdpass_lib::extension::FileDefinedDependencies>>>> {
+) -> Result<Vec<Result<Vec<thirdpass_core::extension::FileDefinedDependencies>>>> {
     crossbeam_utils::thread::scope(|s| {
         let mut threads = Vec::new();
         for extension in extensions {
@@ -107,9 +107,9 @@ pub fn identify_file_defined_dependencies(
 pub fn identify_package_dependencies(
     package_name: &str,
     package_version: &Option<&str>,
-    extensions: &Vec<Box<dyn thirdpass_lib::extension::Extension>>,
+    extensions: &Vec<Box<dyn thirdpass_core::extension::Extension>>,
     extension_args: &Vec<String>,
-) -> Result<Vec<Result<Vec<thirdpass_lib::extension::PackageDependencies>>>> {
+) -> Result<Vec<Result<Vec<thirdpass_core::extension::PackageDependencies>>>> {
     crossbeam_utils::thread::scope(|s| {
         let mut threads = Vec::new();
         for extension in extensions {

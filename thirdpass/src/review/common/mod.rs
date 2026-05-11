@@ -27,7 +27,7 @@ pub use summary::Summary;
 pub struct ReviewTarget {
     pub file_path: std::path::PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file_hash: Option<thirdpass_lib::schema::FileHash>,
+    pub file_hash: Option<thirdpass_core::schema::FileHash>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

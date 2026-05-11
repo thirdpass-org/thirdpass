@@ -279,7 +279,7 @@ pub fn is_enabled(name: &str, config: &Config) -> Result<bool> {
 pub fn get_enabled(
     names: &std::collections::BTreeSet<String>,
     config: &Config,
-) -> Result<Vec<Box<dyn thirdpass_lib::extension::Extension>>> {
+) -> Result<Vec<Box<dyn thirdpass_core::extension::Extension>>> {
     log::debug!("Identifying enabled extensions.");
     let extensions = process::get_all()?
         .into_iter()

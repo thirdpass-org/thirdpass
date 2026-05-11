@@ -13,7 +13,7 @@ pub struct DependencyReport {
 
 /// Given a local project dependency, create a corresponding review report from known reviews.
 pub fn get_dependency_report(
-    dependency: &thirdpass_lib::extension::Dependency,
+    dependency: &thirdpass_core::extension::Dependency,
     registry_host_name: &str,
     config: &crate::common::config::Config,
 ) -> Result<DependencyReport> {

@@ -330,17 +330,17 @@ pub type Analysis = std::collections::BTreeMap<std::path::PathBuf, PathAnalysis>
 /// Build a manifest of regular files in the extracted package workspace.
 pub fn package_manifest(
     workspace_directory: &std::path::PathBuf,
-) -> Result<thirdpass_lib::schema::PackageManifest> {
+) -> Result<thirdpass_core::schema::PackageManifest> {
     let mut files = Vec::new();
     collect_package_manifest_files(workspace_directory, workspace_directory, &mut files)?;
     files.sort();
-    Ok(thirdpass_lib::schema::PackageManifest { files })
+    Ok(thirdpass_core::schema::PackageManifest { files })
 }
 
 fn collect_package_manifest_files(
     root: &std::path::Path,
     current: &std::path::Path,
-    files: &mut Vec<thirdpass_lib::schema::PackageManifestFile>,
+    files: &mut Vec<thirdpass_core::schema::PackageManifestFile>,
 ) -> Result<()> {
     for entry in std::fs::read_dir(current)? {
         let entry = entry?;
@@ -355,7 +355,7 @@ fn collect_package_manifest_files(
         }
 
         let relative_path = path.strip_prefix(root)?.to_path_buf();
-        files.push(thirdpass_lib::schema::PackageManifestFile {
+        files.push(thirdpass_core::schema::PackageManifestFile {
             path: package_manifest_path(&relative_path),
             size_bytes: metadata.len(),
         });
@@ -429,11 +429,11 @@ mod tests {
         assert_eq!(
             manifest.files,
             vec![
-                thirdpass_lib::schema::PackageManifestFile {
+                thirdpass_core::schema::PackageManifestFile {
                     path: "index.js".to_string(),
                     size_bytes: 5,
                 },
-                thirdpass_lib::schema::PackageManifestFile {
+                thirdpass_core::schema::PackageManifestFile {
                     path: "lib/core/axios.js".to_string(),
                     size_bytes: 3,
                 },

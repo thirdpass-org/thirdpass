@@ -6,7 +6,7 @@ use crate::review;
 use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewConfidence, ReviewerDetails, SecuritySummary};
 use anyhow::{format_err, Result};
-use thirdpass_lib::schema as api;
+use thirdpass_core::schema as api;
 
 pub type ReviewCandidate = api::ReviewCandidate;
 pub type ReviewQuery = api::ReviewQuery;

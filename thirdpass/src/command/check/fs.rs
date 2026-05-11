@@ -60,7 +60,7 @@ pub fn report(
 }
 
 fn report_dependencies(
-    package_dependencies: &thirdpass_lib::extension::FileDefinedDependencies,
+    package_dependencies: &thirdpass_core::extension::FileDefinedDependencies,
     config: &common::config::Config,
     first_row_separate: bool,
 ) -> Result<Option<output::DependencyGroup>> {

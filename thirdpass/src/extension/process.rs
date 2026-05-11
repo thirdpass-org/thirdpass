@@ -1,33 +1,33 @@
 use anyhow::{format_err, Result};
 use std::collections::HashMap;
-use thirdpass_lib::extension::{FromLib, FromProcess};
+use thirdpass_core::extension::{FromLib, FromProcess};
 
 use crate::extension::common;
 
 pub static EXTENSION_FILE_NAME_PREFIX: &str = "thirdpass-";
 
 /// Return handles to all known extensions.
-pub fn get_all() -> Result<Vec<Box<dyn thirdpass_lib::extension::Extension>>> {
+pub fn get_all() -> Result<Vec<Box<dyn thirdpass_core::extension::Extension>>> {
     log::debug!("Identifying all extensions.");
 
     let mut all_extensions = vec![
         Box::new(thirdpass_py_lib::PyExtension::new())
-            as Box<dyn thirdpass_lib::extension::Extension>,
+            as Box<dyn thirdpass_core::extension::Extension>,
         Box::new(thirdpass_js_lib::JsExtension::new())
-            as Box<dyn thirdpass_lib::extension::Extension>,
+            as Box<dyn thirdpass_core::extension::Extension>,
         Box::new(thirdpass_rs_lib::RsExtension::new())
-            as Box<dyn thirdpass_lib::extension::Extension>,
+            as Box<dyn thirdpass_core::extension::Extension>,
     ];
 
     for extension in get_process_extensions()? {
-        all_extensions.push(Box::new(extension) as Box<dyn thirdpass_lib::extension::Extension>);
+        all_extensions.push(Box::new(extension) as Box<dyn thirdpass_core::extension::Extension>);
     }
 
     Ok(all_extensions)
 }
 
 /// Discovers and loads process extensions.
-fn get_process_extensions() -> Result<Vec<thirdpass_lib::extension::process::ProcessExtension>> {
+fn get_process_extensions() -> Result<Vec<thirdpass_core::extension::process::ProcessExtension>> {
     let extension_paths = get_extension_paths()?;
 
     let mut threads = vec![];
@@ -36,13 +36,13 @@ fn get_process_extensions() -> Result<Vec<thirdpass_lib::extension::process::Pro
         let process_path = path.clone();
 
         threads.push(std::thread::spawn(move || {
-            thirdpass_lib::extension::process::ProcessExtension::from_process(
+            thirdpass_core::extension::process::ProcessExtension::from_process(
                 &process_path,
                 &extension_config_path,
             )
         }));
     }
-    let extensions: Vec<Result<thirdpass_lib::extension::process::ProcessExtension>> = threads
+    let extensions: Vec<Result<thirdpass_core::extension::process::ProcessExtension>> = threads
         .into_iter()
         .map(|thread| thread.join().unwrap())
         .collect();

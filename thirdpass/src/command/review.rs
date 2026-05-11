@@ -519,7 +519,7 @@ fn build_targets_from_comments(
 struct SelectedTarget {
     absolute_path: std::path::PathBuf,
     relative_path: std::path::PathBuf,
-    file_hash: thirdpass_lib::schema::FileHash,
+    file_hash: thirdpass_core::schema::FileHash,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -566,7 +566,7 @@ fn selected_target(
     Ok(SelectedTarget {
         absolute_path,
         relative_path,
-        file_hash: thirdpass_lib::schema::FileHash::blake3(hash),
+        file_hash: thirdpass_core::schema::FileHash::blake3(hash),
     })
 }
 
@@ -885,7 +885,7 @@ fn setup_review(
     let package_version_was_given = package_version.is_some();
 
     let mut package_version: Option<String> = package_version.clone();
-    let mut registry_metadata: Option<thirdpass_lib::extension::RegistryPackageMetadata> = None;
+    let mut registry_metadata: Option<thirdpass_core::extension::RegistryPackageMetadata> = None;
     if package_version.is_none() {
         let (version, r) = get_latest_package_version(package_name, &extensions)?;
         package_version = Some(version);
@@ -942,8 +942,8 @@ fn setup_review(
 
 fn get_latest_package_version(
     package_name: &str,
-    extensions: &Vec<Box<dyn thirdpass_lib::extension::Extension>>,
-) -> Result<(String, thirdpass_lib::extension::RegistryPackageMetadata)> {
+    extensions: &Vec<Box<dyn thirdpass_core::extension::Extension>>,
+) -> Result<(String, thirdpass_core::extension::RegistryPackageMetadata)> {
     let remote_package_metadata = extension::search_registries(&package_name, &None, &extensions)?;
     let primary_registry = remote_package_metadata
         .iter()
@@ -958,8 +958,8 @@ fn get_latest_package_version(
 fn get_primary_registry_metadata(
     package_name: &str,
     package_version: &str,
-    extensions: &Vec<Box<dyn thirdpass_lib::extension::Extension>>,
-) -> Result<thirdpass_lib::extension::RegistryPackageMetadata> {
+    extensions: &Vec<Box<dyn thirdpass_core::extension::Extension>>,
+) -> Result<thirdpass_core::extension::RegistryPackageMetadata> {
     let remote_package_metadata =
         extension::search_registries(&package_name, &Some(package_version), &extensions)?;
     let primary_registry = remote_package_metadata
@@ -1043,7 +1043,7 @@ mod tests {
         assert_eq!(target.relative_path, std::path::PathBuf::from("index.js"));
         assert_eq!(
             target.file_hash,
-            thirdpass_lib::schema::FileHash::blake3(expected_hash)
+            thirdpass_core::schema::FileHash::blake3(expected_hash)
         );
         Ok(())
     }
