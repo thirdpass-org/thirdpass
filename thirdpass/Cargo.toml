@@ -9,7 +9,7 @@ default-run = "thirdpass"
 description = "A multi-ecosystem package code review system."
 
 [dependencies]
-thirdpass-core = { path = "../thirdpass-core", version = "0.3.1" }
+thirdpass-core = { path = "../thirdpass-core", version = "0.3.1", features = ["package", "registry"] }
 thirdpass-py = { path = "../../extensions/thirdpass-py", version = "0.3.1" }
 thirdpass-js = { path = "../../extensions/thirdpass-js", version = "0.3.1" }
 thirdpass-rs = { path = "../../extensions/thirdpass-rs", version = "0.1.0" }
@@ -38,14 +38,7 @@ reqwest = { version = "0.11.0", default-features = false, features = ["blocking"
 serde = { version = "1.0.104", features = ["derive"] }
 serde_json = "1.0.48"
 serde_yaml = "0.8.13"
-blake3 = "0.3.7"
 uuid = { version = "0.8.2", features = ["v4"] }
-
-zip = "0.5.10"
-flate2 = "1.0.14"
-tar = "0.4.33"
-
-tokei = "12.1.2"
 prettytable-rs = "0.8.0"
 atty = "0.2"
 

@@ -111,7 +111,10 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     );
 
     let selected_targets = if !args.target_files.is_empty() {
-        resolve_target_paths(&workspace_manifest.workspace_path, &args.target_files)?
+        thirdpass_core::package::target::resolve_target_paths(
+            &workspace_manifest.workspace_path,
+            &args.target_files,
+        )?
     } else {
         select_target_files(
             &workspace_manifest.workspace_path,
@@ -473,7 +476,7 @@ where
 }
 
 fn build_targets_from_comments(
-    selected_targets: &[SelectedTarget],
+    selected_targets: &[thirdpass_core::package::target::SelectedTarget],
     comments: std::collections::BTreeSet<review::comment::Comment>,
 ) -> Vec<review::ReviewTarget> {
     let mut grouped: std::collections::BTreeMap<
@@ -515,82 +518,12 @@ fn build_targets_from_comments(
     targets
 }
 
-#[derive(Debug, Clone)]
-struct SelectedTarget {
-    absolute_path: std::path::PathBuf,
-    relative_path: std::path::PathBuf,
-    file_hash: thirdpass_core::schema::FileHash,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-struct ReviewCandidateFile {
-    relative_path: std::path::PathBuf,
-    line_count: usize,
-    already_reviewed: bool,
-}
-
-fn resolve_target_path(
-    workspace_path: &std::path::PathBuf,
-    target_file: &str,
-) -> Result<SelectedTarget> {
-    let target_path = std::path::PathBuf::from(target_file);
-    let target_path = if target_path.is_absolute() {
-        target_path
-    } else {
-        workspace_path.join(target_path)
-    };
-    if !target_path.is_file() {
-        return Err(format_err!(
-            "Target file not found: {}",
-            target_path.display()
-        ));
-    }
-    let target_relative = target_path
-        .strip_prefix(workspace_path)
-        .unwrap_or(target_path.as_path())
-        .to_path_buf();
-    selected_target(target_path, target_relative)
-}
-
-fn selected_target(
-    absolute_path: std::path::PathBuf,
-    relative_path: std::path::PathBuf,
-) -> Result<SelectedTarget> {
-    let (hash, path_type) = common::fs::hash(&absolute_path)?;
-    if !matches!(path_type, common::fs::PathType::File) {
-        return Err(format_err!(
-            "Target path is not a file: {}",
-            absolute_path.display()
-        ));
-    }
-    Ok(SelectedTarget {
-        absolute_path,
-        relative_path,
-        file_hash: thirdpass_core::schema::FileHash::blake3(hash),
-    })
-}
-
-fn resolve_target_paths(
-    workspace_path: &std::path::PathBuf,
-    target_files: &[String],
-) -> Result<Vec<SelectedTarget>> {
-    let mut seen = std::collections::BTreeSet::new();
-    let mut targets = Vec::new();
-    for target_file in target_files {
-        let target = resolve_target_path(workspace_path, target_file)?;
-        if seen.insert(target.relative_path.clone()) {
-            targets.push(target);
-        }
-    }
-    Ok(targets)
-}
-
 fn select_target_files(
     workspace_path: &std::path::PathBuf,
     review: &review::Review,
     config: &common::config::Config,
     skip_coordination: bool,
-) -> Result<Vec<SelectedTarget>> {
+) -> Result<Vec<thirdpass_core::package::target::SelectedTarget>> {
     let analysis = review::workspace::analyse(workspace_path)?;
     let registry = review
         .package
@@ -601,25 +534,13 @@ fn select_target_files(
     let locally_reviewed_paths =
         get_locally_reviewed_target_paths(review, config, &registry.host_name)?;
 
-    let mut candidates = Vec::new();
-    for (path, entry) in analysis.iter() {
-        if let common::fs::PathType::File = entry.path_type {
-            candidates.push(ReviewCandidateFile {
-                relative_path: path.clone(),
-                line_count: entry.line_count,
-                already_reviewed: locally_reviewed_paths.contains(path),
-            });
-        }
-    }
-    sort_review_candidates(&mut candidates);
+    let candidates =
+        thirdpass_core::package::target::candidate_files(&analysis, &locally_reviewed_paths);
     if candidates.is_empty() {
         return Err(format_err!("No files found to review."));
     }
 
-    if candidates
-        .iter()
-        .all(|candidate| candidate.already_reviewed)
-    {
+    if thirdpass_core::package::target::all_candidates_reviewed(&candidates) {
         println!("All candidate files already reviewed locally; reusing reviewed candidates.");
     }
 
@@ -641,7 +562,10 @@ fn select_target_files(
             let target_path = workspace_path.join(&target_relative);
             if target_path.is_file() {
                 println!("Selected target file: {}", target_relative.display());
-                return Ok(vec![selected_target(target_path, target_relative)?]);
+                return Ok(vec![thirdpass_core::package::target::selected_target(
+                    target_path,
+                    target_relative,
+                )?]);
             }
             log::warn!(
                 "Target file from API not found locally: {}",
@@ -650,22 +574,13 @@ fn select_target_files(
         }
     }
 
-    let target_relative = candidates[0].relative_path.clone();
-    let target_path = workspace_path.join(&target_relative);
+    let target =
+        thirdpass_core::package::target::select_first_candidate(workspace_path, &candidates)?;
     println!(
         "Selected target file (local order): {}",
-        target_relative.display()
+        target.relative_path.display()
     );
-    Ok(vec![selected_target(target_path, target_relative)?])
-}
-
-fn sort_review_candidates(candidates: &mut Vec<ReviewCandidateFile>) {
-    candidates.sort_by(|a, b| {
-        a.already_reviewed
-            .cmp(&b.already_reviewed)
-            .then_with(|| b.line_count.cmp(&a.line_count))
-            .then_with(|| a.relative_path.cmp(&b.relative_path))
-    });
+    Ok(vec![target])
 }
 
 fn get_locally_reviewed_target_paths(
@@ -879,7 +794,7 @@ fn setup_review(
     package_version: &Option<String>,
     extension_names: &std::collections::BTreeSet<String>,
     config: &common::config::Config,
-) -> Result<(review::Review, review::workspace::Manifest)> {
+) -> Result<(review::Review, thirdpass_core::package::workspace::Manifest)> {
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;
 
     let package_version_was_given = package_version.is_some();
@@ -887,7 +802,8 @@ fn setup_review(
     let mut package_version: Option<String> = package_version.clone();
     let mut registry_metadata: Option<thirdpass_core::extension::RegistryPackageMetadata> = None;
     if package_version.is_none() {
-        let (version, r) = get_latest_package_version(package_name, &extensions)?;
+        let (version, r) =
+            thirdpass_core::registry::latest_package_metadata(package_name, &extensions)?;
         package_version = Some(version);
         registry_metadata = Some(r);
     }
@@ -902,7 +818,11 @@ fn setup_review(
 
     let registry_metadata = match registry_metadata {
         Some(metadata) => metadata,
-        None => get_primary_registry_metadata(package_name, &package_version, &extensions)?,
+        None => thirdpass_core::registry::primary_package_metadata(
+            package_name,
+            &package_version,
+            &extensions,
+        )?,
     };
 
     let registry = registry::Registry {
@@ -940,66 +860,9 @@ fn setup_review(
     Ok((review, workspace_manifest))
 }
 
-fn get_latest_package_version(
-    package_name: &str,
-    extensions: &Vec<Box<dyn thirdpass_core::extension::Extension>>,
-) -> Result<(String, thirdpass_core::extension::RegistryPackageMetadata)> {
-    let remote_package_metadata = extension::search_registries(&package_name, &None, &extensions)?;
-    let primary_registry = remote_package_metadata
-        .iter()
-        .find(|registry_metadata| registry_metadata.is_primary)
-        .ok_or(format_err!(
-            "Failed to find primary registry metadata from extension."
-        ))?;
-    let package_version = primary_registry.package_version.clone();
-    Ok((package_version, primary_registry.clone()))
-}
-
-fn get_primary_registry_metadata(
-    package_name: &str,
-    package_version: &str,
-    extensions: &Vec<Box<dyn thirdpass_core::extension::Extension>>,
-) -> Result<thirdpass_core::extension::RegistryPackageMetadata> {
-    let remote_package_metadata =
-        extension::search_registries(&package_name, &Some(package_version), &extensions)?;
-    let primary_registry = remote_package_metadata
-        .iter()
-        .find(|registry_metadata| registry_metadata.is_primary)
-        .ok_or(format_err!(
-            "Failed to find primary registry metadata from extension."
-        ))?;
-    Ok(primary_registry.clone())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn sort_review_candidates_prefers_unreviewed_files() {
-        let mut candidates = vec![
-            candidate_file("already-reviewed-large.js", 300, true),
-            candidate_file("unreviewed-small.js", 50, false),
-            candidate_file("unreviewed-large.js", 200, false),
-            candidate_file("already-reviewed-small.js", 20, true),
-        ];
-
-        sort_review_candidates(&mut candidates);
-
-        let paths = candidates
-            .iter()
-            .map(|candidate| candidate.relative_path.to_string_lossy().to_string())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            paths,
-            vec![
-                "unreviewed-large.js",
-                "unreviewed-small.js",
-                "already-reviewed-large.js",
-                "already-reviewed-small.js",
-            ]
-        );
-    }
 
     #[test]
     fn matches_current_review_package_requires_same_reviewer_and_package_hash() -> Result<()> {
@@ -1031,24 +894,6 @@ mod tests {
     }
 
     #[test]
-    fn resolve_target_path_records_blake3_file_hash() -> Result<()> {
-        let tmp = tempfile::tempdir()?;
-        let workspace = tmp.path().to_path_buf();
-        let contents = b"console.log('review me');\n";
-        std::fs::write(workspace.join("index.js"), contents)?;
-
-        let target = resolve_target_path(&workspace, "index.js")?;
-        let expected_hash = blake3::hash(contents).to_hex().as_str().to_string();
-
-        assert_eq!(target.relative_path, std::path::PathBuf::from("index.js"));
-        assert_eq!(
-            target.file_hash,
-            thirdpass_core::schema::FileHash::blake3(expected_hash)
-        );
-        Ok(())
-    }
-
-    #[test]
     fn format_agent_token_combines_codex_details() {
         assert_eq!(
             format_agent_token(
@@ -1058,18 +903,6 @@ mod tests {
             ),
             "codex-gpt-5.5-high"
         );
-    }
-
-    fn candidate_file(
-        path: &str,
-        line_count: usize,
-        already_reviewed: bool,
-    ) -> ReviewCandidateFile {
-        ReviewCandidateFile {
-            relative_path: std::path::PathBuf::from(path),
-            line_count,
-            already_reviewed,
-        }
     }
 
     fn stored_review(

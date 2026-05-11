@@ -20,3 +20,18 @@ reqwest = { version = "0.11.0", default-features = false, features = ["blocking"
 serde = { version = "1.0.104", features = ["derive"] }
 serde_json = "1.0.48"
 serde_yaml = "0.8.13"
+blake3 = { version = "0.3.7", optional = true }
+uuid = { version = "0.8.2", features = ["v4"], optional = true }
+zip = { version = "0.5.10", optional = true }
+flate2 = { version = "1.0.14", optional = true }
+tar = { version = "0.4.33", optional = true }
+tokei = { version = "12.1.2", optional = true }
+crossbeam-utils = { version = "0.8.1", optional = true }
+
+[features]
+default = []
+package = ["blake3", "uuid", "zip", "flate2", "tar", "tokei"]
+registry = ["crossbeam-utils"]
+
+[dev-dependencies]
+tempfile = "3"

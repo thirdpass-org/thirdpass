@@ -2190,7 +2190,6 @@ version = "0.3.2"
 dependencies = [
  "anyhow",
  "atty",
- "blake3",
  "console 0.15.11",
  "crossbeam",
  "crossbeam-utils",
@@ -2198,7 +2197,6 @@ dependencies = [
  "directories",
  "dirs 3.0.1",
  "env_logger",
- "flate2",
  "indicatif",
  "log",
  "maplit",
@@ -2210,18 +2208,15 @@ dependencies = [
  "serde_yaml",
  "shellexpand",
  "structopt",
- "tar",
  "tempdir",
  "tempfile",
  "thirdpass-core",
  "thirdpass-js",
  "thirdpass-py",
  "thirdpass-rs",
- "tokei",
  "url",
  "uuid",
  "winapi 0.3.9",
- "zip",
 ]
 
 [[package]]
@@ -2229,14 +2224,22 @@ name = "thirdpass-core"
 version = "0.3.1"
 dependencies = [
  "anyhow",
+ "blake3",
+ "crossbeam-utils",
  "env_logger",
+ "flate2",
  "log",
  "reqwest 0.11.3",
  "serde",
  "serde_json",
  "serde_yaml",
  "structopt",
+ "tar",
+ "tempfile",
+ "tokei",
  "url",
+ "uuid",
+ "zip",
 ]
 
 [[package]]
