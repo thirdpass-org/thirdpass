@@ -132,7 +132,7 @@ fn select_review_dependency(
                     package_version,
                 };
                 let (current_reviewer_review_count, total_review_count) =
-                    count_matching_reviews(&key, &stored_reviews, &config.core.reviewer_uuid);
+                    count_matching_reviews(&key, &stored_reviews, &config.core.public_user_id);
                 candidates
                     .entry(key.clone())
                     .or_insert_with(|| DependencyReviewCandidate {
@@ -155,7 +155,7 @@ fn select_review_dependency(
 fn count_matching_reviews(
     candidate: &DependencyReviewKey,
     reviews: &[review::Review],
-    reviewer_uuid: &str,
+    public_user_id: &str,
 ) -> (usize, usize) {
     let mut current_reviewer_review_count = 0;
     let mut total_review_count = 0;
@@ -165,7 +165,7 @@ fn count_matching_reviews(
         }
 
         total_review_count += 1;
-        if review.reviewer_details.reviewer_uuid == reviewer_uuid {
+        if review.reviewer_details.public_user_id == public_user_id {
             current_reviewer_review_count += 1;
         }
     }
@@ -228,14 +228,14 @@ mod tests {
             package_version: "1.3.0".to_string(),
         };
         let reviews = vec![
-            stored_review("reviewer-a", "npmjs.com", "left-pad", "1.3.0")?,
-            stored_review("reviewer-b", "npmjs.com", "left-pad", "1.3.0")?,
-            stored_review("reviewer-a", "npmjs.com", "left-pad", "1.2.0")?,
-            stored_review("reviewer-a", "pypi.org", "left-pad", "1.3.0")?,
+            stored_review("user-a", "npmjs.com", "left-pad", "1.3.0")?,
+            stored_review("user-b", "npmjs.com", "left-pad", "1.3.0")?,
+            stored_review("user-a", "npmjs.com", "left-pad", "1.2.0")?,
+            stored_review("user-a", "pypi.org", "left-pad", "1.3.0")?,
         ];
 
         assert_eq!(
-            count_matching_reviews(&candidate, &reviews, "reviewer-a"),
+            count_matching_reviews(&candidate, &reviews, "user-a"),
             (1, 2)
         );
         Ok(())
@@ -286,7 +286,7 @@ mod tests {
     }
 
     fn stored_review(
-        reviewer_uuid: &str,
+        public_user_id: &str,
         registry_host_name: &str,
         package_name: &str,
         package_version: &str,
@@ -311,7 +311,7 @@ mod tests {
             },
             targets: Vec::new(),
             reviewer_details: review::ReviewerDetails {
-                reviewer_uuid: reviewer_uuid.to_string(),
+                public_user_id: public_user_id.to_string(),
                 ..Default::default()
             },
             agent_summary: String::new(),

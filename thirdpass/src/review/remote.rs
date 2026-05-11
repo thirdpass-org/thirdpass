@@ -14,8 +14,7 @@ pub type ReviewQuery = api::ReviewQuery;
 #[derive(Debug, serde::Deserialize)]
 struct ReviewSubmitResponse {
     id: String,
-    #[serde(default)]
-    reviewer_uuid: Option<String>,
+    public_user_id: String,
 }
 
 /// Server response metadata for an accepted review submission.
@@ -23,8 +22,8 @@ struct ReviewSubmitResponse {
 pub struct ReviewSubmitResult {
     /// Server-assigned review id.
     pub id: String,
-    /// Server-derived public reviewer UUID, when returned by the API.
-    pub reviewer_uuid: Option<String>,
+    /// Server-derived public user ID.
+    pub public_user_id: String,
 }
 
 pub fn submit(
@@ -72,10 +71,7 @@ pub fn submit(
     let response = response.json::<ReviewSubmitResponse>()?;
     Ok(ReviewSubmitResult {
         id: response.id,
-        reviewer_uuid: response
-            .reviewer_uuid
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty()),
+        public_user_id: response.public_user_id.trim().to_string(),
     })
 }
 
@@ -151,7 +147,7 @@ pub fn store_records(
 ) -> Result<usize> {
     let mut stored = 0;
     for record in records {
-        if record.reviewer_details.reviewer_uuid == config.core.reviewer_uuid {
+        if record.reviewer_details.public_user_id == config.core.public_user_id {
             continue;
         }
         store_record(record, config)?;
@@ -172,7 +168,7 @@ fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> R
     } = record;
     let registry = build_registry(&target)?;
     let package = build_package(&target, &registry);
-    let peer = peer::reviewer_peer(&reviewer_details.reviewer_uuid, &config.core.api_base)?;
+    let peer = peer::public_user_peer(&reviewer_details.public_user_id, &config.core.api_base)?;
     let targets = files
         .into_iter()
         .map(|file| {
@@ -337,7 +333,7 @@ fn from_api_confidence(confidence: &api::ReviewConfidence) -> ReviewConfidence {
 
 fn to_api_reviewer_details(details: &ReviewerDetails) -> api::ReviewerDetails {
     api::ReviewerDetails {
-        reviewer_uuid: details.reviewer_uuid.clone(),
+        public_user_id: details.public_user_id.clone(),
         agent_name: details.agent_name.clone(),
         agent_model: details.agent_model.clone(),
         agent_reasoning_effort: details.agent_reasoning_effort.clone(),
@@ -350,7 +346,7 @@ fn to_api_reviewer_details(details: &ReviewerDetails) -> api::ReviewerDetails {
 
 fn from_api_reviewer_details(details: &api::ReviewerDetails) -> ReviewerDetails {
     ReviewerDetails {
-        reviewer_uuid: details.reviewer_uuid.clone(),
+        public_user_id: details.public_user_id.clone(),
         agent_name: details.agent_name.clone(),
         agent_model: details.agent_model.clone(),
         agent_reasoning_effort: details.agent_reasoning_effort.clone(),
@@ -433,11 +429,12 @@ mod tests {
     }
 
     #[test]
-    fn review_submit_response_allows_legacy_missing_reviewer_uuid() {
+    fn review_submit_response_reads_public_user_id() {
         let response: ReviewSubmitResponse =
-            serde_json::from_str(r#"{"id":"rev_1"}"#).expect("failed to parse response");
+            serde_json::from_str(r#"{"id":"rev_1","public_user_id":"user-1"}"#)
+                .expect("failed to parse response");
 
         assert_eq!(response.id, "rev_1");
-        assert_eq!(response.reviewer_uuid, None);
+        assert_eq!(response.public_user_id, "user-1");
     }
 }

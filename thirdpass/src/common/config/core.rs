@@ -11,8 +11,9 @@ pub struct Core {
     /// Private client identifier shared only with the Thirdpass server.
     #[serde(rename = "client-id", default)]
     pub client_id: String,
-    #[serde(rename = "reviewer-uuid")]
-    pub reviewer_uuid: String,
+    /// Server-derived public user identifier exposed on submitted reviews.
+    #[serde(rename = "public-user-id", default)]
+    pub public_user_id: String,
 }
 
 fn get_regex() -> Result<regex::Regex> {
@@ -47,8 +48,8 @@ pub fn set(core: &mut Core, name: &str, value: &str) -> Result<()> {
             core.client_id = value.to_string();
             Ok(())
         }
-        "reviewer-uuid" => {
-            core.reviewer_uuid = value.to_string();
+        "public-user-id" => {
+            core.public_user_id = value.to_string();
             Ok(())
         }
         _ => Err(format_err!(name_error_message.clone())),
@@ -70,7 +71,7 @@ pub fn get(core: &Core, name: &str) -> Result<String> {
         "api-key" => Ok(core.api_key.clone()),
         "api-base" => Ok(core.api_base.clone()),
         "client-id" => Ok(core.client_id.clone()),
-        "reviewer-uuid" => Ok(core.reviewer_uuid.clone()),
+        "public-user-id" => Ok(core.public_user_id.clone()),
         _ => Err(format_err!(name_error_message.clone())),
     }
 }
@@ -92,15 +93,27 @@ mod tests {
     }
 
     #[test]
+    fn public_user_id_can_be_set_and_read() {
+        let mut core = Core::default();
+
+        set(&mut core, "core.public-user-id", "user-1").expect("failed to set public user id");
+
+        assert_eq!(
+            get(&core, "core.public-user-id").expect("failed to get public user id"),
+            "user-1"
+        );
+    }
+
+    #[test]
     fn missing_client_id_defaults_to_empty_for_existing_configs() {
         let core: Core = serde_yaml::from_str(
             r#"
 api-key: tmp_api_key
 api-base: https://thirdpass.dev/api
-reviewer-uuid: reviewer-1
+public-user-id: user-1
 "#,
         )
-        .expect("failed to deserialize legacy core config");
+        .expect("failed to deserialize core config");
 
         assert_eq!(core.client_id, "");
     }

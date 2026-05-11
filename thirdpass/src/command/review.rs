@@ -249,12 +249,12 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         };
 
         let mut submitted_review = existing.review.clone();
-        let reviewer_uuid_changed = apply_server_reviewer_uuid(
+        let public_user_id_changed = apply_server_public_user_id(
             &mut config,
             &mut submitted_review,
-            submit_result.reviewer_uuid.as_deref(),
+            &submit_result.public_user_id,
         )?;
-        finish_submitted_review(&submitted_review, &existing.path, reviewer_uuid_changed)?;
+        finish_submitted_review(&submitted_review, &existing.path, public_user_id_changed)?;
         println!("Review submitted.");
         return Ok(());
     }
@@ -433,12 +433,12 @@ pub fn run_command(args: &Arguments) -> Result<()> {
 
     if !args.skip_coordination {
         if let Some(submit_result) = submit_result {
-            let reviewer_uuid_changed = apply_server_reviewer_uuid(
+            let public_user_id_changed = apply_server_public_user_id(
                 &mut config,
                 &mut review,
-                submit_result.reviewer_uuid.as_deref(),
+                &submit_result.public_user_id,
             )?;
-            finish_submitted_review(&review, &pending_review_path, reviewer_uuid_changed)?;
+            finish_submitted_review(&review, &pending_review_path, public_user_id_changed)?;
             println!("Review submitted.");
         }
     }
@@ -607,7 +607,7 @@ fn get_locally_reviewed_target_paths(
         if !matches_current_review_package(
             &stored.review,
             current,
-            &config.core.reviewer_uuid,
+            &config.core.public_user_id,
             registry_host_name,
         ) {
             continue;
@@ -623,10 +623,10 @@ fn get_locally_reviewed_target_paths(
 fn matches_current_review_package(
     candidate: &review::Review,
     current: &review::Review,
-    reviewer_uuid: &str,
+    public_user_id: &str,
     registry_host_name: &str,
 ) -> bool {
-    candidate.reviewer_details.reviewer_uuid == reviewer_uuid
+    candidate.reviewer_details.public_user_id == public_user_id
         && candidate.package.name == current.package.name
         && candidate.package.version == current.package.version
         && candidate.package.package_hash == current.package.package_hash
@@ -646,7 +646,7 @@ fn build_reviewer_details(
     review_scope: review::ReviewScope,
 ) -> Result<review::ReviewerDetails> {
     Ok(review::ReviewerDetails {
-        reviewer_uuid: config.core.reviewer_uuid.clone(),
+        public_user_id: config.core.public_user_id.clone(),
         agent_name: agent_name.to_string(),
         agent_model: agent_model.to_string(),
         agent_reasoning_effort: agent_reasoning_effort.to_string(),
@@ -679,24 +679,22 @@ fn now_epoch_seconds() -> Result<String> {
     Ok(now.as_secs().to_string())
 }
 
-fn apply_server_reviewer_uuid(
+fn apply_server_public_user_id(
     config: &mut common::config::Config,
     review: &mut review::Review,
-    reviewer_uuid: Option<&str>,
+    public_user_id: &str,
 ) -> Result<bool> {
-    let Some(reviewer_uuid) = reviewer_uuid
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
+    let public_user_id = public_user_id.trim();
+    if public_user_id.is_empty() {
         return Ok(false);
-    };
+    }
 
-    let changed = review.reviewer_details.reviewer_uuid != reviewer_uuid;
-    review.reviewer_details.reviewer_uuid = reviewer_uuid.to_string();
-    review.peer = peer::reviewer_peer(reviewer_uuid, &config.core.api_base)?;
+    let changed = review.reviewer_details.public_user_id != public_user_id;
+    review.reviewer_details.public_user_id = public_user_id.to_string();
+    review.peer = peer::public_user_peer(public_user_id, &config.core.api_base)?;
 
-    if config.core.reviewer_uuid != reviewer_uuid {
-        config.core.reviewer_uuid = reviewer_uuid.to_string();
+    if config.core.public_user_id != public_user_id {
+        config.core.public_user_id = public_user_id.to_string();
         config.dump()?;
     }
 
@@ -778,7 +776,7 @@ fn find_matching_local_review(
         {
             continue;
         }
-        if current.reviewer_details.reviewer_uuid != config.core.reviewer_uuid {
+        if current.reviewer_details.public_user_id != config.core.public_user_id {
             continue;
         }
         if current.reviewer_details.agent_name != expected_agent_name {
@@ -898,7 +896,7 @@ fn setup_review(
         registries,
         package_hash: workspace_manifest.package_hash.clone(),
     };
-    let peer = peer::reviewer_peer(&config.core.reviewer_uuid, &config.core.api_base)?;
+    let peer = peer::public_user_peer(&config.core.public_user_id, &config.core.api_base)?;
     let review = review::Review {
         id: 0,
         peer,
@@ -917,29 +915,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matches_current_review_package_requires_same_reviewer_and_package_hash() -> Result<()> {
-        let current = stored_review("reviewer-a", "registry.example", "pkg", "1.0.0", "hash-a")?;
-        let matching = stored_review("reviewer-a", "registry.example", "pkg", "1.0.0", "hash-a")?;
-        let other_reviewer =
-            stored_review("reviewer-b", "registry.example", "pkg", "1.0.0", "hash-a")?;
-        let other_hash = stored_review("reviewer-a", "registry.example", "pkg", "1.0.0", "hash-b")?;
+    fn matches_current_review_package_requires_same_public_user_and_package_hash() -> Result<()> {
+        let current = stored_review("user-a", "registry.example", "pkg", "1.0.0", "hash-a")?;
+        let matching = stored_review("user-a", "registry.example", "pkg", "1.0.0", "hash-a")?;
+        let other_user = stored_review("user-b", "registry.example", "pkg", "1.0.0", "hash-a")?;
+        let other_hash = stored_review("user-a", "registry.example", "pkg", "1.0.0", "hash-b")?;
 
         assert!(matches_current_review_package(
             &matching,
             &current,
-            "reviewer-a",
+            "user-a",
             "registry.example"
         ));
         assert!(!matches_current_review_package(
-            &other_reviewer,
+            &other_user,
             &current,
-            "reviewer-a",
+            "user-a",
             "registry.example"
         ));
         assert!(!matches_current_review_package(
             &other_hash,
             &current,
-            "reviewer-a",
+            "user-a",
             "registry.example"
         ));
         Ok(())
@@ -958,7 +955,7 @@ mod tests {
     }
 
     fn stored_review(
-        reviewer_uuid: &str,
+        public_user_id: &str,
         registry_host_name: &str,
         package_name: &str,
         package_version: &str,
@@ -984,7 +981,7 @@ mod tests {
             },
             targets: Vec::new(),
             reviewer_details: review::ReviewerDetails {
-                reviewer_uuid: reviewer_uuid.to_string(),
+                public_user_id: public_user_id.to_string(),
                 ..Default::default()
             },
             agent_summary: String::new(),

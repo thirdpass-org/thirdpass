@@ -124,7 +124,7 @@ pub struct ReviewRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewerDetails {
-    pub reviewer_uuid: String,
+    pub public_user_id: String,
     pub agent_name: String,
     pub agent_model: String,
     pub agent_reasoning_effort: String,
@@ -332,7 +332,7 @@ mod tests {
                 "package_hash": "sha256:abc"
             },
             "reviewer_details": {
-                "reviewer_uuid": "reviewer-1",
+                "public_user_id": "user-1",
                 "agent_name": "codex",
                 "agent_model": "gpt-5.5",
                 "agent_reasoning_effort": "high",

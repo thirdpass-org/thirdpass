@@ -17,10 +17,6 @@ pub fn ensure() -> Result<()> {
 fn ensure_core_config() -> Result<()> {
     let mut config = Config::load()?;
     let mut changed = false;
-    if config.core.reviewer_uuid.is_empty() {
-        config.core.reviewer_uuid = uuid::Uuid::new_v4().to_hyphenated().to_string();
-        changed = true;
-    }
     if config.core.client_id.is_empty() {
         config.core.client_id = uuid::Uuid::new_v4().to_hyphenated().to_string();
         changed = true;

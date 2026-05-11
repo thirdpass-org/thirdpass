@@ -38,15 +38,15 @@ fn get_storage_file_path(
             .host_name,
     )?;
 
-    let reviewer = if review.reviewer_details.reviewer_uuid.is_empty() {
+    let public_user = if review.reviewer_details.public_user_id.is_empty() {
         "unknown".to_string()
     } else {
-        review.reviewer_details.reviewer_uuid.clone()
+        review.reviewer_details.public_user_id.clone()
     };
     let package_specific_directory = base_directory
         .join(review_directory_path)
         .join(&review.package.package_hash)
-        .join(reviewer);
+        .join(public_user);
     Ok(package_specific_directory.join(review_file_name()))
 }
 
