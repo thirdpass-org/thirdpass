@@ -1,6 +1,5 @@
 use crate::common::config::Config;
 use anyhow::Result;
-use uuid;
 mod fs;
 
 pub fn ensure() -> Result<()> {

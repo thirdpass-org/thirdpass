@@ -24,17 +24,18 @@ impl common::FromProcess for ProcessExtension {
         Self: Sized,
     {
         let static_data: StaticData = if extension_config_path.is_file() {
-            let file = std::fs::File::open(&extension_config_path)?;
+            let file = std::fs::File::open(extension_config_path)?;
             let reader = std::io::BufReader::new(file);
             serde_yaml::from_reader(reader)?
         } else {
-            let static_data: Box<StaticData> = run_process(&process_path, &vec!["static-data"])?;
+            let static_data: Box<StaticData> = run_process(process_path, &["static-data"])?;
             let static_data = *static_data;
 
             let file = std::fs::OpenOptions::new()
                 .write(true)
                 .create(true)
-                .open(&extension_config_path)
+                .truncate(true)
+                .open(extension_config_path)
                 .context(format!(
                     "Can't open/create file for writing: {}",
                     extension_config_path.display()
@@ -138,9 +139,9 @@ pub struct ProcessResult<T> {
     pub err: Option<String>,
 }
 
-fn run_process<'a, T: ?Sized>(process_path: &std::path::PathBuf, args: &Vec<&str>) -> Result<Box<T>>
+fn run_process<T>(process_path: &std::path::Path, args: &[&str]) -> Result<Box<T>>
 where
-    for<'de> T: serde::Deserialize<'de> + 'a,
+    for<'de> T: serde::Deserialize<'de>,
 {
     log::debug!(
         "Executing extensions process call with arguments\n{:?}",

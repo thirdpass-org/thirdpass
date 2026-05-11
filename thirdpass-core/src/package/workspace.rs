@@ -116,7 +116,7 @@ fn find_cached_archive(
     Ok(candidates.pop())
 }
 
-fn ensure_cached_archive_parent(path: &std::path::PathBuf) -> Result<()> {
+fn ensure_cached_archive_parent(path: &std::path::Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).context(format!(
             "Can't create archive cache directory: {}",
@@ -147,7 +147,7 @@ pub fn ensure(
             Some(path) => path,
             None => {
                 let archive_type =
-                    archive::ArchiveType::try_from(&std::path::PathBuf::from(artifact_url.path()))?;
+                    archive::ArchiveType::try_from(std::path::Path::new(artifact_url.path()))?;
                 if archive_type == archive::ArchiveType::Unknown {
                     return Err(format_err!(
                         "Unsupported archive file type: {}",
@@ -160,7 +160,7 @@ pub fn ensure(
                     package_name,
                     package_version,
                     registry_host_name,
-                    archive_type.clone(),
+                    archive_type,
                 )?;
 
                 if !cached_archive.is_file() {
@@ -168,8 +168,14 @@ pub fn ensure(
                         package_unique_directory.join(archive_file_name(archive_type)?);
                     archive::download(artifact_url, &download_path)?;
                     ensure_cached_archive_parent(&cached_archive)?;
-                    std::fs::copy(&download_path, &cached_archive)?;
-                    std::fs::remove_file(&download_path)?;
+                    std::fs::copy(&download_path, &cached_archive).context(format!(
+                        "Can't copy archive into cache: {}",
+                        cached_archive.display()
+                    ))?;
+                    std::fs::remove_file(&download_path).context(format!(
+                        "Can't remove temporary archive download: {}",
+                        download_path.display()
+                    ))?;
                 }
                 cached_archive
             }
@@ -196,7 +202,7 @@ pub fn ensure(
     Ok(workspace_manifest)
 }
 
-fn get_manifest_path(package_unique_directory: &std::path::PathBuf) -> std::path::PathBuf {
+fn get_manifest_path(package_unique_directory: &std::path::Path) -> std::path::PathBuf {
     package_unique_directory.join(MANIFEST_FILE_NAME)
 }
 
@@ -210,6 +216,7 @@ fn write_manifest(workspace_manifest: &Manifest) -> Result<()> {
         .write(true)
         .append(false)
         .create(true)
+        .truncate(true)
         .open(path)
         .context(format!(
             "Can't open/create file for writing: {}",
@@ -222,6 +229,8 @@ fn write_manifest(workspace_manifest: &Manifest) -> Result<()> {
 fn read_manifest(path: &std::path::PathBuf) -> Result<Manifest> {
     let file = std::fs::File::open(path)?;
     let reader = std::io::BufReader::new(file);
+    // serde_yaml can read the JSON manifests written by current clients and
+    // any older YAML manifests left in local workspaces.
     Ok(serde_yaml::from_reader(reader)?)
 }
 
@@ -271,30 +280,28 @@ fn setup_unique_package_directory(
     Ok(package_unique_directory)
 }
 
-fn get_workspace_directory_name(
-    package_name: &str,
-    package_version: &str,
-) -> Result<std::path::PathBuf> {
-    Ok(std::path::PathBuf::from(format!(
-        "{}-{}",
-        package_name, package_version
-    )))
+fn get_workspace_directory_name(package_name: &str, package_version: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("{}-{}", package_name, package_version))
 }
 
 fn normalize_workspace_directory_name(
     workspace_directory: &std::path::PathBuf,
-    parent_directory: &std::path::PathBuf,
+    parent_directory: &std::path::Path,
     package_name: &str,
     package_version: &str,
 ) -> Result<std::path::PathBuf> {
     let target_directory =
-        parent_directory.join(get_workspace_directory_name(package_name, package_version)?);
+        parent_directory.join(get_workspace_directory_name(package_name, package_version));
     log::debug!(
         "Normalize workspace directory name: {}, {}",
         workspace_directory.display(),
         target_directory.display(),
     );
-    std::fs::rename(workspace_directory, &target_directory)?;
+    std::fs::rename(workspace_directory, &target_directory).context(format!(
+        "Can't normalize workspace directory from {} to {}",
+        workspace_directory.display(),
+        target_directory.display()
+    ))?;
     Ok(target_directory)
 }
 
@@ -304,14 +311,20 @@ pub fn remove(paths: &WorkspacePaths, workspace_manifest: &Manifest) -> Result<(
         "Removing workspace directory: {}",
         workspace_manifest.workspace_path.display()
     );
-    std::fs::remove_dir_all(&workspace_manifest.workspace_path)?;
+    std::fs::remove_dir_all(&workspace_manifest.workspace_path).context(format!(
+        "Can't remove workspace directory: {}",
+        workspace_manifest.workspace_path.display()
+    ))?;
 
     if workspace_manifest.manifest_path.is_file() {
         log::debug!(
             "Removing workspace manifest file: {}",
             workspace_manifest.manifest_path.display()
         );
-        std::fs::remove_file(&workspace_manifest.manifest_path)?;
+        std::fs::remove_file(&workspace_manifest.manifest_path).context(format!(
+            "Can't remove workspace manifest file: {}",
+            workspace_manifest.manifest_path.display()
+        ))?;
     }
 
     remove_empty_workspace_directories(
@@ -322,13 +335,13 @@ pub fn remove(paths: &WorkspacePaths, workspace_manifest: &Manifest) -> Result<(
 }
 
 fn remove_empty_workspace_directories(
-    relative_path: &std::path::PathBuf,
+    workspace_path: &std::path::Path,
     working_directory: &std::path::PathBuf,
 ) -> Result<()> {
-    let mut absolute_path = if relative_path.is_absolute() {
-        relative_path.clone()
+    let mut absolute_path = if workspace_path.is_absolute() {
+        workspace_path.to_path_buf()
     } else {
-        working_directory.join(relative_path)
+        working_directory.join(workspace_path)
     };
     while absolute_path.starts_with(working_directory) && &absolute_path != working_directory {
         if !absolute_path.exists() {

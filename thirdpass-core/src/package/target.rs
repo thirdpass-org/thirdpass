@@ -26,7 +26,7 @@ pub struct CandidateFile {
 
 /// Resolve a user-provided file path into a selected package target.
 pub fn resolve_target_path(
-    workspace_path: &std::path::PathBuf,
+    workspace_path: &std::path::Path,
     target_file: &str,
 ) -> Result<SelectedTarget> {
     let target_path = std::path::PathBuf::from(target_file);
@@ -50,7 +50,7 @@ pub fn resolve_target_path(
 
 /// Build selected package targets from user-provided file paths.
 pub fn resolve_target_paths(
-    workspace_path: &std::path::PathBuf,
+    workspace_path: &std::path::Path,
     target_files: &[String],
 ) -> Result<Vec<SelectedTarget>> {
     let mut seen = std::collections::BTreeSet::new();
@@ -90,7 +90,7 @@ pub fn candidate_files(
 ) -> Vec<CandidateFile> {
     let mut candidates = Vec::new();
     for (path, entry) in analysis.iter() {
-        if let PathType::File = entry.path_type {
+        if matches!(entry.path_type, PathType::File) {
             candidates.push(CandidateFile {
                 relative_path: path.clone(),
                 line_count: entry.line_count,
@@ -122,7 +122,7 @@ pub fn all_candidates_reviewed(candidates: &[CandidateFile]) -> bool {
 
 /// Select the first locally ranked candidate as a target.
 pub fn select_first_candidate(
-    workspace_path: &std::path::PathBuf,
+    workspace_path: &std::path::Path,
     candidates: &[CandidateFile],
 ) -> Result<SelectedTarget> {
     let candidate = candidates

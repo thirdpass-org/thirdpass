@@ -6,7 +6,6 @@
 //!
 //! Print statements are prohibited within this module. Logging is allowed.
 
-use serde;
 use std::hash::Hash;
 
 pub mod confidence;

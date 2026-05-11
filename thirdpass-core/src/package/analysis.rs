@@ -91,7 +91,7 @@ pub fn analyse(workspace_directory: &std::path::PathBuf) -> Result<Analysis> {
     let directory_line_counts = get_directory_line_counts(&file_line_counts, workspace_directory)?;
 
     let mut analysis = std::collections::BTreeMap::new();
-    for (path_type, line_counts) in vec![
+    for (path_type, line_counts) in [
         (PathType::File, file_line_counts),
         (PathType::Directory, directory_line_counts),
     ] {

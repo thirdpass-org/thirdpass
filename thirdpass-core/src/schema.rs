@@ -150,12 +150,20 @@ impl ReviewScope {
         }
     }
 
-    pub fn from_str(value: &str) -> Self {
+    pub fn parse_or_partial(value: &str) -> Self {
         match value {
             "target_file_full" => ReviewScope::TargetFileFull,
             "target_file_partial" => ReviewScope::TargetFilePartial,
             _ => ReviewScope::TargetFilePartial,
         }
+    }
+}
+
+impl FromStr for ReviewScope {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Ok(Self::parse_or_partial(value))
     }
 }
 

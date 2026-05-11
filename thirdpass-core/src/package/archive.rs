@@ -1,9 +1,9 @@
-use anyhow::{format_err, Result};
+use anyhow::{format_err, Context, Result};
 use std::convert::TryFrom;
 use std::io::Write;
 
 /// Archive formats that ThirdPass can download and unpack.
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ArchiveType {
     /// A `.zip` archive.
     Zip,
@@ -19,6 +19,14 @@ impl std::convert::TryFrom<&std::path::PathBuf> for ArchiveType {
     type Error = anyhow::Error;
 
     fn try_from(path: &std::path::PathBuf) -> Result<Self, Self::Error> {
+        Self::try_from(path.as_path())
+    }
+}
+
+impl std::convert::TryFrom<&std::path::Path> for ArchiveType {
+    type Error = anyhow::Error;
+
+    fn try_from(path: &std::path::Path) -> Result<Self, Self::Error> {
         Ok(match get_file_extension(path)?.as_str() {
             "zip" => Self::Zip,
             "tar.gz" | "crate" => Self::TarGz,
@@ -45,7 +53,7 @@ impl ArchiveType {
     }
 }
 
-fn get_file_extension(path: &std::path::PathBuf) -> Result<String> {
+fn get_file_extension(path: &std::path::Path) -> Result<String> {
     if path
         .to_str()
         .ok_or(format_err!("Failed to parse URL path as str."))?
@@ -54,14 +62,12 @@ fn get_file_extension(path: &std::path::PathBuf) -> Result<String> {
         return Ok("tar.gz".to_string());
     }
 
-    Ok(path
-        .extension()
-        .unwrap_or(std::ffi::OsString::from("").as_os_str())
-        .to_str()
-        .ok_or(format_err!(
+    match path.extension() {
+        Some(extension) => extension.to_str().map(ToOwned::to_owned).ok_or(format_err!(
             "Failed to parse file extension unicode characters."
-        ))?
-        .to_owned())
+        )),
+        None => Ok(String::new()),
+    }
 }
 
 /// Extract an archive into the destination directory and return its root.
@@ -92,21 +98,19 @@ pub fn extract(
 
 fn extract_zip(
     archive_path: &std::path::PathBuf,
-    destination_directory: &std::path::PathBuf,
+    destination_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf> {
-    let file = std::fs::File::open(archive_path)?;
+    let file = std::fs::File::open(archive_path).context(format!(
+        "Can't open zip archive: {}",
+        archive_path.display()
+    ))?;
     let mut archive = zip::ZipArchive::new(file)?;
 
-    let extracted_directory = destination_directory.join(
-        archive
-            .by_index(0)?
-            .enclosed_name()
-            .ok_or(format_err!(
-                "Archive is unexpectedly empty: {}",
-                archive_path.display()
-            ))?
-            .to_path_buf(),
-    );
+    let extracted_directory =
+        destination_directory.join(archive.by_index(0)?.enclosed_name().ok_or(format_err!(
+            "Archive is unexpectedly empty: {}",
+            archive_path.display()
+        ))?);
 
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
@@ -120,9 +124,7 @@ fn extract_zip(
             std::fs::create_dir_all(&output_path)?;
         } else {
             if let Some(parent) = output_path.parent() {
-                if !parent.exists() {
-                    std::fs::create_dir_all(parent)?;
-                }
+                std::fs::create_dir_all(parent)?;
             }
             let mut output_file = std::fs::File::create(&output_path)?;
             std::io::copy(&mut file, &mut output_file)?;
@@ -137,10 +139,16 @@ fn extract_tar_gz(
 ) -> Result<std::path::PathBuf> {
     let top_directory_name = get_tar_top_directory_name(archive_path)?;
 
-    let file = std::fs::File::open(archive_path)?;
+    let file = std::fs::File::open(archive_path).context(format!(
+        "Can't open tar archive: {}",
+        archive_path.display()
+    ))?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
-    archive.unpack(destination_directory)?;
+    archive.unpack(destination_directory).context(format!(
+        "Can't unpack archive into destination directory: {}",
+        destination_directory.display()
+    ))?;
 
     let workspace_directory = if let Some(top_directory_name) = top_directory_name {
         log::debug!(
@@ -181,13 +189,16 @@ fn extract_tar_gz(
 }
 
 fn get_tar_top_directory_name(archive_path: &std::path::PathBuf) -> Result<Option<String>> {
-    let file = std::fs::File::open(archive_path)?;
+    let file = std::fs::File::open(archive_path).context(format!(
+        "Can't open tar archive: {}",
+        archive_path.display()
+    ))?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
 
     let first_archive_entry = archive
         .entries()?
-        .nth(0)
+        .next()
         .ok_or(format_err!("Archive empty."))??;
     let first_archive_entry = (*first_archive_entry.path()?).to_path_buf();
 
@@ -213,8 +224,16 @@ pub fn download(target_url: &url::Url, destination_path: &std::path::PathBuf) ->
         destination_path.display()
     );
 
-    let response = reqwest::blocking::get(target_url.clone())?;
-    let mut file = std::fs::File::create(destination_path)?;
+    let response = reqwest::blocking::get(target_url.clone())?
+        .error_for_status()
+        .context(format!(
+            "Failed to download package archive: {}",
+            target_url
+        ))?;
+    let mut file = std::fs::File::create(destination_path).context(format!(
+        "Can't create archive destination file: {}",
+        destination_path.display()
+    ))?;
     let content = response.bytes()?;
     file.write_all(&content)?;
     file.sync_all()?;
@@ -240,6 +259,13 @@ mod tests {
     fn test_crate_archives_are_treated_as_tar_gz() -> Result<()> {
         let result = ArchiveType::try_from(&std::path::PathBuf::from("/serde/serde-1.0.0.crate"))?;
         assert_eq!(result, ArchiveType::TarGz);
+        Ok(())
+    }
+
+    #[test]
+    fn test_extensionless_archives_are_unknown() -> Result<()> {
+        let result = ArchiveType::try_from(&std::path::PathBuf::from("/downloads/archive"))?;
+        assert_eq!(result, ArchiveType::Unknown);
         Ok(())
     }
 }

@@ -2,7 +2,6 @@ use anyhow::Result;
 
 use crate::common;
 use crate::extension;
-use uuid;
 
 fn handle_nonempty_data_directory(directory_path: &std::path::PathBuf, force: bool) -> Result<()> {
     let target_directory_empty = directory_path.read_dir()?.next().is_none();

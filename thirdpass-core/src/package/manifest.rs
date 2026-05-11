@@ -2,7 +2,7 @@ use anyhow::Result;
 
 /// Build a manifest of regular files in the extracted package workspace.
 pub fn package_manifest(
-    workspace_directory: &std::path::PathBuf,
+    workspace_directory: &std::path::Path,
 ) -> Result<crate::schema::PackageManifest> {
     let mut files = Vec::new();
     collect_package_manifest_files(workspace_directory, workspace_directory, &mut files)?;
