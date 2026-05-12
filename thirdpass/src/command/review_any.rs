@@ -50,16 +50,18 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             target.registry_host
         ))?;
 
+    let target_files = target.target_file_paths();
+    let display_files = target_files.join(", ");
     println!(
         "Selected review target: {} {} {} ({})",
-        target.package_name, target.package_version, target.file_path, target.registry_host
+        target.package_name, target.package_version, display_files, target.registry_host
     );
 
     crate::command::review::run_command(&crate::command::review::Arguments {
         package_name: target.package_name,
         package_version: Some(target.package_version),
         extension_names: Some(vec![extension_name]),
-        target_files: vec![target.file_path],
+        target_files,
         manual: args.manual,
         agent: args.agent.clone(),
         agent_model: args.agent_model.clone(),

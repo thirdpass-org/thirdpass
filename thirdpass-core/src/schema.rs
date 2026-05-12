@@ -217,11 +217,30 @@ pub struct ReviewAssignment {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct ReviewCandidate {
+    /// Registry host that identifies the package ecosystem.
     pub registry_host: String,
+    /// Package name to review.
     pub package_name: String,
+    /// Package version to review.
     pub package_version: String,
+    /// Primary file path for legacy clients and single-file targets.
     pub file_path: String,
+    /// Full file list for bundled targets.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_paths: Vec<String>,
+    /// Package content hash for the selected release archive.
     pub package_hash: String,
+}
+
+impl ReviewCandidate {
+    /// Return the files included in this assignment.
+    pub fn target_file_paths(&self) -> Vec<String> {
+        if self.file_paths.is_empty() {
+            vec![self.file_path.clone()]
+        } else {
+            self.file_paths.clone()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -346,5 +365,38 @@ mod tests {
         .expect("failed to deserialize review submission");
 
         assert_eq!(submission.package_manifest, None);
+    }
+
+    #[test]
+    fn review_candidate_defaults_to_single_file_target() {
+        let candidate: ReviewCandidate = serde_json::from_value(json!({
+            "registry_host": "crates.io",
+            "package_name": "hashbrown",
+            "package_version": "0.17.1",
+            "file_path": "src/map.rs",
+            "package_hash": "hash"
+        }))
+        .expect("failed to deserialize review candidate");
+
+        assert_eq!(candidate.target_file_paths(), vec!["src/map.rs"]);
+    }
+
+    #[test]
+    fn review_candidate_can_include_bundled_file_targets() {
+        let candidate: ReviewCandidate = serde_json::from_value(json!({
+            "registry_host": "crates.io",
+            "package_name": "hashbrown",
+            "package_version": "0.17.1",
+            "file_path": "src/map.rs",
+            "file_paths": ["src/map.rs", "src/raw.rs"],
+            "package_hash": "hash"
+        }))
+        .expect("failed to deserialize review candidate");
+
+        assert_eq!(candidate.file_path, "src/map.rs");
+        assert_eq!(
+            candidate.target_file_paths(),
+            vec!["src/map.rs", "src/raw.rs"]
+        );
     }
 }

@@ -566,25 +566,40 @@ fn select_target_files(
             package_name: review.package.name.clone(),
             package_version: review.package.version.clone(),
             file_path: candidate.relative_path.display().to_string(),
+            file_paths: Vec::new(),
             package_hash: review.package.package_hash.clone(),
         })
         .collect::<Vec<_>>();
 
     if !skip_coordination {
         if let Ok(Some(target)) = review::remote::request_target(request_candidates, config) {
-            let target_relative = std::path::PathBuf::from(target.file_path);
-            let target_path = workspace_path.join(&target_relative);
-            if target_path.is_file() {
-                println!("Selected target file: {}", target_relative.display());
-                return Ok(vec![thirdpass_core::package::target::selected_target(
+            let mut selected_targets = Vec::new();
+            for target_file in target.target_file_paths() {
+                let target_relative = std::path::PathBuf::from(target_file);
+                let target_path = workspace_path.join(&target_relative);
+                if !target_path.is_file() {
+                    log::warn!(
+                        "Target file from API not found locally: {}",
+                        target_path.display()
+                    );
+                    selected_targets.clear();
+                    break;
+                }
+                selected_targets.push(thirdpass_core::package::target::selected_target(
                     target_path,
                     target_relative,
-                )?]);
+                )?);
             }
-            log::warn!(
-                "Target file from API not found locally: {}",
-                target_path.display()
-            );
+
+            if !selected_targets.is_empty() {
+                let files = selected_targets
+                    .iter()
+                    .map(|target| target.relative_path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                println!("Selected target files: {}", files);
+                return Ok(selected_targets);
+            }
         }
     }
 
