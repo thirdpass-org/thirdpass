@@ -5,7 +5,7 @@ use crate::common;
 use crate::extension;
 use crate::review;
 
-const LOOP_IDLE_SLEEP: std::time::Duration = std::time::Duration::from_secs(60);
+const NIGHTSHIFT_IDLE_SLEEP: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Debug, StructOpt, Clone)]
 #[structopt(
@@ -32,15 +32,15 @@ pub struct Arguments {
     pub agent_reasoning_effort: Option<String>,
 
     /// Keep reviewing assigned targets until interrupted.
-    #[structopt(long = "loop")]
-    pub loop_mode: bool,
+    #[structopt(long = "nightshift")]
+    pub nightshift: bool,
 }
 
 pub fn run_command(args: &Arguments) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
 
-    if args.loop_mode {
+    if args.nightshift {
         loop {
             match review::remote::request_global_target(&config) {
                 Ok(Some(target)) => run_assigned_target(args, &config, target)?,
@@ -99,9 +99,9 @@ fn sleep_after_idle(message: &str) {
     println!(
         "{} Retrying in {} seconds.",
         message,
-        LOOP_IDLE_SLEEP.as_secs()
+        NIGHTSHIFT_IDLE_SLEEP.as_secs()
     );
-    std::thread::sleep(LOOP_IDLE_SLEEP);
+    std::thread::sleep(NIGHTSHIFT_IDLE_SLEEP);
 }
 
 #[cfg(test)]
@@ -130,7 +130,7 @@ mod tests {
                 assert_eq!(args.agent.as_deref(), Some("codex"));
                 assert_eq!(args.agent_model.as_deref(), Some("gpt-5.4"));
                 assert_eq!(args.agent_reasoning_effort.as_deref(), Some("high"));
-                assert!(!args.loop_mode);
+                assert!(!args.nightshift);
             }
             _ => panic!("Expected review-any command."),
         }
@@ -164,18 +164,28 @@ mod tests {
     }
 
     #[test]
-    fn command_parses_review_any_loop_arg() {
+    fn command_parses_review_any_nightshift_arg() {
         let parsed = std::panic::catch_unwind(|| {
-            crate::command::Opts::from_iter_safe(&["thirdpass", "review-any", "--loop"])
+            crate::command::Opts::from_iter_safe(&["thirdpass", "review-any", "--nightshift"])
         });
 
         assert!(parsed.is_ok(), "CLI parsing panicked.");
         let parsed = parsed.unwrap().expect("CLI parsing failed.");
         match parsed.command {
             crate::command::Command::ReviewAny(args) => {
-                assert!(args.loop_mode);
+                assert!(args.nightshift);
             }
             _ => panic!("Expected review-any command."),
         }
+    }
+
+    #[test]
+    fn command_rejects_old_review_any_loop_arg() {
+        let parsed = std::panic::catch_unwind(|| {
+            crate::command::Opts::from_iter_safe(&["thirdpass", "review-any", "--loop"])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        assert!(parsed.unwrap().is_err(), "Expected --loop to fail.");
     }
 }
