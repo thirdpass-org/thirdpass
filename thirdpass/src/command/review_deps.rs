@@ -34,8 +34,8 @@ pub struct Arguments {
     #[structopt(long = "agent-reasoning-effort", value_name = "effort")]
     pub agent_reasoning_effort: Option<String>,
 
-    /// Skip central API coordination (no target assignment or submission).
-    #[structopt(long = "skip-coordination", alias = "no-submit")]
+    /// Use local target selection and save the review locally without submission.
+    #[structopt(long = "local-only")]
     pub skip_coordination: bool,
 }
 
@@ -251,7 +251,7 @@ mod tests {
                 "js",
                 "--agent",
                 "codex",
-                "--skip-coordination",
+                "--local-only",
             ])
         });
 
@@ -265,6 +265,33 @@ mod tests {
             }
             _ => panic!("Expected review-deps command."),
         }
+    }
+
+    #[test]
+    fn command_rejects_old_review_deps_coordination_aliases() {
+        let parsed = std::panic::catch_unwind(|| {
+            crate::command::Opts::from_iter_safe(&[
+                "thirdpass",
+                "review-deps",
+                "--skip-coordination",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        assert!(
+            parsed.unwrap().is_err(),
+            "old skip-coordination alias should be rejected"
+        );
+
+        let parsed = std::panic::catch_unwind(|| {
+            crate::command::Opts::from_iter_safe(&["thirdpass", "review-deps", "--no-submit"])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        assert!(
+            parsed.unwrap().is_err(),
+            "old no-submit alias should be rejected"
+        );
     }
 
     fn candidate(
