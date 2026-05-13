@@ -130,7 +130,7 @@ mod tests {
                 "d3",
                 "4.10.0",
                 "--agent-model",
-                "gpt-5.5",
+                "gpt-5.4",
                 "--agent-reasoning-effort",
                 "high",
             ])
@@ -140,7 +140,7 @@ mod tests {
         let parsed = parsed.unwrap().expect("CLI parsing failed.");
         match parsed.command {
             Command::Review(args) => {
-                assert_eq!(args.agent_model.as_deref(), Some("gpt-5.5"));
+                assert_eq!(args.agent_model.as_deref(), Some("gpt-5.4"));
                 assert_eq!(args.agent_reasoning_effort.as_deref(), Some("high"));
             }
             _ => panic!("Expected review command."),

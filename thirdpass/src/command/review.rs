@@ -16,7 +16,7 @@ use crate::review;
     no_version,
     global_settings = &[structopt::clap::AppSettings::DisableVersion],
     about = "Review a package release and submit findings.",
-    after_help = "Examples:\n    thirdpass review d3 4.10.0\n    thirdpass review d3 --extension js\n    thirdpass review d3 4.10.0 --file src/index.js --file src/color.js\n    thirdpass review d3 4.10.0 --agent codex --agent-model gpt-5.5 --agent-reasoning-effort high\n    thirdpass review d3 4.10.0 --submit-existing\n    thirdpass review d3 4.10.0 --local-only"
+    after_help = "Examples:\n    thirdpass review d3 4.10.0\n    thirdpass review d3 --extension js\n    thirdpass review d3 4.10.0 --file src/index.js --file src/color.js\n    thirdpass review d3 4.10.0 --agent codex --agent-model gpt-5.4 --agent-reasoning-effort high\n    thirdpass review d3 4.10.0 --submit-existing\n    thirdpass review d3 4.10.0 --local-only"
 )]
 pub struct Arguments {
     /// Package name to review.
@@ -962,10 +962,10 @@ mod tests {
         assert_eq!(
             format_agent_token(
                 review::tool::AgentKind::Codex,
-                Some("gpt-5.5"),
+                Some("gpt-5.4"),
                 Some("high")
             ),
-            "codex-gpt-5.5-high"
+            "codex-gpt-5.4-high"
         );
     }
 

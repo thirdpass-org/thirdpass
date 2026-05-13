@@ -30,7 +30,7 @@ fn ensure_core_config() -> Result<()> {
         changed = true;
     }
     if config.review_tool.agent_model.is_none() {
-        config.review_tool.agent_model = Some("gpt-5.5".to_string());
+        config.review_tool.agent_model = Some("gpt-5.4".to_string());
         changed = true;
     }
     if config.review_tool.agent_reasoning_effort.is_none() {

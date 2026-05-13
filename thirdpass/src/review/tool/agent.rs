@@ -739,8 +739,8 @@ mod tests {
     #[test]
     fn recorded_codex_model_prefers_requested_model() {
         assert_eq!(
-            recorded_codex_model(Some("gpt-5.5"), "GPT-5".to_string()),
-            "gpt-5.5"
+            recorded_codex_model(Some("gpt-5.4"), "GPT-5".to_string()),
+            "gpt-5.4"
         );
     }
 
