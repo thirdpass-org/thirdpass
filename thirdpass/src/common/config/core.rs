@@ -4,8 +4,6 @@ use anyhow::{format_err, Result};
     Debug, Clone, Default, Ord, PartialOrd, Eq, PartialEq, serde::Serialize, serde::Deserialize,
 )]
 pub struct Core {
-    #[serde(rename = "api-key")]
-    pub api_key: String,
     #[serde(rename = "api-base", default)]
     pub api_base: String,
     /// Private client identifier shared only with the Thirdpass server.
@@ -36,10 +34,6 @@ pub fn set(core: &mut Core, name: &str, value: &str) -> Result<()> {
         .as_str();
 
     match field {
-        "api-key" => {
-            core.api_key = value.to_string();
-            Ok(())
-        }
         "api-base" => {
             core.api_base = value.to_string();
             Ok(())
@@ -68,7 +62,6 @@ pub fn get(core: &Core, name: &str) -> Result<String> {
         .as_str();
 
     match field {
-        "api-key" => Ok(core.api_key.clone()),
         "api-base" => Ok(core.api_base.clone()),
         "client-id" => Ok(core.client_id.clone()),
         "public-user-id" => Ok(core.public_user_id.clone()),
@@ -79,6 +72,14 @@ pub fn get(core: &Core, name: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn api_key_is_not_a_core_setting() {
+        let mut core = Core::default();
+
+        assert!(set(&mut core, "core.api-key", "api-key-1").is_err());
+        assert!(get(&core, "core.api-key").is_err());
+    }
 
     #[test]
     fn client_id_can_be_set_and_read() {
@@ -105,7 +106,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_client_id_defaults_to_empty_for_existing_configs() {
+    fn missing_client_id_defaults_to_empty_for_legacy_configs() {
         let core: Core = serde_yaml::from_str(
             r#"
 api-key: tmp_api_key
@@ -116,5 +117,7 @@ public-user-id: user-1
         .expect("failed to deserialize core config");
 
         assert_eq!(core.client_id, "");
+        assert_eq!(core.api_base, "https://thirdpass.dev/api");
+        assert_eq!(core.public_user_id, "user-1");
     }
 }

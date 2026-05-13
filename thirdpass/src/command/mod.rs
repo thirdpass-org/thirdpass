@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn cli_rejects_legacy_config_shape() {
         let parsed = std::panic::catch_unwind(|| {
-            Opts::from_iter_safe(&["thirdpass", "config", "core.api-key"])
+            Opts::from_iter_safe(&["thirdpass", "config", "core.api-base"])
         });
 
         assert!(parsed.is_ok(), "CLI parsing panicked.");
