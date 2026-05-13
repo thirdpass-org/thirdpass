@@ -137,7 +137,7 @@ fn extract_tar_gz(
     archive_path: &std::path::PathBuf,
     destination_directory: &std::path::PathBuf,
 ) -> Result<std::path::PathBuf> {
-    let top_directory_name = get_tar_top_directory_name(archive_path)?;
+    let root_layout = get_tar_root_layout(archive_path)?;
 
     let file = std::fs::File::open(archive_path).context(format!(
         "Can't open tar archive: {}",
@@ -150,7 +150,7 @@ fn extract_tar_gz(
         destination_directory.display()
     ))?;
 
-    let workspace_directory = if let Some(top_directory_name) = top_directory_name {
+    let workspace_directory = if let TarRootLayout::TopDirectory(top_directory_name) = root_layout {
         log::debug!(
             "Found archive top level directory name: {}",
             top_directory_name
@@ -188,33 +188,52 @@ fn extract_tar_gz(
     Ok(workspace_directory)
 }
 
-fn get_tar_top_directory_name(archive_path: &std::path::PathBuf) -> Result<Option<String>> {
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum TarRootLayout {
+    TopDirectory(String),
+    Flat,
+}
+
+fn get_tar_root_layout(archive_path: &std::path::PathBuf) -> Result<TarRootLayout> {
     let file = std::fs::File::open(archive_path).context(format!(
         "Can't open tar archive: {}",
         archive_path.display()
     ))?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
+    let mut top_directory_name = None::<String>;
+    let mut saw_child_path = false;
 
-    let first_archive_entry = archive
-        .entries()?
-        .next()
-        .ok_or(format_err!("Archive empty."))??;
-    let first_archive_entry = (*first_archive_entry.path()?).to_path_buf();
+    for entry in archive.entries()? {
+        let entry = entry?;
+        let path = (*entry.path()?).to_path_buf();
+        let mut components = path.components();
+        let first_component = match components.next() {
+            Some(std::path::Component::Normal(component)) => component
+                .to_str()
+                .ok_or(format_err!("Failed to parse archive's first path."))?
+                .to_string(),
+            Some(_) => return Ok(TarRootLayout::Flat),
+            None => continue,
+        };
 
-    let top_directory_name = first_archive_entry
-        .components()
-        .next()
-        .ok_or(format_err!("Archive empty."))?
-        .as_os_str()
-        .to_str()
-        .ok_or(format_err!("Failed to parse archive's first path."))?;
+        if top_directory_name
+            .as_ref()
+            .map_or(false, |expected| expected != &first_component)
+        {
+            return Ok(TarRootLayout::Flat);
+        }
+        if components.next().is_some() || entry.header().entry_type().is_dir() {
+            saw_child_path = true;
+        }
+        top_directory_name.get_or_insert(first_component);
+    }
 
-    Ok(if top_directory_name == "/" {
-        None
-    } else {
-        Some(top_directory_name.to_string())
-    })
+    match (top_directory_name, saw_child_path) {
+        (Some(top_directory_name), true) => Ok(TarRootLayout::TopDirectory(top_directory_name)),
+        (Some(_), false) => Ok(TarRootLayout::Flat),
+        (None, _) => Err(format_err!("Archive empty.")),
+    }
 }
 
 /// Download a package archive to the requested local path.
@@ -266,6 +285,84 @@ mod tests {
     fn test_extensionless_archives_are_unknown() -> Result<()> {
         let result = ArchiveType::try_from(&std::path::PathBuf::from("/downloads/archive"))?;
         assert_eq!(result, ArchiveType::Unknown);
+        Ok(())
+    }
+
+    #[test]
+    fn tar_gz_with_top_directory_uses_that_directory_as_root() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let archive_path = tmp.path().join("package.tar.gz");
+        let destination = tmp.path().join("out");
+        std::fs::create_dir_all(&destination)?;
+        write_tar_gz(
+            &archive_path,
+            &[
+                ("package-1.0.0/src/lib.rs", b"pub fn lib() {}\n"),
+                ("package-1.0.0/README.md", b"# package\n"),
+            ],
+        )?;
+
+        let root = extract_tar_gz(&archive_path, &destination)?;
+
+        assert_eq!(root, destination.join("package-1.0.0"));
+        assert!(root.is_dir());
+        assert!(root.join("src/lib.rs").is_file());
+        Ok(())
+    }
+
+    #[test]
+    fn flat_tar_gz_uses_stand_in_directory_as_root() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let archive_path = tmp.path().join("collection.tar.gz");
+        let destination = tmp.path().join("out");
+        std::fs::create_dir_all(&destination)?;
+        write_tar_gz(
+            &archive_path,
+            &[
+                ("FILES.json", b"{}\n"),
+                ("plugins/lookup/protonpass.py", b"print('lookup')\n"),
+                ("meta/runtime.yml", b"requires_ansible: '>=2.15'\n"),
+            ],
+        )?;
+
+        let root = extract_tar_gz(&archive_path, &destination)?;
+
+        assert!(root.is_dir());
+        assert!(root.join("FILES.json").is_file());
+        assert!(root.join("plugins/lookup/protonpass.py").is_file());
+        assert!(!destination.join("FILES.json").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn single_file_tar_gz_uses_stand_in_directory_as_root() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let archive_path = tmp.path().join("single-file.tar.gz");
+        let destination = tmp.path().join("out");
+        std::fs::create_dir_all(&destination)?;
+        write_tar_gz(&archive_path, &[("package-1.0.0", b"plain file\n")])?;
+
+        let root = extract_tar_gz(&archive_path, &destination)?;
+
+        assert!(root.is_dir());
+        assert!(root.join("package-1.0.0").is_file());
+        Ok(())
+    }
+
+    fn write_tar_gz(archive_path: &std::path::Path, entries: &[(&str, &[u8])]) -> Result<()> {
+        let file = std::fs::File::create(archive_path)?;
+        let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        for (path, contents) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            archive.append_data(&mut header, path, *contents)?;
+        }
+        archive.finish()?;
+        let encoder = archive.into_inner()?;
+        encoder.finish()?;
         Ok(())
     }
 }

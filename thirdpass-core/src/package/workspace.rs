@@ -245,7 +245,26 @@ pub fn get_existing(
         get_unique_package_directory(paths, package_name, package_version, registry_host_name)?;
     let manifest_path = get_manifest_path(&package_unique_directory);
     if manifest_path.is_file() {
-        Ok(Some(read_manifest(&manifest_path)?))
+        let workspace_manifest = match read_manifest(&manifest_path) {
+            Ok(workspace_manifest) => workspace_manifest,
+            Err(error) => {
+                log::debug!(
+                    "Ignoring unreadable workspace manifest {}: {:#}",
+                    manifest_path.display(),
+                    error
+                );
+                return Ok(None);
+            }
+        };
+        if !workspace_manifest.workspace_path.is_dir() {
+            log::debug!(
+                "Ignoring stale workspace manifest {} because {} is not a directory",
+                manifest_path.display(),
+                workspace_manifest.workspace_path.display()
+            );
+            return Ok(None);
+        }
+        Ok(Some(workspace_manifest))
     } else {
         Ok(None)
     }
@@ -354,4 +373,83 @@ fn remove_empty_workspace_directories(
         absolute_path.pop();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PACKAGE_NAME: &str = "namespace.collection";
+    const PACKAGE_VERSION: &str = "1.0.0";
+    const REGISTRY_HOST: &str = "galaxy.ansible.com";
+
+    #[test]
+    fn get_existing_returns_valid_workspace_manifest() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let paths = workspace_paths(tmp.path());
+        let package_directory = package_directory(&paths)?;
+        let workspace_path = package_directory.join("namespace.collection-1.0.0");
+        std::fs::create_dir_all(&workspace_path)?;
+        let manifest = workspace_manifest(&package_directory, workspace_path);
+        write_manifest(&manifest)?;
+
+        let existing = get_existing(&paths, PACKAGE_NAME, PACKAGE_VERSION, REGISTRY_HOST)?;
+
+        assert_eq!(existing, Some(manifest));
+        Ok(())
+    }
+
+    #[test]
+    fn get_existing_ignores_manifest_with_file_workspace_path() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let paths = workspace_paths(tmp.path());
+        let package_directory = package_directory(&paths)?;
+        let workspace_path = package_directory.join("namespace.collection-1.0.0");
+        std::fs::write(&workspace_path, b"not a directory\n")?;
+        write_manifest(&workspace_manifest(&package_directory, workspace_path))?;
+
+        let existing = get_existing(&paths, PACKAGE_NAME, PACKAGE_VERSION, REGISTRY_HOST)?;
+
+        assert_eq!(existing, None);
+        Ok(())
+    }
+
+    #[test]
+    fn get_existing_ignores_unreadable_manifest() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let paths = workspace_paths(tmp.path());
+        let package_directory = package_directory(&paths)?;
+        std::fs::write(get_manifest_path(&package_directory), b"{not package json")?;
+
+        let existing = get_existing(&paths, PACKAGE_NAME, PACKAGE_VERSION, REGISTRY_HOST)?;
+
+        assert_eq!(existing, None);
+        Ok(())
+    }
+
+    fn workspace_paths(root: &std::path::Path) -> WorkspacePaths {
+        WorkspacePaths::new(root.join("workspaces"), root.join("archives"))
+    }
+
+    fn package_directory(paths: &WorkspacePaths) -> Result<std::path::PathBuf> {
+        let package_directory = paths.ongoing_reviews_directory.join(unique_package_path(
+            PACKAGE_NAME,
+            PACKAGE_VERSION,
+            REGISTRY_HOST,
+        )?);
+        std::fs::create_dir_all(&package_directory)?;
+        Ok(package_directory)
+    }
+
+    fn workspace_manifest(
+        package_directory: &std::path::Path,
+        workspace_path: std::path::PathBuf,
+    ) -> Manifest {
+        Manifest {
+            workspace_path,
+            manifest_path: get_manifest_path(package_directory),
+            artifact_path: package_directory.join("archive.tar.gz"),
+            package_hash: "hash".to_string(),
+        }
+    }
 }
