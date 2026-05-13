@@ -90,6 +90,13 @@ pub struct RegistryPackageMetadata {
     pub package_version: String,
 }
 
+/// Policy for selecting automatic review target files.
+#[derive(Debug, Clone, Default, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ReviewTargetPolicy {
+    /// Exact package-relative paths to exclude from automatic target selection.
+    pub excluded_exact_paths: Vec<String>,
+}
+
 pub trait FromLib: Extension + Send + Sync {
     /// Initialize extension from a library.
     fn new() -> Self
@@ -113,6 +120,11 @@ pub trait Extension: Send + Sync {
 
     // Returns supported registries host names.
     fn registries(&self) -> Vec<String>;
+
+    /// Return automatic review-target selection policy for this extension.
+    fn review_target_policy(&self) -> ReviewTargetPolicy {
+        ReviewTargetPolicy::default()
+    }
 
     /// Identify specific package dependencies.
     fn identify_package_dependencies(

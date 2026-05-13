@@ -4,8 +4,13 @@ use super::common;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct StaticData {
+    /// Extension short name.
     pub name: String,
+    /// Registry hosts supported by the extension.
     pub registry_host_names: Vec<String>,
+    /// Automatic review target selection policy.
+    #[serde(default)]
+    pub review_target_policy: common::ReviewTargetPolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -13,6 +18,7 @@ pub struct ProcessExtension {
     process_path_: std::path::PathBuf,
     name_: String,
     registry_host_names_: Vec<String>,
+    review_target_policy_: common::ReviewTargetPolicy,
 }
 
 impl common::FromProcess for ProcessExtension {
@@ -49,6 +55,7 @@ impl common::FromProcess for ProcessExtension {
             process_path_: process_path.clone(),
             name_: static_data.name,
             registry_host_names_: static_data.registry_host_names,
+            review_target_policy_: static_data.review_target_policy,
         })
     }
 }
@@ -60,6 +67,10 @@ impl common::Extension for ProcessExtension {
 
     fn registries(&self) -> Vec<String> {
         self.registry_host_names_.clone()
+    }
+
+    fn review_target_policy(&self) -> common::ReviewTargetPolicy {
+        self.review_target_policy_.clone()
     }
 
     /// Returns a list of dependencies for the given package.
@@ -167,5 +178,78 @@ where
         Err(format_err!(result))
     } else {
         Err(format_err!("Failed to find ok or err result from process."))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::extension::common::{Extension, FromProcess, ReviewTargetPolicy};
+    use serde_json::json;
+
+    #[test]
+    fn static_data_serializes_review_target_policy() {
+        let data = StaticData {
+            name: "rs".to_string(),
+            registry_host_names: vec!["crates.io".to_string()],
+            review_target_policy: ReviewTargetPolicy {
+                excluded_exact_paths: vec!["Cargo.lock".to_string()],
+            },
+        };
+
+        let serialized = serde_json::to_value(&data).expect("failed to serialize static data");
+
+        assert_eq!(
+            serialized,
+            json!({
+                "name": "rs",
+                "registry_host_names": ["crates.io"],
+                "review_target_policy": {
+                    "excluded_exact_paths": ["Cargo.lock"]
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn static_data_defaults_empty_review_target_policy() {
+        let data: StaticData = serde_json::from_value(json!({
+            "name": "rs",
+            "registry_host_names": ["crates.io"]
+        }))
+        .expect("failed to deserialize static data");
+
+        assert_eq!(data.review_target_policy, ReviewTargetPolicy::default());
+    }
+
+    #[test]
+    fn process_extension_loads_review_target_policy_from_static_data() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let config_path = tmp.path().join("thirdpass-rs.yaml");
+        let process_path = tmp.path().join("thirdpass-rs");
+        let data = StaticData {
+            name: "rs".to_string(),
+            registry_host_names: vec!["crates.io".to_string()],
+            review_target_policy: ReviewTargetPolicy {
+                excluded_exact_paths: vec!["Cargo.lock".to_string()],
+            },
+        };
+        std::fs::write(
+            &config_path,
+            serde_yaml::to_string(&data).expect("failed to serialize static data"),
+        )
+        .expect("failed to write static data");
+
+        let extension = ProcessExtension::from_process(&process_path, &config_path)
+            .expect("failed to load extension");
+
+        assert_eq!(extension.name(), "rs");
+        assert_eq!(extension.registries(), vec!["crates.io"]);
+        assert_eq!(
+            extension.review_target_policy(),
+            ReviewTargetPolicy {
+                excluded_exact_paths: vec!["Cargo.lock".to_string()],
+            }
+        );
     }
 }
