@@ -6,6 +6,8 @@ use crate::extension::common;
 
 pub static EXTENSION_FILE_NAME_PREFIX: &str = "thirdpass-";
 
+const RESERVED_PROCESS_NAMES: &[&str] = &["admin", "server"];
+
 /// Return handles to all known extensions.
 pub fn get_all() -> Result<Vec<Box<dyn thirdpass_core::extension::Extension>>> {
     log::debug!("Identifying all extensions.");
@@ -128,7 +130,7 @@ fn get_extension_name(file_path: &std::path::PathBuf) -> Result<Option<String>> 
         .to_string();
 
     let captures = match regex::Regex::new(&format!(
-        "{extension_file_name_prefix}([a-z]*).*",
+        "^{extension_file_name_prefix}([a-z]+).*",
         extension_file_name_prefix = EXTENSION_FILE_NAME_PREFIX
     ))?
     .captures(file_name.as_str())
@@ -146,5 +148,40 @@ fn get_extension_name(file_path: &std::path::PathBuf) -> Result<Option<String>> 
         }
     }
     .as_str();
+    if RESERVED_PROCESS_NAMES.contains(&name) {
+        return Ok(None);
+    }
     Ok(Some(name.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extension_name_reads_process_extension_file_name() -> Result<()> {
+        assert_eq!(extension_name("/tmp/thirdpass-py")?, Some("py".to_string()));
+        assert_eq!(
+            extension_name("/tmp/thirdpass-py.d")?,
+            Some("py".to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn extension_name_skips_core_thirdpass_binaries() -> Result<()> {
+        assert_eq!(extension_name("/tmp/thirdpass-admin")?, None);
+        assert_eq!(extension_name("/tmp/thirdpass-server")?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn extension_name_ignores_non_extension_file_name() -> Result<()> {
+        assert_eq!(extension_name("/tmp/thirdparty-py")?, None);
+        Ok(())
+    }
+
+    fn extension_name(path: &str) -> Result<Option<String>> {
+        get_extension_name(&std::path::PathBuf::from(path))
+    }
 }
