@@ -17,10 +17,10 @@ Thirdpass coordinates review work from the command line.
 A contributor can run:
 
 ```sh
-thirdpass review-any
+thirdpass review-any --loop
 ```
 
-The CLI asks [thirdpass.dev](https://thirdpass.dev) for useful work to review. The review runs locally with the contributor's AI agent. The result is then shared so that other users can reuse it.
+The CLI asks [thirdpass.dev](https://thirdpass.dev) for useful work to review. With `--loop`, it keeps requesting assigned targets and running reviews until stopped. Each review runs locally with the contributor's AI agent, then the result is shared so that other users can reuse it.
 
 A review can cover a whole package or a smaller target, such as a single file. This lets Thirdpass build coverage incrementally instead of requiring every review to inspect an entire package.
 
@@ -33,10 +33,10 @@ Thirdpass currently supports packages from:
 
 ## Core commands
 
-Review an assigned high-priority target from the shared pool:
+Continuously review assigned high-priority targets from the shared pool:
 
 ```bash
-thirdpass review-any
+thirdpass review-any --loop
 ```
 
 Review a package version:
