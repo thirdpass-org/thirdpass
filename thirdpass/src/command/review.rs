@@ -607,9 +607,16 @@ fn select_target_files(
         .ok_or(format_err!("Package does not have associated registries."))?;
     let locally_reviewed_paths =
         get_locally_reviewed_target_paths(review, config, &registry.host_name)?;
+    let mut target_policies = review::remote::review_target_policies(config)?;
+    let target_policy = target_policies
+        .remove(&registry.host_name)
+        .unwrap_or_default();
 
-    let candidates =
-        thirdpass_core::package::target::candidate_files(&analysis, &locally_reviewed_paths);
+    let candidates = thirdpass_core::package::target::candidate_files_with_policy(
+        &analysis,
+        &locally_reviewed_paths,
+        &target_policy,
+    );
     if candidates.is_empty() {
         return Err(format_err!("No files found to review."));
     }

@@ -97,6 +97,32 @@ pub struct ReviewTargetPolicy {
     pub excluded_exact_paths: Vec<String>,
 }
 
+impl ReviewTargetPolicy {
+    /// Return true when this policy excludes the exact package-relative path.
+    pub fn excludes_exact_path(&self, package_relative_path: &str) -> bool {
+        self.excluded_exact_paths
+            .iter()
+            .any(|excluded_path| excluded_path == package_relative_path)
+    }
+
+    /// Return true when this policy excludes the package-relative path.
+    pub fn excludes_path(&self, package_relative_path: &std::path::Path) -> bool {
+        self.excludes_exact_path(&package_relative_path_string(package_relative_path))
+    }
+}
+
+fn package_relative_path_string(package_relative_path: &std::path::Path) -> String {
+    if package_relative_path.as_os_str().is_empty() {
+        return ".".to_string();
+    }
+
+    package_relative_path
+        .iter()
+        .map(|component| component.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 pub trait FromLib: Extension + Send + Sync {
     /// Initialize extension from a library.
     fn new() -> Self

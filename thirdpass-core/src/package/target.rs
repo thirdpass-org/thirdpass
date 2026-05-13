@@ -88,9 +88,22 @@ pub fn candidate_files(
     analysis: &Analysis,
     already_reviewed_paths: &std::collections::BTreeSet<std::path::PathBuf>,
 ) -> Vec<CandidateFile> {
+    candidate_files_with_policy(
+        analysis,
+        already_reviewed_paths,
+        &crate::extension::ReviewTargetPolicy::default(),
+    )
+}
+
+/// Convert workspace analysis into sorted candidate review files using a policy.
+pub fn candidate_files_with_policy(
+    analysis: &Analysis,
+    already_reviewed_paths: &std::collections::BTreeSet<std::path::PathBuf>,
+    policy: &crate::extension::ReviewTargetPolicy,
+) -> Vec<CandidateFile> {
     let mut candidates = Vec::new();
     for (path, entry) in analysis.iter() {
-        if matches!(entry.path_type, PathType::File) {
+        if matches!(entry.path_type, PathType::File) && !policy.excludes_path(path) {
             candidates.push(CandidateFile {
                 relative_path: path.clone(),
                 line_count: entry.line_count,
@@ -181,11 +194,51 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn candidate_files_with_policy_excludes_exact_paths() {
+        let analysis = analysis_for_paths(&[
+            (".cargo_vcs_info.json", 1),
+            ("Cargo.lock", 100),
+            ("Cargo.toml", 20),
+            ("src/lib.rs", 50),
+        ]);
+        let policy = crate::extension::ReviewTargetPolicy {
+            excluded_exact_paths: vec![
+                ".cargo_vcs_info.json".to_string(),
+                "Cargo.lock".to_string(),
+            ],
+        };
+
+        let candidates =
+            candidate_files_with_policy(&analysis, &std::collections::BTreeSet::new(), &policy);
+        let paths = candidates
+            .iter()
+            .map(|candidate| candidate.relative_path.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(paths, vec!["src/lib.rs", "Cargo.toml"]);
+    }
+
     fn candidate_file(path: &str, line_count: usize, already_reviewed: bool) -> CandidateFile {
         CandidateFile {
             relative_path: std::path::PathBuf::from(path),
             line_count,
             already_reviewed,
         }
+    }
+
+    fn analysis_for_paths(paths: &[(&str, usize)]) -> Analysis {
+        paths
+            .iter()
+            .map(|(path, line_count)| {
+                (
+                    std::path::PathBuf::from(path),
+                    analysis::PathAnalysis {
+                        path_type: PathType::File,
+                        line_count: *line_count,
+                    },
+                )
+            })
+            .collect()
     }
 }

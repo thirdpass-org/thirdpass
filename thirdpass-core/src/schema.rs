@@ -210,6 +210,10 @@ pub struct ReviewRequest {
     pub candidates: Vec<ReviewCandidate>,
     /// Registry hosts supported by the requesting client.
     pub supported_registry_hosts: Vec<String>,
+    /// Automatic target selection policies for supported registry hosts.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub review_target_policies:
+        std::collections::BTreeMap<String, crate::extension::ReviewTargetPolicy>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -382,6 +386,7 @@ mod tests {
             request.supported_registry_hosts,
             vec!["crates.io", "npmjs.com"]
         );
+        assert!(request.review_target_policies.is_empty());
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use crate::common;
+use crate::extension;
 use crate::package;
 use crate::peer;
 use crate::registry;
@@ -107,6 +108,7 @@ pub fn request_target(
     let payload = api::ReviewRequest {
         candidates,
         supported_registry_hosts: supported_registry_hosts(config),
+        review_target_policies: review_target_policies(config)?,
     };
     let assignment = match post_review_request(&payload, config) {
         Ok(assignment) => assignment,
@@ -124,6 +126,7 @@ pub fn request_global_target(
     let payload = api::ReviewRequest {
         candidates: Vec::new(),
         supported_registry_hosts: supported_registry_hosts(config),
+        review_target_policies: review_target_policies(config)?,
     };
     Ok(post_review_request(&payload, config)?.target)
 }
@@ -142,6 +145,53 @@ fn supported_registry_hosts(config: &common::config::Config) -> Vec<String> {
                 .unwrap_or(false)
                 .then(|| registry_host.clone())
         })
+        .collect()
+}
+
+pub(crate) fn review_target_policies(
+    config: &common::config::Config,
+) -> Result<std::collections::BTreeMap<String, thirdpass_core::extension::ReviewTargetPolicy>> {
+    let extension_names = enabled_extension_names_for_registries(config);
+    if extension_names.is_empty() {
+        return Ok(std::collections::BTreeMap::new());
+    }
+
+    let mut policies = std::collections::BTreeMap::new();
+    for extension in extension::manage::get_enabled(&extension_names, config)? {
+        let extension_name = extension.name();
+        let policy = extension.review_target_policy();
+        for registry_host in extension.registries() {
+            if config.extensions.registries.get(&registry_host) == Some(&extension_name)
+                && config
+                    .extensions
+                    .enabled
+                    .get(&extension_name)
+                    .copied()
+                    .unwrap_or(false)
+            {
+                policies.insert(registry_host, policy.clone());
+            }
+        }
+    }
+    Ok(policies)
+}
+
+fn enabled_extension_names_for_registries(
+    config: &common::config::Config,
+) -> std::collections::BTreeSet<String> {
+    config
+        .extensions
+        .registries
+        .values()
+        .filter(|extension_name| {
+            config
+                .extensions
+                .enabled
+                .get(*extension_name)
+                .copied()
+                .unwrap_or(false)
+        })
+        .cloned()
         .collect()
 }
 
