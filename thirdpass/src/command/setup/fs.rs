@@ -1,7 +1,6 @@
 use anyhow::Result;
 
 use crate::common;
-use crate::extension;
 
 fn handle_nonempty_data_directory(directory_path: &std::path::PathBuf, force: bool) -> Result<()> {
     let target_directory_empty = directory_path.read_dir()?.next().is_none();
@@ -52,7 +51,8 @@ fn setup_config(paths: &common::fs::ConfigPaths, force: bool) -> Result<()> {
         config.review_tool.agent = Some("codex".to_string());
         config.review_tool.agent_model = Some("gpt-5.4".to_string());
         config.review_tool.agent_reasoning_effort = Some("high".to_string());
-        extension::manage::update_config(&mut config)?;
+        // Extension discovery can execute or probe local extension binaries.
+        // Commands that need extensions refresh this config after setup.
         config.dump()?;
     } else {
         log::debug!(
