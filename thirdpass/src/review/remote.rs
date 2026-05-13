@@ -105,7 +105,8 @@ pub fn request_target(
         return Ok(None);
     }
     let payload = api::ReviewRequest {
-        candidates: Some(candidates),
+        candidates,
+        supported_registry_hosts: supported_registry_hosts(config),
     };
     let assignment = match post_review_request(&payload, config) {
         Ok(assignment) => assignment,
@@ -120,8 +121,28 @@ pub fn request_target(
 pub fn request_global_target(
     config: &common::config::Config,
 ) -> Result<Option<api::ReviewCandidate>> {
-    let payload = api::ReviewRequest { candidates: None };
+    let payload = api::ReviewRequest {
+        candidates: Vec::new(),
+        supported_registry_hosts: supported_registry_hosts(config),
+    };
     Ok(post_review_request(&payload, config)?.target)
+}
+
+fn supported_registry_hosts(config: &common::config::Config) -> Vec<String> {
+    config
+        .extensions
+        .registries
+        .iter()
+        .filter_map(|(registry_host, extension_name)| {
+            config
+                .extensions
+                .enabled
+                .get(extension_name)
+                .copied()
+                .unwrap_or(false)
+                .then(|| registry_host.clone())
+        })
+        .collect()
 }
 
 fn post_review_request(
@@ -436,5 +457,22 @@ mod tests {
 
         assert_eq!(response.id, "rev_1");
         assert_eq!(response.public_user_id, "user-1");
+    }
+
+    #[test]
+    fn supported_registry_hosts_uses_enabled_extensions() {
+        let mut config = common::config::Config::default();
+        config.extensions.enabled.insert("js".to_string(), true);
+        config.extensions.enabled.insert("rs".to_string(), false);
+        config
+            .extensions
+            .registries
+            .insert("npmjs.com".to_string(), "js".to_string());
+        config
+            .extensions
+            .registries
+            .insert("crates.io".to_string(), "rs".to_string());
+
+        assert_eq!(supported_registry_hosts(&config), vec!["npmjs.com"]);
     }
 }

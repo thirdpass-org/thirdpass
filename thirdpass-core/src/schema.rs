@@ -206,8 +206,10 @@ pub struct ReviewQuery {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub candidates: Option<Vec<ReviewCandidate>>,
+    /// Explicit candidate targets the client can choose from.
+    pub candidates: Vec<ReviewCandidate>,
+    /// Registry hosts supported by the requesting client.
+    pub supported_registry_hosts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -365,6 +367,21 @@ mod tests {
         .expect("failed to deserialize review submission");
 
         assert_eq!(submission.package_manifest, None);
+    }
+
+    #[test]
+    fn review_request_carries_supported_registry_hosts() {
+        let request: ReviewRequest = serde_json::from_value(json!({
+            "candidates": [],
+            "supported_registry_hosts": ["crates.io", "npmjs.com"]
+        }))
+        .expect("failed to deserialize review request");
+
+        assert!(request.candidates.is_empty());
+        assert_eq!(
+            request.supported_registry_hosts,
+            vec!["crates.io", "npmjs.com"]
+        );
     }
 
     #[test]
