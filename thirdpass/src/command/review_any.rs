@@ -46,7 +46,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
 
     let target = review::remote::request_global_target(&config)?
         .ok_or(format_err!("No review target is currently available."))?;
-    run_assigned_target(args, &config, target).map(|_| ())
+    run_assigned_target(args, &config, target, None).map(|_| ())
 }
 
 fn run_nightshift(args: &Arguments, config: &common::config::Config) -> Result<()> {
@@ -57,9 +57,11 @@ fn run_nightshift(args: &Arguments, config: &common::config::Config) -> Result<(
     loop {
         match review::remote::request_global_target(config) {
             Ok(Some(target)) => {
-                let outcome = run_assigned_target(args, config, target)?;
+                let review_number = session.completed_reviews + 1;
+                let outcome = run_assigned_target(args, config, target, Some(review_number))?;
                 session.record(&outcome);
                 print_nightshift_progress(&session, &outcome);
+                println!("Looking for next target.");
             }
             Ok(None) => sleep_after_idle("No review target is currently available."),
             Err(err) => {
@@ -73,6 +75,7 @@ fn run_assigned_target(
     args: &Arguments,
     config: &common::config::Config,
     target: review::remote::ReviewCandidate,
+    nightshift_review_number: Option<usize>,
 ) -> Result<crate::command::review::ReviewCommandOutcome> {
     let extension_name = config
         .extensions
@@ -86,10 +89,7 @@ fn run_assigned_target(
 
     let target_files = target.target_file_paths();
     let display_files = target_files.join(", ");
-    println!(
-        "Selected review target: {} {} {} ({})",
-        target.package_name, target.package_version, display_files, target.registry_host
-    );
+    print_assigned_target(&target, &display_files, nightshift_review_number);
 
     crate::command::review::run_command_with_outcome(&crate::command::review::Arguments {
         package_name: target.package_name,
@@ -103,6 +103,42 @@ fn run_assigned_target(
         submit_existing: false,
         skip_coordination: false,
     })
+}
+
+fn print_assigned_target(
+    target: &review::remote::ReviewCandidate,
+    display_files: &str,
+    nightshift_review_number: Option<usize>,
+) {
+    if let Some(review_number) = nightshift_review_number {
+        println!();
+        println!(
+            "{}",
+            nightshift_target_header(review_number, target, display_files)
+        );
+        println!();
+        return;
+    }
+
+    println!(
+        "Selected review target: {} {} {} ({})",
+        target.package_name, target.package_version, display_files, target.registry_host
+    );
+}
+
+fn nightshift_target_header(
+    review_number: usize,
+    target: &review::remote::ReviewCandidate,
+    display_files: &str,
+) -> String {
+    format!(
+        "Review #{}\nTarget: {}@{} ({})\nFiles: {}",
+        review_number,
+        target.package_name,
+        target.package_version,
+        target.registry_host,
+        display_files
+    )
 }
 
 fn sleep_after_idle(message: &str) {
@@ -139,8 +175,10 @@ fn print_nightshift_progress(
     session: &NightshiftSession,
     outcome: &crate::command::review::ReviewCommandOutcome,
 ) {
+    println!();
     println!("{}", nightshift_impact_line(session, outcome));
     println!("{}", nightshift_total_line(session));
+    println!();
 }
 
 fn nightshift_impact_line(
@@ -335,6 +373,23 @@ mod tests {
         assert_eq!(
             nightshift_total_line(&session),
             "Nightshift total: 1 review submitted, 2 files reviewed, 3 findings shared."
+        );
+    }
+
+    #[test]
+    fn nightshift_target_header_groups_review_context() {
+        let target = review::remote::ReviewCandidate {
+            registry_host: "crates.io".to_string(),
+            package_name: "hashbrown".to_string(),
+            package_version: "0.17.1".to_string(),
+            file_path: ".cargo_vcs_info.json".to_string(),
+            file_paths: vec![".cargo_vcs_info.json".to_string(), "Cargo.toml".to_string()],
+            package_hash: "blake3:abc".to_string(),
+        };
+
+        assert_eq!(
+            nightshift_target_header(7, &target, ".cargo_vcs_info.json, Cargo.toml"),
+            "Review #7\nTarget: hashbrown@0.17.1 (crates.io)\nFiles: .cargo_vcs_info.json, Cargo.toml"
         );
     }
 
