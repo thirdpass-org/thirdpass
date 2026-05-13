@@ -3,7 +3,7 @@
 <p align="center"><strong>Collaborative dependency review for open-source packages.</strong></p>
 
 <p align="center">
-  <a href="https://matrix.to/#/#thirdpass:matrix.org"><img src="https://img.shields.io/matrix/thirdpass:matrix.org?label=chat&logo=matrix" alt="Matrix"></a>
+  <a href="https://discord.gg/ZG4NjxXcB"><img src="https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
 Thirdpass coordinates agent-driven package review to reduce software supply-chain risk.
