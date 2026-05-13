@@ -1,4 +1,6 @@
 use anyhow::{format_err, Context, Result};
+use std::io::Write;
+use std::path::Path;
 
 mod common;
 mod core;
@@ -28,24 +30,10 @@ impl Config {
         Ok(serde_yaml::from_reader(reader)?)
     }
 
+    /// Persist this configuration to disk without exposing a partial file.
     pub fn dump(&self) -> Result<()> {
         let paths = super::fs::ConfigPaths::new()?;
-        if paths.config_file.is_file() {
-            std::fs::remove_file(&paths.config_file)?;
-        }
-
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .append(false)
-            .create(true)
-            .open(&paths.config_file)
-            .context(format!(
-                "Can't open/create file for writing: {}",
-                paths.config_file.display()
-            ))?;
-        let writer = std::io::BufWriter::new(file);
-        serde_yaml::to_writer(writer, &self)?;
-        Ok(())
+        write_yaml_atomically(&paths.config_file, self)
     }
 
     pub fn set(&mut self, name: &str, value: &str) -> Result<()> {
@@ -77,6 +65,66 @@ impl Config {
     }
 }
 
+fn write_yaml_atomically<T>(path: &Path, value: &T) -> Result<()>
+where
+    T: serde::Serialize,
+{
+    let parent = path.parent().ok_or(format_err!(
+        "Can't find parent directory for config file: {}",
+        path.display()
+    ))?;
+    std::fs::create_dir_all(parent).context(format!(
+        "Can't create config directory: {}",
+        parent.display()
+    ))?;
+
+    let mut temp_file = tempfile::NamedTempFile::new_in(parent).context(format!(
+        "Can't create temporary config file in directory: {}",
+        parent.display()
+    ))?;
+    {
+        let mut writer = std::io::BufWriter::new(temp_file.as_file_mut());
+        serde_yaml::to_writer(&mut writer, value).context(format!(
+            "Can't serialize config for file: {}",
+            path.display()
+        ))?;
+        writer.flush().context(format!(
+            "Can't flush temporary config file for: {}",
+            path.display()
+        ))?;
+    }
+    temp_file.as_file().sync_all().context(format!(
+        "Can't sync temporary config file for: {}",
+        path.display()
+    ))?;
+
+    temp_file
+        .persist(path)
+        .map_err(|err| err.error)
+        .context(format!(
+            "Can't replace config file atomically: {}",
+            path.display()
+        ))?;
+    sync_parent_directory(parent)?;
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(directory: &Path) -> Result<()> {
+    std::fs::File::open(directory)
+        .and_then(|file| file.sync_all())
+        .context(format!(
+            "Can't sync config directory: {}",
+            directory.display()
+        ))
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_directory: &Path) -> Result<()> {
+    Ok(())
+}
+
 impl std::fmt::Display for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -84,5 +132,47 @@ impl std::fmt::Display for Config {
             "{}",
             serde_yaml::to_string(&self).map_err(|_| std::fmt::Error::default())?
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::ser::{Error as _, Serializer};
+
+    struct FailingSerialize;
+
+    impl serde::Serialize for FailingSerialize {
+        fn serialize<S>(&self, _serializer: S) -> std::result::Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            Err(S::Error::custom("serialization failed"))
+        }
+    }
+
+    #[test]
+    fn atomic_yaml_write_replaces_existing_file() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("config.yaml");
+        std::fs::write(&path, "old: value\n")?;
+
+        write_yaml_atomically(&path, &vec!["new"])?;
+
+        assert_eq!(std::fs::read_to_string(&path)?, "---\n- new\n");
+        Ok(())
+    }
+
+    #[test]
+    fn atomic_yaml_write_preserves_existing_file_after_serialization_failure() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("config.yaml");
+        std::fs::write(&path, "old: value\n")?;
+
+        let err = write_yaml_atomically(&path, &FailingSerialize).unwrap_err();
+
+        assert!(err.to_string().contains("Can't serialize config"));
+        assert_eq!(std::fs::read_to_string(&path)?, "old: value\n");
+        Ok(())
     }
 }
