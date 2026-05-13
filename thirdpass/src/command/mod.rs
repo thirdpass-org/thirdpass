@@ -172,6 +172,61 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_review_local_only_flag() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&["thirdpass", "review", "d3", "4.10.0", "--local-only"])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Review(args) => {
+                assert!(args.skip_coordination);
+            }
+            _ => panic!("Expected review command."),
+        }
+    }
+
+    #[test]
+    fn cli_rejects_old_review_coordination_aliases() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&["thirdpass", "review", "d3", "4.10.0", "--skip-coordination"])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        assert!(
+            parsed.unwrap().is_err(),
+            "old skip-coordination alias should be rejected"
+        );
+
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&["thirdpass", "review", "d3", "4.10.0", "--no-submit"])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        assert!(
+            parsed.unwrap().is_err(),
+            "old no-submit alias should be rejected"
+        );
+    }
+
+    #[test]
+    fn cli_review_help_uses_local_only_name() {
+        let help = long_help_for::<review::Arguments>();
+
+        assert!(
+            help.contains("--local-only"),
+            "review help should show the local-only flag:\n{}",
+            help
+        );
+        assert!(
+            !help.contains("--skip-coordination"),
+            "review help should hide the old skip-coordination alias:\n{}",
+            help
+        );
+    }
+
+    #[test]
     fn cli_parses_check_output_flag() {
         let parsed = std::panic::catch_unwind(|| {
             Opts::from_iter_safe(&["thirdpass", "check", "d3", "4.10.0", "--output", "json"])

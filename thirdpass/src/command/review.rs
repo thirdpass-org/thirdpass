@@ -16,7 +16,7 @@ use crate::review;
     no_version,
     global_settings = &[structopt::clap::AppSettings::DisableVersion],
     about = "Review a package release and submit findings.",
-    after_help = "Examples:\n    thirdpass review d3 4.10.0\n    thirdpass review d3 --extension js\n    thirdpass review d3 4.10.0 --file src/index.js --file src/color.js\n    thirdpass review d3 4.10.0 --agent codex --agent-model gpt-5.5 --agent-reasoning-effort high\n    thirdpass review d3 4.10.0 --submit-existing\n    thirdpass review d3 4.10.0 --skip-coordination"
+    after_help = "Examples:\n    thirdpass review d3 4.10.0\n    thirdpass review d3 --extension js\n    thirdpass review d3 4.10.0 --file src/index.js --file src/color.js\n    thirdpass review d3 4.10.0 --agent codex --agent-model gpt-5.5 --agent-reasoning-effort high\n    thirdpass review d3 4.10.0 --submit-existing\n    thirdpass review d3 4.10.0 --local-only"
 )]
 pub struct Arguments {
     /// Package name to review.
@@ -57,8 +57,8 @@ pub struct Arguments {
     #[structopt(long = "submit-existing")]
     pub submit_existing: bool,
 
-    /// Skip central API coordination (no target assignment or submission).
-    #[structopt(long = "skip-coordination", alias = "no-submit")]
+    /// Use local target selection and save the review locally without submission.
+    #[structopt(long = "local-only")]
     pub skip_coordination: bool,
 }
 
@@ -69,7 +69,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     extension::manage::update_config(&mut config)?;
     if args.submit_existing && args.skip_coordination {
         return Err(format_err!(
-            "--submit-existing cannot be combined with --skip-coordination."
+            "--submit-existing cannot be combined with --local-only."
         ));
     }
     if args.manual {
@@ -239,7 +239,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             Err(err) => {
                 if is_network_error(&err) {
                     log::warn!(
-                        "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
+                        "Failed to submit review due to network error: {}. Use --local-only to skip coordination.",
                         err
                     );
                     return Ok(());
@@ -422,7 +422,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         Err(err) => {
             if is_network_error(&err) {
                 log::warn!(
-                    "Failed to submit review due to network error: {}. Use --skip-coordination to skip.",
+                    "Failed to submit review due to network error: {}. Use --local-only to skip coordination.",
                     err
                 );
                 return Ok(());
