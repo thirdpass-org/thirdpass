@@ -41,27 +41,39 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     extension::manage::update_config(&mut config)?;
 
     if args.nightshift {
-        loop {
-            match review::remote::request_global_target(&config) {
-                Ok(Some(target)) => run_assigned_target(args, &config, target)?,
-                Ok(None) => sleep_after_idle("No review target is currently available."),
-                Err(err) => {
-                    sleep_after_idle(&format!("Failed to request review target: {}", err));
-                }
-            }
-        }
+        return run_nightshift(args, &config);
     }
 
     let target = review::remote::request_global_target(&config)?
         .ok_or(format_err!("No review target is currently available."))?;
-    run_assigned_target(args, &config, target)
+    run_assigned_target(args, &config, target).map(|_| ())
+}
+
+fn run_nightshift(args: &Arguments, config: &common::config::Config) -> Result<()> {
+    let mut session = NightshiftSession::default();
+    println!("Nightshift started. Press Ctrl-C to stop.");
+    println!("Looking for high-priority package files to review.");
+
+    loop {
+        match review::remote::request_global_target(config) {
+            Ok(Some(target)) => {
+                let outcome = run_assigned_target(args, config, target)?;
+                session.record(&outcome);
+                print_nightshift_progress(&session, &outcome);
+            }
+            Ok(None) => sleep_after_idle("No review target is currently available."),
+            Err(err) => {
+                sleep_after_idle(&format!("Failed to request review target: {}", err));
+            }
+        }
+    }
 }
 
 fn run_assigned_target(
     args: &Arguments,
     config: &common::config::Config,
     target: review::remote::ReviewCandidate,
-) -> Result<()> {
+) -> Result<crate::command::review::ReviewCommandOutcome> {
     let extension_name = config
         .extensions
         .registries
@@ -79,7 +91,7 @@ fn run_assigned_target(
         target.package_name, target.package_version, display_files, target.registry_host
     );
 
-    crate::command::review::run_command(&crate::command::review::Arguments {
+    crate::command::review::run_command_with_outcome(&crate::command::review::Arguments {
         package_name: target.package_name,
         package_version: Some(target.package_version),
         extension_names: Some(vec![extension_name]),
@@ -90,9 +102,7 @@ fn run_assigned_target(
         agent_reasoning_effort: args.agent_reasoning_effort.clone(),
         submit_existing: false,
         skip_coordination: false,
-    })?;
-
-    Ok(())
+    })
 }
 
 fn sleep_after_idle(message: &str) {
@@ -102,6 +112,113 @@ fn sleep_after_idle(message: &str) {
         NIGHTSHIFT_IDLE_SLEEP.as_secs()
     );
     std::thread::sleep(NIGHTSHIFT_IDLE_SLEEP);
+}
+
+#[derive(Debug, Default)]
+struct NightshiftSession {
+    completed_reviews: usize,
+    submitted_reviews: usize,
+    reviewed_files: usize,
+    shared_findings: usize,
+}
+
+impl NightshiftSession {
+    fn record(&mut self, outcome: &crate::command::review::ReviewCommandOutcome) {
+        self.completed_reviews += 1;
+        if outcome.submitted {
+            self.submitted_reviews += 1;
+        }
+        self.reviewed_files += outcome.target_file_count;
+        if outcome.submitted {
+            self.shared_findings += outcome.comment_count;
+        }
+    }
+}
+
+fn print_nightshift_progress(
+    session: &NightshiftSession,
+    outcome: &crate::command::review::ReviewCommandOutcome,
+) {
+    println!("{}", nightshift_impact_line(session, outcome));
+    println!("{}", nightshift_total_line(session));
+}
+
+fn nightshift_impact_line(
+    session: &NightshiftSession,
+    outcome: &crate::command::review::ReviewCommandOutcome,
+) -> String {
+    let status = if outcome.submitted {
+        format!("submitted review #{}", session.submitted_reviews)
+    } else {
+        format!("saved review #{}", session.completed_reviews)
+    };
+    format!(
+        "Impact: {} for {}@{} ({}; {}).",
+        status,
+        outcome.package_name,
+        outcome.package_version,
+        pluralize(outcome.target_file_count, "file reviewed", "files reviewed"),
+        review_finding_summary(outcome)
+    )
+}
+
+fn nightshift_total_line(session: &NightshiftSession) -> String {
+    format!(
+        "Nightshift total: {}, {}, {}.",
+        pluralize(
+            session.submitted_reviews,
+            "review submitted",
+            "reviews submitted"
+        ),
+        pluralize(session.reviewed_files, "file reviewed", "files reviewed"),
+        pluralize(session.shared_findings, "finding shared", "findings shared")
+    )
+}
+
+fn review_finding_summary(outcome: &crate::command::review::ReviewCommandOutcome) -> String {
+    if outcome.comment_count == 0 {
+        return "clean coverage added".to_string();
+    }
+
+    let mut severities = Vec::new();
+    push_count(
+        &mut severities,
+        outcome.critical_comment_count,
+        "critical finding",
+        "critical findings",
+    );
+    push_count(
+        &mut severities,
+        outcome.medium_comment_count,
+        "medium finding",
+        "medium findings",
+    );
+    push_count(
+        &mut severities,
+        outcome.low_comment_count,
+        "low finding",
+        "low findings",
+    );
+
+    format!(
+        "{}: {}",
+        pluralize(outcome.comment_count, "finding", "findings"),
+        severities.join(", ")
+    )
+}
+
+fn push_count(parts: &mut Vec<String>, count: usize, singular: &str, plural: &str) {
+    if count > 0 {
+        parts.push(pluralize(count, singular, plural));
+    }
+}
+
+fn pluralize(count: usize, singular: &str, plural: &str) -> String {
+    if count == 1 {
+        format!("1 {}", singular)
+    } else {
+        format!("{} {}", count, plural)
+    }
 }
 
 #[cfg(test)]
@@ -187,5 +304,60 @@ mod tests {
 
         assert!(parsed.is_ok(), "CLI parsing panicked.");
         assert!(parsed.unwrap().is_err(), "Expected --loop to fail.");
+    }
+
+    #[test]
+    fn nightshift_progress_reports_clean_review_impact() {
+        let outcome = outcome("d3", "4.10.0", 1, 0, 0, 0, 0, true);
+        let mut session = NightshiftSession::default();
+        session.record(&outcome);
+
+        assert_eq!(
+            nightshift_impact_line(&session, &outcome),
+            "Impact: submitted review #1 for d3@4.10.0 (1 file reviewed; clean coverage added)."
+        );
+        assert_eq!(
+            nightshift_total_line(&session),
+            "Nightshift total: 1 review submitted, 1 file reviewed, 0 findings shared."
+        );
+    }
+
+    #[test]
+    fn nightshift_progress_reports_finding_breakdown() {
+        let outcome = outcome("left-pad", "1.0.0", 2, 3, 1, 2, 0, true);
+        let mut session = NightshiftSession::default();
+        session.record(&outcome);
+
+        assert_eq!(
+            nightshift_impact_line(&session, &outcome),
+            "Impact: submitted review #1 for left-pad@1.0.0 (2 files reviewed; 3 findings: 1 critical finding, 2 medium findings)."
+        );
+        assert_eq!(
+            nightshift_total_line(&session),
+            "Nightshift total: 1 review submitted, 2 files reviewed, 3 findings shared."
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn outcome(
+        package_name: &str,
+        package_version: &str,
+        target_file_count: usize,
+        comment_count: usize,
+        critical_comment_count: usize,
+        medium_comment_count: usize,
+        low_comment_count: usize,
+        submitted: bool,
+    ) -> crate::command::review::ReviewCommandOutcome {
+        crate::command::review::ReviewCommandOutcome {
+            package_name: package_name.to_string(),
+            package_version: package_version.to_string(),
+            target_file_count,
+            comment_count,
+            critical_comment_count,
+            medium_comment_count,
+            low_comment_count,
+            submitted,
+        }
     }
 }

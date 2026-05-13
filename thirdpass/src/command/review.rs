@@ -62,7 +62,64 @@ pub struct Arguments {
     pub skip_coordination: bool,
 }
 
+/// Summary of a completed review command.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct ReviewCommandOutcome {
+    /// Name of the reviewed package.
+    pub(crate) package_name: String,
+    /// Version of the reviewed package.
+    pub(crate) package_version: String,
+    /// Number of package files included in this review.
+    pub(crate) target_file_count: usize,
+    /// Total number of comments recorded by the review.
+    pub(crate) comment_count: usize,
+    /// Number of critical comments recorded by the review.
+    pub(crate) critical_comment_count: usize,
+    /// Number of medium comments recorded by the review.
+    pub(crate) medium_comment_count: usize,
+    /// Number of low comments recorded by the review.
+    pub(crate) low_comment_count: usize,
+    /// Whether the review was accepted by the configured API.
+    pub(crate) submitted: bool,
+}
+
+impl ReviewCommandOutcome {
+    fn from_review(review: &review::Review, submitted: bool) -> Self {
+        let mut comment_count = 0;
+        let mut critical_comment_count = 0;
+        let mut medium_comment_count = 0;
+        let mut low_comment_count = 0;
+
+        for target in &review.targets {
+            for comment in &target.comments {
+                comment_count += 1;
+                match &comment.security {
+                    review::Priority::Critical => critical_comment_count += 1,
+                    review::Priority::Medium => medium_comment_count += 1,
+                    review::Priority::Low => low_comment_count += 1,
+                }
+            }
+        }
+
+        Self {
+            package_name: review.package.name.clone(),
+            package_version: review.package.version.clone(),
+            target_file_count: review.targets.len(),
+            comment_count,
+            critical_comment_count,
+            medium_comment_count,
+            low_comment_count,
+            submitted,
+        }
+    }
+}
+
 pub fn run_command(args: &Arguments) -> Result<()> {
+    run_command_with_outcome(args).map(|_| ())
+}
+
+/// Run a review command and return structured details about the result.
+pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommandOutcome> {
     // TODO: Add gpg signing.
 
     let mut config = common::config::Config::load()?;
@@ -217,8 +274,9 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                 "Matching review already submitted: {}",
                 existing.path.display()
             );
+            let outcome = ReviewCommandOutcome::from_review(&existing.review, true);
             review::workspace::remove(&workspace_manifest)?;
-            return Ok(());
+            return Ok(outcome);
         }
 
         let package_label = package_target_label(&existing.review);
@@ -242,7 +300,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                         "Failed to submit review due to network error: {}. Use --local-only to skip coordination.",
                         err
                     );
-                    return Ok(());
+                    return Ok(ReviewCommandOutcome::from_review(&existing.review, false));
                 }
                 return Err(err);
             }
@@ -256,7 +314,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         )?;
         finish_submitted_review(&submitted_review, &existing.path, public_user_id_changed)?;
         println!("Review submitted.");
-        return Ok(());
+        return Ok(ReviewCommandOutcome::from_review(&submitted_review, true));
     }
 
     let config_agent_model = config.review_tool.agent_model.clone();
@@ -425,12 +483,13 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                     "Failed to submit review due to network error: {}. Use --local-only to skip coordination.",
                     err
                 );
-                return Ok(());
+                return Ok(ReviewCommandOutcome::from_review(&review, false));
             }
             return Err(err);
         }
     };
 
+    let mut submitted = false;
     if !args.skip_coordination {
         if let Some(submit_result) = submit_result {
             let public_user_id_changed = apply_server_public_user_id(
@@ -440,10 +499,11 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             )?;
             finish_submitted_review(&review, &pending_review_path, public_user_id_changed)?;
             println!("Review submitted.");
+            submitted = true;
         }
     }
 
-    Ok(())
+    Ok(ReviewCommandOutcome::from_review(&review, submitted))
 }
 
 /// Parse user comments from active review file and insert into index.
