@@ -113,6 +113,11 @@ fn get_candidate_extension_paths() -> Result<Vec<std::path::PathBuf>> {
         std::env::var_os("PATH").ok_or(format_err!("Failed to read PATH environment variable."))?;
     let mut paths = std::env::split_paths(&env_path_value).collect::<Vec<_>>();
 
+    let config_paths = crate::common::fs::ConfigPaths::new()?;
+    if config_paths.extensions_directory.exists() {
+        paths.push(config_paths.extensions_directory);
+    }
+
     if let Some(extensions_home_directory) = crate::common::fs::get_extensions_default_directory() {
         if extensions_home_directory.exists() {
             paths.push(extensions_home_directory);
