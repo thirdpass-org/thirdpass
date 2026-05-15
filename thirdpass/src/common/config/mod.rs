@@ -127,10 +127,14 @@ fn sync_parent_directory(_directory: &Path) -> Result<()> {
 
 impl std::fmt::Display for Config {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut display_config = self.clone();
+        if !display_config.core.api_key.is_empty() {
+            display_config.core.api_key = "<redacted>".to_string();
+        }
         write!(
             f,
             "{}",
-            serde_yaml::to_string(&self).map_err(|_| std::fmt::Error::default())?
+            serde_yaml::to_string(&display_config).map_err(|_| std::fmt::Error::default())?
         )
     }
 }
@@ -174,5 +178,17 @@ mod tests {
         assert!(err.to_string().contains("Can't serialize config"));
         assert_eq!(std::fs::read_to_string(&path)?, "old: value\n");
         Ok(())
+    }
+
+    #[test]
+    fn display_redacts_api_key() {
+        let mut config = Config::default();
+        config.core.api_key = "secret-key".to_string();
+
+        let output = config.to_string();
+
+        assert!(output.contains("api-key:"));
+        assert!(output.contains("<redacted>"));
+        assert!(!output.contains("secret-key"));
     }
 }

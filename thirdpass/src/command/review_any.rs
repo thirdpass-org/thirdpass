@@ -65,6 +65,9 @@ fn run_nightshift(args: &Arguments, config: &common::config::Config) -> Result<(
             }
             Ok(None) => sleep_after_idle("No review target is currently available."),
             Err(err) => {
+                if review::remote::is_authentication_required_error(&err) {
+                    return Err(err);
+                }
                 sleep_after_idle(&format!("Failed to request review target: {}", err));
             }
         }

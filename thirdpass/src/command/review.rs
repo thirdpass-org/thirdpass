@@ -639,33 +639,42 @@ fn select_target_files(
         .collect::<Vec<_>>();
 
     if !skip_coordination {
-        if let Ok(Some(target)) = review::remote::request_target(request_candidates, config) {
-            let mut selected_targets = Vec::new();
-            for target_file in target.target_file_paths() {
-                let target_relative = std::path::PathBuf::from(target_file);
-                let target_path = workspace_path.join(&target_relative);
-                if !target_path.is_file() {
-                    log::warn!(
-                        "Target file from API not found locally: {}",
-                        target_path.display()
-                    );
-                    selected_targets.clear();
-                    break;
+        match review::remote::request_target(request_candidates, config) {
+            Ok(Some(target)) => {
+                let mut selected_targets = Vec::new();
+                for target_file in target.target_file_paths() {
+                    let target_relative = std::path::PathBuf::from(target_file);
+                    let target_path = workspace_path.join(&target_relative);
+                    if !target_path.is_file() {
+                        log::warn!(
+                            "Target file from API not found locally: {}",
+                            target_path.display()
+                        );
+                        selected_targets.clear();
+                        break;
+                    }
+                    selected_targets.push(thirdpass_core::package::target::selected_target(
+                        target_path,
+                        target_relative,
+                    )?);
                 }
-                selected_targets.push(thirdpass_core::package::target::selected_target(
-                    target_path,
-                    target_relative,
-                )?);
-            }
 
-            if !selected_targets.is_empty() {
-                let files = selected_targets
-                    .iter()
-                    .map(|target| target.relative_path.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                println!("Selected target files: {}", files);
-                return Ok(selected_targets);
+                if !selected_targets.is_empty() {
+                    let files = selected_targets
+                        .iter()
+                        .map(|target| target.relative_path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    println!("Selected target files: {}", files);
+                    return Ok(selected_targets);
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                if review::remote::is_authentication_required_error(&err) {
+                    return Err(err);
+                }
+                log::warn!("Failed to request target from API: {}", err);
             }
         }
     }

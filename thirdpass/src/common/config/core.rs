@@ -6,6 +6,9 @@ use anyhow::{format_err, Result};
 pub struct Core {
     #[serde(rename = "api-base", default)]
     pub api_base: String,
+    /// API key sent as a bearer token for authenticated API requests.
+    #[serde(rename = "api-key", default)]
+    pub api_key: String,
     /// Private client identifier shared only with the Thirdpass server.
     #[serde(rename = "client-id", default)]
     pub client_id: String,
@@ -38,6 +41,10 @@ pub fn set(core: &mut Core, name: &str, value: &str) -> Result<()> {
             core.api_base = value.to_string();
             Ok(())
         }
+        "api-key" => {
+            core.api_key = value.to_string();
+            Ok(())
+        }
         "client-id" => {
             core.client_id = value.to_string();
             Ok(())
@@ -63,6 +70,7 @@ pub fn get(core: &Core, name: &str) -> Result<String> {
 
     match field {
         "api-base" => Ok(core.api_base.clone()),
+        "api-key" => Ok(core.api_key.clone()),
         "client-id" => Ok(core.client_id.clone()),
         "public-user-id" => Ok(core.public_user_id.clone()),
         _ => Err(format_err!(name_error_message.clone())),
@@ -74,11 +82,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn api_key_is_not_a_core_setting() {
+    fn api_key_can_be_set_and_read() {
         let mut core = Core::default();
 
-        assert!(set(&mut core, "core.api-key", "api-key-1").is_err());
-        assert!(get(&core, "core.api-key").is_err());
+        set(&mut core, "core.api-key", "api-key-1").expect("failed to set API key");
+
+        assert_eq!(
+            get(&core, "core.api-key").expect("failed to get API key"),
+            "api-key-1"
+        );
     }
 
     #[test]
@@ -117,6 +129,7 @@ public-user-id: user-1
         .expect("failed to deserialize core config");
 
         assert_eq!(core.client_id, "");
+        assert_eq!(core.api_key, "tmp_api_key");
         assert_eq!(core.api_base, "https://thirdpass.dev/api");
         assert_eq!(core.public_user_id, "user-1");
     }

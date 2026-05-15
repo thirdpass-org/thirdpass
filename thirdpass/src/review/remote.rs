@@ -7,6 +7,7 @@ use crate::review;
 use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewConfidence, ReviewerDetails, SecuritySummary};
 use anyhow::{format_err, Result};
+use reqwest::StatusCode;
 use thirdpass_core::schema as api;
 
 pub type ReviewCandidate = api::ReviewCandidate;
@@ -25,6 +26,42 @@ pub struct ReviewSubmitResult {
     pub id: String,
     /// Server-derived public user ID.
     pub public_user_id: String,
+}
+
+const API_KEY_CONFIG_COMMAND: &str = "thirdpass config set core.api-key <key>";
+
+#[derive(Debug)]
+struct AuthenticationRequiredError {
+    status: StatusCode,
+    body: String,
+}
+
+impl AuthenticationRequiredError {
+    fn new(status: StatusCode, body: String) -> Self {
+        Self { status, body }
+    }
+}
+
+impl std::fmt::Display for AuthenticationRequiredError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Login required by Thirdpass API ({}). Set your API key with: {}",
+            self.status, API_KEY_CONFIG_COMMAND
+        )?;
+        let body = self.body.trim();
+        if !body.is_empty() {
+            write!(f, ". Server response: {}", body)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for AuthenticationRequiredError {}
+
+/// Return true when an API error means the user needs to authenticate.
+pub(crate) fn is_authentication_required_error(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<AuthenticationRequiredError>().is_some()
 }
 
 pub fn submit(
@@ -60,15 +97,7 @@ pub fn submit(
     let url = crate::common::api::join(&base, "v1/reviews")?;
     let request = common::api::with_client_headers(client.post(url), config);
     let response = request.json(&payload).send()?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().unwrap_or_default();
-        return Err(format_err!(
-            "Failed to submit review ({}): {}",
-            status,
-            body
-        ));
-    }
+    let response = require_success(response, "Failed to submit review")?;
     let response = response.json::<ReviewSubmitResponse>()?;
     Ok(ReviewSubmitResult {
         id: response.id,
@@ -85,15 +114,7 @@ pub fn fetch(
     let url = crate::common::api::join(&base, "v1/reviews")?;
     let request = common::api::with_client_headers(client.get(url), config);
     let response = request.query(&query).send()?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().unwrap_or_default();
-        return Err(format_err!(
-            "Failed to fetch reviews ({}): {}",
-            status,
-            body
-        ));
-    }
+    let response = require_success(response, "Failed to fetch reviews")?;
     let reviews = response.json::<Vec<api::ReviewRecord>>()?;
     Ok(reviews)
 }
@@ -113,6 +134,9 @@ pub fn request_target(
     let assignment = match post_review_request(&payload, config) {
         Ok(assignment) => assignment,
         Err(err) => {
+            if is_authentication_required_error(&err) {
+                return Err(err);
+            }
             log::warn!("Failed to request target from API: {}", err);
             return Ok(None);
         }
@@ -204,12 +228,29 @@ fn post_review_request(
     let url = crate::common::api::join(&base, "v1/review-requests")?;
     let request = common::api::with_client_headers(client.post(url), config);
     let response = request.json(&payload).send()?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().unwrap_or_default();
-        return Err(format_err!("Review request failed ({}): {}", status, body));
-    }
+    let response = require_success(response, "Review request failed")?;
     Ok(response.json::<api::ReviewAssignment>()?)
+}
+
+fn require_success(
+    response: reqwest::blocking::Response,
+    failure_message: &'static str,
+) -> Result<reqwest::blocking::Response> {
+    if response.status().is_success() {
+        return Ok(response);
+    }
+
+    let status = response.status();
+    let body = response.text().unwrap_or_default();
+    if is_authentication_required_status(status) {
+        return Err(AuthenticationRequiredError::new(status, body).into());
+    }
+
+    Err(format_err!("{} ({}): {}", failure_message, status, body))
+}
+
+fn is_authentication_required_status(status: StatusCode) -> bool {
+    matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
 }
 
 pub fn store_records(
@@ -507,6 +548,26 @@ mod tests {
 
         assert_eq!(response.id, "rev_1");
         assert_eq!(response.public_user_id, "user-1");
+    }
+
+    #[test]
+    fn authentication_required_error_tells_user_how_to_configure_api_key() {
+        let err: anyhow::Error = AuthenticationRequiredError::new(
+            StatusCode::UNAUTHORIZED,
+            "missing bearer token".to_string(),
+        )
+        .into();
+
+        assert!(is_authentication_required_error(&err));
+        assert!(err
+            .to_string()
+            .contains("thirdpass config set core.api-key <key>"));
+        assert!(err.to_string().contains("missing bearer token"));
+    }
+
+    #[test]
+    fn forbidden_status_is_treated_as_authentication_required() {
+        assert!(is_authentication_required_status(StatusCode::FORBIDDEN));
     }
 
     #[test]

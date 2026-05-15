@@ -1,4 +1,5 @@
 use anyhow::{format_err, Result};
+use reqwest::header::AUTHORIZATION;
 
 /// HTTP header used for the private Thirdpass client identifier.
 pub const CLIENT_ID_HEADER: &str = "X-Thirdpass-Client-Id";
@@ -9,6 +10,10 @@ pub fn with_client_headers(
     config: &crate::common::config::Config,
 ) -> reqwest::blocking::RequestBuilder {
     let mut request = request.header("User-Agent", super::HTTP_USER_AGENT);
+    let api_key = config.core.api_key.trim();
+    if !api_key.is_empty() {
+        request = request.header(AUTHORIZATION, format!("Bearer {}", api_key));
+    }
     if !config.core.client_id.is_empty() {
         request = request.header(CLIENT_ID_HEADER, config.core.client_id.as_str());
     }
@@ -57,6 +62,22 @@ mod tests {
         assert_eq!(
             request.headers().get(CLIENT_ID_HEADER).unwrap(),
             "client-id-1"
+        );
+    }
+
+    #[test]
+    fn with_client_headers_adds_bearer_api_key() {
+        let mut config = crate::common::config::Config::default();
+        config.core.api_key = " api-key-1 ".to_string();
+        let client = reqwest::blocking::Client::new();
+
+        let request = with_client_headers(client.get("https://example.test"), &config)
+            .build()
+            .expect("failed to build request");
+
+        assert_eq!(
+            request.headers().get(AUTHORIZATION).unwrap(),
+            "Bearer api-key-1"
         );
     }
 
