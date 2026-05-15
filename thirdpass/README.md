@@ -51,6 +51,14 @@ Check dependencies in the current project:
 thirdpass check
 ```
 
+## Installation
+
+Install or update the CLI from crates.io:
+
+```bash
+cargo install thirdpass --force
+```
+
 ## Extensions
 
 Thirdpass supports multiple ecosystems via extensions.
