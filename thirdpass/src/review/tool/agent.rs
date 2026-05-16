@@ -11,6 +11,7 @@ use crate::review::comment::common::Position;
 use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewConfidence};
 
+const CODEX_APPROVAL_POLICY: &str = "never";
 const CODEX_SANDBOX_MODE: &str = "read-only";
 const REVIEW_STRATEGY: &str = "package-release/v1";
 
@@ -271,8 +272,7 @@ fn run_codex_exec(
     let output_path = output_file.path().to_path_buf();
 
     let mut cmd = Command::new(AgentKind::Codex.binary_name());
-    cmd.arg("exec");
-    apply_codex_exec_args(&mut cmd, agent_model, agent_reasoning_effort, &output_path);
+    apply_codex_args(&mut cmd, agent_model, agent_reasoning_effort, &output_path);
     cmd.arg("-");
     cmd.current_dir(workspace_path)
         .stdin(Stdio::piped())
@@ -371,6 +371,18 @@ fn truncate_for_log(value: &str, max_len: usize) -> String {
     truncated
 }
 
+fn apply_codex_args(
+    cmd: &mut Command,
+    agent_model: Option<&str>,
+    agent_reasoning_effort: Option<&str>,
+    output_path: &std::path::Path,
+) {
+    cmd.arg("--ask-for-approval");
+    cmd.arg(CODEX_APPROVAL_POLICY);
+    cmd.arg("exec");
+    apply_codex_exec_args(cmd, agent_model, agent_reasoning_effort, output_path);
+}
+
 fn apply_codex_exec_args(
     cmd: &mut Command,
     agent_model: Option<&str>,
@@ -388,6 +400,7 @@ fn apply_codex_exec_args(
     cmd.arg("--sandbox");
     cmd.arg(CODEX_SANDBOX_MODE);
     cmd.arg("--ignore-rules");
+    cmd.arg("--ephemeral");
     cmd.arg("--skip-git-repo-check");
     cmd.arg("--output-last-message");
     cmd.arg(output_path);
@@ -400,6 +413,8 @@ fn build_agent_log(
 ) -> String {
     let mut parts = vec![agent.binary_name().to_string()];
     if agent == AgentKind::Codex {
+        parts.push("--ask-for-approval".to_string());
+        parts.push(CODEX_APPROVAL_POLICY.to_string());
         parts.push("exec".to_string());
         if let Some(model) = agent_model {
             parts.push("--model".to_string());
@@ -412,6 +427,7 @@ fn build_agent_log(
         parts.push("--sandbox".to_string());
         parts.push(CODEX_SANDBOX_MODE.to_string());
         parts.push("--ignore-rules".to_string());
+        parts.push("--ephemeral".to_string());
     }
     parts.join(" ")
 }
@@ -737,8 +753,8 @@ fn parse_selection(entry: &Value) -> Option<Selection> {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_codex_exec_args, build_agent_log, recorded_codex_model, review_strategy, AgentKind,
-        CODEX_SANDBOX_MODE,
+        apply_codex_args, build_agent_log, recorded_codex_model, review_strategy, AgentKind,
+        CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
     };
 
     #[test]
@@ -760,9 +776,9 @@ mod tests {
     }
 
     #[test]
-    fn codex_exec_args_force_read_only_sandbox() {
+    fn codex_args_force_review_isolation() {
         let mut cmd = std::process::Command::new("codex");
-        apply_codex_exec_args(
+        apply_codex_args(
             &mut cmd,
             Some("gpt-5.4"),
             Some("high"),
@@ -776,11 +792,20 @@ mod tests {
 
         assert!(args
             .windows(2)
+            .any(|window| window == ["--ask-for-approval", CODEX_APPROVAL_POLICY]));
+        assert!(args.iter().any(|arg| arg == "exec"));
+        assert!(args
+            .windows(2)
             .any(|window| window == ["--sandbox", CODEX_SANDBOX_MODE]));
         assert!(args.iter().any(|arg| arg == "--ignore-rules"));
+        assert!(args.iter().any(|arg| arg == "--ephemeral"));
         assert!(
             build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
-                .contains("--sandbox read-only --ignore-rules")
+                .contains("--ask-for-approval never exec")
+        );
+        assert!(
+            build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
+                .contains("--sandbox read-only --ignore-rules --ephemeral")
         );
     }
 }
