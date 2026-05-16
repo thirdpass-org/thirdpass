@@ -12,6 +12,27 @@ use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewConfidence};
 
 const CODEX_APPROVAL_POLICY: &str = "never";
+const CODEX_ALLOWED_ENV: &[&str] = &[
+    "ALL_PROXY",
+    "CODEX_HOME",
+    "HOME",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "NIX_SSL_CERT_FILE",
+    "NO_PROXY",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "PATH",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "TEMP",
+    "TERM",
+    "TMP",
+    "TMPDIR",
+];
 const CODEX_SANDBOX_MODE: &str = "read-only";
 const REVIEW_STRATEGY: &str = "package-release/v1";
 
@@ -272,6 +293,7 @@ fn run_codex_exec(
     let output_path = output_file.path().to_path_buf();
 
     let mut cmd = Command::new(AgentKind::Codex.binary_name());
+    apply_codex_environment(&mut cmd);
     apply_codex_args(&mut cmd, agent_model, agent_reasoning_effort, &output_path);
     cmd.arg("-");
     cmd.current_dir(workspace_path)
@@ -381,6 +403,30 @@ fn apply_codex_args(
     cmd.arg(CODEX_APPROVAL_POLICY);
     cmd.arg("exec");
     apply_codex_exec_args(cmd, agent_model, agent_reasoning_effort, output_path);
+}
+
+fn apply_codex_environment(cmd: &mut Command) {
+    cmd.env_clear();
+    apply_codex_environment_from(cmd, std::env::vars_os());
+}
+
+fn apply_codex_environment_from<I, K, V>(cmd: &mut Command, variables: I)
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<std::ffi::OsStr>,
+    V: AsRef<std::ffi::OsStr>,
+{
+    for (key, value) in variables {
+        if codex_allows_env_key(key.as_ref()) {
+            cmd.env(key, value);
+        }
+    }
+}
+
+fn codex_allows_env_key(key: &std::ffi::OsStr) -> bool {
+    CODEX_ALLOWED_ENV
+        .iter()
+        .any(|allowed| key == std::ffi::OsStr::new(allowed))
 }
 
 fn apply_codex_exec_args(
@@ -753,8 +799,8 @@ fn parse_selection(entry: &Value) -> Option<Selection> {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_codex_args, build_agent_log, recorded_codex_model, review_strategy, AgentKind,
-        CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
+        apply_codex_args, apply_codex_environment_from, build_agent_log, recorded_codex_model,
+        review_strategy, AgentKind, CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
     };
 
     #[test]
@@ -807,5 +853,47 @@ mod tests {
             build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
                 .contains("--sandbox read-only --ignore-rules --ephemeral")
         );
+    }
+
+    #[test]
+    fn codex_environment_uses_allowlist() {
+        let mut cmd = std::process::Command::new("codex");
+        apply_codex_environment_from(
+            &mut cmd,
+            [
+                ("PATH", "/usr/bin"),
+                ("OPENAI_API_KEY", "test-openai-key"),
+                ("HTTPS_PROXY", "http://proxy.example"),
+                ("AWS_SECRET_ACCESS_KEY", "test-aws-secret"),
+                ("GITHUB_TOKEN", "test-github-token"),
+                ("SSH_AUTH_SOCK", "/tmp/ssh-agent.sock"),
+            ],
+        );
+
+        let env = cmd
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().to_string(),
+                    value.map(|value| value.to_string_lossy().to_string()),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        assert_eq!(
+            env.get("PATH").and_then(|value| value.as_deref()),
+            Some("/usr/bin")
+        );
+        assert_eq!(
+            env.get("OPENAI_API_KEY").and_then(|value| value.as_deref()),
+            Some("test-openai-key")
+        );
+        assert_eq!(
+            env.get("HTTPS_PROXY").and_then(|value| value.as_deref()),
+            Some("http://proxy.example")
+        );
+        assert!(!env.contains_key("AWS_SECRET_ACCESS_KEY"));
+        assert!(!env.contains_key("GITHUB_TOKEN"));
+        assert!(!env.contains_key("SSH_AUTH_SOCK"));
     }
 }
