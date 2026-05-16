@@ -249,16 +249,6 @@ impl ReviewCandidate {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReviewBatchRequest {
-    pub targets: Vec<ReviewTarget>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReviewBatchResponse {
-    pub reviews: Vec<ReviewRecord>,
-}
-
 impl FromStr for Priority {
     type Err = ();
 
