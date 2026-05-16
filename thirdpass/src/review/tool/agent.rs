@@ -387,6 +387,7 @@ fn apply_codex_exec_args(
     }
     cmd.arg("--sandbox");
     cmd.arg(CODEX_SANDBOX_MODE);
+    cmd.arg("--ignore-rules");
     cmd.arg("--skip-git-repo-check");
     cmd.arg("--output-last-message");
     cmd.arg(output_path);
@@ -410,6 +411,7 @@ fn build_agent_log(
         }
         parts.push("--sandbox".to_string());
         parts.push(CODEX_SANDBOX_MODE.to_string());
+        parts.push("--ignore-rules".to_string());
     }
     parts.join(" ")
 }
@@ -775,9 +777,10 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|window| window == ["--sandbox", CODEX_SANDBOX_MODE]));
+        assert!(args.iter().any(|arg| arg == "--ignore-rules"));
         assert!(
             build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
-                .contains("--sandbox read-only")
+                .contains("--sandbox read-only --ignore-rules")
         );
     }
 }
