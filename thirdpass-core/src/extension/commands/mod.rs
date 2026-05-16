@@ -57,6 +57,7 @@ struct Opts {
     pub command: Command,
 }
 
+/// Run the standard process-extension command line interface for an extension.
 pub fn run<T: Extension + std::fmt::Debug>(extension: &mut T) -> Result<()> {
     let commands = Opts::from_args();
     match run_command(commands.command, extension) {

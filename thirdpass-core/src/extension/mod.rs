@@ -10,10 +10,8 @@
 //! [`crate::extension::run_command`] from their `main` function to expose the
 //! standard Thirdpass extension subcommands.
 
-#[doc(hidden)]
-pub mod commands;
-#[doc(hidden)]
-pub mod common;
+mod commands;
+mod common;
 mod process;
 
 pub use commands::run as run_command;
