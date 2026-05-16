@@ -219,7 +219,7 @@ fn get_tar_root_layout(archive_path: &std::path::PathBuf) -> Result<TarRootLayou
 
         if top_directory_name
             .as_ref()
-            .map_or(false, |expected| expected != &first_component)
+            .is_some_and(|expected| expected != &first_component)
         {
             return Ok(TarRootLayout::Flat);
         }

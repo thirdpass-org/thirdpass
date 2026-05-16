@@ -12,7 +12,7 @@ pub fn report(
     package_name: &str,
     package_version: &Option<&str>,
     extension_names: &std::collections::BTreeSet<String>,
-    extension_args: &Vec<String>,
+    extension_args: &[String],
     config: &common::config::Config,
     output_format: OutputFormat,
 ) -> Result<()> {

@@ -62,7 +62,7 @@ pub struct Arguments {
     pub output: OutputFormat,
 }
 
-pub fn run_command(args: &Arguments, extension_args: &Vec<String>) -> Result<()> {
+pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
     let config = config;

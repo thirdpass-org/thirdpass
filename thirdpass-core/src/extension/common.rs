@@ -149,8 +149,8 @@ pub trait FromLib: Extension + Send + Sync {
 pub trait FromProcess: Extension + Send + Sync {
     /// Initialize extension from a process.
     fn from_process(
-        process_path: &std::path::PathBuf,
-        extension_config_path: &std::path::PathBuf,
+        process_path: &std::path::Path,
+        extension_config_path: &std::path::Path,
     ) -> Result<Self>
     where
         Self: Sized;
@@ -174,14 +174,14 @@ pub trait Extension: Send + Sync {
         &self,
         package_name: &str,
         package_version: &Option<&str>,
-        extension_args: &Vec<String>,
+        extension_args: &[String],
     ) -> Result<Vec<PackageDependencies>>;
 
     /// Identify file defined dependencies.
     fn identify_file_defined_dependencies(
         &self,
-        working_directory: &std::path::PathBuf,
-        extension_args: &Vec<String>,
+        working_directory: &std::path::Path,
+        extension_args: &[String],
     ) -> Result<Vec<FileDefinedDependencies>>;
 
     /// Query package registries for package metadata.

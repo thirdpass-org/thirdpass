@@ -28,8 +28,8 @@ pub struct ProcessExtension {
 
 impl common::FromProcess for ProcessExtension {
     fn from_process(
-        process_path: &std::path::PathBuf,
-        extension_config_path: &std::path::PathBuf,
+        process_path: &std::path::Path,
+        extension_config_path: &std::path::Path,
     ) -> Result<Self>
     where
         Self: Sized,
@@ -57,7 +57,7 @@ impl common::FromProcess for ProcessExtension {
         };
 
         Ok(ProcessExtension {
-            process_path_: process_path.clone(),
+            process_path_: process_path.to_path_buf(),
             name_: static_data.name,
             registry_host_names_: static_data.registry_host_names,
             review_target_policy_: static_data.review_target_policy,
@@ -85,7 +85,7 @@ impl common::Extension for ProcessExtension {
         &self,
         package_name: &str,
         package_version: &Option<&str>,
-        extension_args: &Vec<String>,
+        extension_args: &[String],
     ) -> Result<Vec<common::PackageDependencies>> {
         let mut args = vec![
             super::commands::identify_package_dependencies::COMMAND_NAME,
@@ -108,8 +108,8 @@ impl common::Extension for ProcessExtension {
     /// Returns a list of local package dependencies specification files.
     fn identify_file_defined_dependencies(
         &self,
-        working_directory: &std::path::PathBuf,
-        extension_args: &Vec<String>,
+        working_directory: &std::path::Path,
+        extension_args: &[String],
     ) -> Result<Vec<common::FileDefinedDependencies>> {
         let working_directory = working_directory.to_str().ok_or(format_err!(
             "Failed to parse path into string: {}",

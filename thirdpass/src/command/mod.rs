@@ -9,7 +9,7 @@ mod review_any;
 mod review_deps;
 mod setup;
 
-pub fn run_command(command: Command, extension_args: &Vec<String>) -> Result<()> {
+pub fn run_command(command: Command, extension_args: &[String]) -> Result<()> {
     setup::ensure()?;
     match command {
         Command::Review(args) => {

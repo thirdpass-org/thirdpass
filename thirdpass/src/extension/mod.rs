@@ -9,14 +9,14 @@ mod process;
 /// Conducts a parallel search across extensions.
 pub fn identify_file_defined_dependencies(
     extensions: &Vec<Box<dyn thirdpass_core::extension::Extension>>,
-    extension_args: &Vec<String>,
-    working_directory: &std::path::PathBuf,
+    extension_args: &[String],
+    working_directory: &std::path::Path,
 ) -> Result<Vec<Result<Vec<thirdpass_core::extension::FileDefinedDependencies>>>> {
     crossbeam_utils::thread::scope(|s| {
         let mut threads = Vec::new();
         for extension in extensions {
             threads.push(s.spawn(move |_| {
-                extension.identify_file_defined_dependencies(&working_directory, &extension_args)
+                extension.identify_file_defined_dependencies(working_directory, extension_args)
             }));
         }
         let mut result = Vec::new();
@@ -35,16 +35,16 @@ pub fn identify_package_dependencies(
     package_name: &str,
     package_version: &Option<&str>,
     extensions: &Vec<Box<dyn thirdpass_core::extension::Extension>>,
-    extension_args: &Vec<String>,
+    extension_args: &[String],
 ) -> Result<Vec<Result<Vec<thirdpass_core::extension::PackageDependencies>>>> {
     crossbeam_utils::thread::scope(|s| {
         let mut threads = Vec::new();
         for extension in extensions {
             threads.push(s.spawn(move |_| {
                 extension.identify_package_dependencies(
-                    &package_name,
-                    &package_version,
-                    &extension_args,
+                    package_name,
+                    package_version,
+                    extension_args,
                 )
             }));
         }
