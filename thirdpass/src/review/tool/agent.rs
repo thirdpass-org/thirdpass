@@ -11,6 +11,7 @@ use crate::review::comment::common::Position;
 use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewConfidence};
 
+const CODEX_SANDBOX_MODE: &str = "read-only";
 const REVIEW_STRATEGY: &str = "package-release/v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -384,6 +385,8 @@ fn apply_codex_exec_args(
         cmd.arg("--config");
         cmd.arg(format!("model_reasoning_effort=\"{}\"", effort));
     }
+    cmd.arg("--sandbox");
+    cmd.arg(CODEX_SANDBOX_MODE);
     cmd.arg("--skip-git-repo-check");
     cmd.arg("--output-last-message");
     cmd.arg(output_path);
@@ -405,6 +408,8 @@ fn build_agent_log(
             parts.push("--config".to_string());
             parts.push(format!("model_reasoning_effort=\"{}\"", effort));
         }
+        parts.push("--sandbox".to_string());
+        parts.push(CODEX_SANDBOX_MODE.to_string());
     }
     parts.join(" ")
 }
@@ -729,7 +734,10 @@ fn parse_selection(entry: &Value) -> Option<Selection> {
 
 #[cfg(test)]
 mod tests {
-    use super::{recorded_codex_model, review_strategy};
+    use super::{
+        apply_codex_exec_args, build_agent_log, recorded_codex_model, review_strategy, AgentKind,
+        CODEX_SANDBOX_MODE,
+    };
 
     #[test]
     fn review_strategy_identifies_package_release_strategy() {
@@ -747,5 +755,29 @@ mod tests {
     #[test]
     fn recorded_codex_model_uses_reported_model_without_request() {
         assert_eq!(recorded_codex_model(None, "GPT-5".to_string()), "GPT-5");
+    }
+
+    #[test]
+    fn codex_exec_args_force_read_only_sandbox() {
+        let mut cmd = std::process::Command::new("codex");
+        apply_codex_exec_args(
+            &mut cmd,
+            Some("gpt-5.4"),
+            Some("high"),
+            std::path::Path::new("output.json"),
+        );
+
+        let args = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(args
+            .windows(2)
+            .any(|window| window == ["--sandbox", CODEX_SANDBOX_MODE]));
+        assert!(
+            build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
+                .contains("--sandbox read-only")
+        );
     }
 }
