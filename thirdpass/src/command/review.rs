@@ -168,7 +168,7 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
     );
 
     let selected_targets = if !args.target_files.is_empty() {
-        thirdpass_core::package::target::resolve_target_paths(
+        thirdpass_core::package::resolve_target_paths(
             &workspace_manifest.workspace_path,
             &args.target_files,
         )?
@@ -550,7 +550,7 @@ where
 }
 
 fn build_targets_from_comments(
-    selected_targets: &[thirdpass_core::package::target::SelectedTarget],
+    selected_targets: &[thirdpass_core::package::SelectedTarget],
     comments: std::collections::BTreeSet<review::comment::Comment>,
 ) -> Vec<review::ReviewTarget> {
     let mut grouped: std::collections::BTreeMap<
@@ -597,7 +597,7 @@ fn select_target_files(
     review: &review::Review,
     config: &common::config::Config,
     skip_coordination: bool,
-) -> Result<Vec<thirdpass_core::package::target::SelectedTarget>> {
+) -> Result<Vec<thirdpass_core::package::SelectedTarget>> {
     let analysis = review::workspace::analyse(workspace_path)?;
     let registry = review
         .package
@@ -612,7 +612,7 @@ fn select_target_files(
         .remove(&registry.host_name)
         .unwrap_or_default();
 
-    let candidates = thirdpass_core::package::target::candidate_files_with_policy(
+    let candidates = thirdpass_core::package::candidate_files_with_policy(
         &analysis,
         &locally_reviewed_paths,
         &target_policy,
@@ -621,7 +621,7 @@ fn select_target_files(
         return Err(format_err!("No files found to review."));
     }
 
-    if thirdpass_core::package::target::all_candidates_reviewed(&candidates) {
+    if thirdpass_core::package::all_candidates_reviewed(&candidates) {
         println!("All candidate files already reviewed locally; reusing reviewed candidates.");
     }
 
@@ -653,7 +653,7 @@ fn select_target_files(
                         selected_targets.clear();
                         break;
                     }
-                    selected_targets.push(thirdpass_core::package::target::selected_target(
+                    selected_targets.push(thirdpass_core::package::selected_target(
                         target_path,
                         target_relative,
                     )?);
@@ -679,8 +679,7 @@ fn select_target_files(
         }
     }
 
-    let target =
-        thirdpass_core::package::target::select_first_candidate(workspace_path, &candidates)?;
+    let target = thirdpass_core::package::select_first_candidate(workspace_path, &candidates)?;
     println!(
         "Selected target file (local order): {}",
         target.relative_path.display()
@@ -935,7 +934,7 @@ fn setup_review(
     package_version: &Option<String>,
     extension_names: &std::collections::BTreeSet<String>,
     config: &common::config::Config,
-) -> Result<(review::Review, thirdpass_core::package::workspace::Manifest)> {
+) -> Result<(review::Review, thirdpass_core::package::Manifest)> {
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;
 
     let package_version_was_given = package_version.is_some();

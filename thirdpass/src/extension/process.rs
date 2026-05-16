@@ -29,7 +29,7 @@ pub fn get_all() -> Result<Vec<Box<dyn thirdpass_core::extension::Extension>>> {
 }
 
 /// Discovers and loads process extensions.
-fn get_process_extensions() -> Result<Vec<thirdpass_core::extension::process::ProcessExtension>> {
+fn get_process_extensions() -> Result<Vec<thirdpass_core::extension::ProcessExtension>> {
     let extension_paths = get_extension_paths()?;
 
     let mut threads = vec![];
@@ -38,13 +38,13 @@ fn get_process_extensions() -> Result<Vec<thirdpass_core::extension::process::Pr
         let process_path = path.clone();
 
         threads.push(std::thread::spawn(move || {
-            thirdpass_core::extension::process::ProcessExtension::from_process(
+            thirdpass_core::extension::ProcessExtension::from_process(
                 &process_path,
                 &extension_config_path,
             )
         }));
     }
-    let extensions: Vec<Result<thirdpass_core::extension::process::ProcessExtension>> = threads
+    let extensions: Vec<Result<thirdpass_core::extension::ProcessExtension>> = threads
         .into_iter()
         .map(|thread| thread.join().unwrap())
         .collect();

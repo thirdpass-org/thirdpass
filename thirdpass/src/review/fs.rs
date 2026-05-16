@@ -14,11 +14,7 @@ pub fn get_unique_package_path(
     package_version: &str,
     registry_host_name: &str,
 ) -> Result<std::path::PathBuf> {
-    thirdpass_core::package::workspace::unique_package_path(
-        package_name,
-        package_version,
-        registry_host_name,
-    )
+    thirdpass_core::package::unique_package_path(package_name, package_version, registry_host_name)
 }
 
 fn get_storage_file_path(
