@@ -35,27 +35,29 @@ fn get_process_extensions() -> Result<Vec<thirdpass_core::extension::ProcessExte
     let mut threads = vec![];
     for (name, path) in extension_paths.iter() {
         let extension_config_path = common::get_config_path(name)?;
+        let extension_name = name.clone();
         let process_path = path.clone();
+        let process_path_for_thread = process_path.clone();
 
-        threads.push(std::thread::spawn(move || {
+        let thread = std::thread::spawn(move || {
             thirdpass_core::extension::ProcessExtension::from_process(
-                &process_path,
+                &process_path_for_thread,
                 &extension_config_path,
             )
-        }));
-    }
-    let extensions: Vec<Result<thirdpass_core::extension::ProcessExtension>> = threads
-        .into_iter()
-        .map(|thread| thread.join().unwrap())
-        .collect();
-
-    let mut extension_map = HashMap::new();
-    for ((_name, path), extension) in extension_paths.into_iter().zip(extensions.into_iter()) {
-        extension_map.insert((*path).to_path_buf(), extension);
+        });
+        threads.push((extension_name, process_path, thread));
     }
 
     let mut valid_extensions = Vec::new();
-    for (process_path, extension) in extension_map {
+    for (extension_name, process_path, thread) in threads {
+        let extension = thread.join().unwrap_or_else(|panic| {
+            Err(format_err!(
+                "Extension {extension_name} panicked while loading {}: {}",
+                process_path.display(),
+                common::panic_payload_message(panic.as_ref())
+            ))
+        });
+
         match extension {
             Ok(v) => {
                 valid_extensions.push(v);

@@ -7,3 +7,15 @@ pub fn get_config_path(extension_name: &str) -> Result<std::path::PathBuf> {
         extension_name = extension_name
     )))
 }
+
+pub fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        return (*message).to_string();
+    }
+
+    if let Some(message) = payload.downcast_ref::<String>() {
+        return message.clone();
+    }
+
+    "unknown panic payload".to_string()
+}

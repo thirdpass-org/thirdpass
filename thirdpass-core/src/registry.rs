@@ -15,33 +15,45 @@ pub fn search_registries(
     extensions: &[Box<dyn crate::extension::Extension>],
 ) -> Result<Vec<crate::extension::RegistryPackageMetadata>> {
     log::debug!("Querying extensions for package metadata from registries.");
-    type SearchResults = Result<Vec<RegistryMetadataResult>>;
-    let search_results: SearchResults = crossbeam_utils::thread::scope(|s| {
+    let search_results = crossbeam_utils::thread::scope(|s| {
         let threads: Vec<_> = extensions
             .iter()
             .map(|extension| {
-                s.spawn(move |_| {
+                let extension_name = extension.name();
+                let thread = s.spawn(move |_| {
                     extension.registries_package_metadata(package_name, &package_version)
-                })
+                });
+                (extension_name, thread)
             })
             .collect();
-        Ok(threads
-            .into_iter()
-            .map(|thread| thread.join().unwrap())
-            .collect())
-    })
-    .unwrap();
 
-    let extensions_search_results = search_results.map(|search_result| {
-        search_result
+        threads
             .into_iter()
-            .zip(
-                extensions
-                    .iter()
-                    .map(|extension| extension.as_ref() as &dyn crate::extension::Extension),
-            )
-            .collect()
+            .map(|(extension_name, thread)| {
+                thread.join().unwrap_or_else(|panic| {
+                    Err(format_err!(
+                        "Extension {extension_name} panicked while querying registry metadata: {}",
+                        panic_payload_message(panic.as_ref())
+                    ))
+                })
+            })
+            .collect::<Vec<_>>()
+    })
+    .map_err(|panic| {
+        format_err!(
+            "Registry search scope panicked: {}",
+            panic_payload_message(panic.as_ref())
+        )
     })?;
+
+    let extensions_search_results = search_results
+        .into_iter()
+        .zip(
+            extensions
+                .iter()
+                .map(|extension| extension.as_ref() as &dyn crate::extension::Extension),
+        )
+        .collect();
     select_search_result(extensions_search_results)
 }
 
@@ -111,6 +123,18 @@ fn select_primary_metadata(
             "Failed to find primary registry metadata from extension."
         ))
         .cloned()
+}
+
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        return (*message).to_string();
+    }
+
+    if let Some(message) = payload.downcast_ref::<String>() {
+        return message.clone();
+    }
+
+    "unknown panic payload".to_string()
 }
 
 #[cfg(test)]
