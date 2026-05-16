@@ -1,3 +1,9 @@
+//! Registry lookup helpers built on top of Thirdpass extensions.
+//!
+//! These helpers query enabled extensions, choose the single matching registry
+//! result, and resolve the primary package artifact metadata used by review
+//! setup.
+
 use anyhow::{format_err, Result};
 
 type RegistryMetadataResult = Result<Vec<crate::extension::RegistryPackageMetadata>>;

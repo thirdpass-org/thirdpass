@@ -1,24 +1,29 @@
 use anyhow::Result;
 
+/// Error value used when an extension cannot resolve a dependency version.
 #[derive(
     Debug, Clone, Hash, Eq, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct VersionError(String);
 
 impl VersionError {
+    /// Build an error for dependency metadata that omits a version.
     pub fn from_missing_version() -> Self {
         Self("Missing version number".to_string())
     }
 
+    /// Build an error for a dependency version string that could not be parsed.
     pub fn from_parse_error(raw_version_number: &str) -> Self {
         Self(format!("Version parse error: {}", raw_version_number))
     }
 
+    /// Return the human-readable error message.
     pub fn message(&self) -> String {
         self.0.clone()
     }
 }
 
+/// Parsed dependency version or a version parsing error.
 pub type VersionParseResult = std::result::Result<String, VersionError>;
 
 /// A dependency as specified within a dependencies definition file.
@@ -26,19 +31,24 @@ pub type VersionParseResult = std::result::Result<String, VersionError>;
     Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct Dependency {
+    /// Dependency package name.
     pub name: String,
+    /// Parsed dependency version or a captured parse failure.
     pub version: VersionParseResult,
 }
 
+/// Common view over dependency collections returned by extensions.
 pub trait DependenciesCollection: Sized {
+    /// Registry host that owns the dependencies.
     fn registry_host_name(&self) -> &String;
+    /// Dependencies found for the registry or file.
     fn dependencies(&self) -> &Vec<Dependency>;
 }
 
 /// Package dependencies found by querying a registry.
 #[derive(Clone, Debug, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PackageDependencies {
-    // Package version (included incase version not given as an argument).
+    /// Package version, included when the extension resolves a missing version.
     pub package_version: VersionParseResult,
 
     /// Dependencies registry host name.
@@ -79,14 +89,18 @@ impl DependenciesCollection for FileDefinedDependencies {
     }
 }
 
+/// Metadata returned by an extension for a package in a registry.
 #[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RegistryPackageMetadata {
+    /// Registry host name such as `crates.io` or `npmjs.com`.
     pub registry_host_name: String,
+    /// Human-readable package URL.
     pub human_url: String,
+    /// Download URL for the package source artifact.
     pub artifact_url: String,
-    // True if this registry is the primary registry, otherwise false.
+    /// True when this metadata describes the primary registry hit.
     pub is_primary: bool,
-    // Included here incase package version was not given but found.
+    /// Package version, included when the extension resolves a missing version.
     pub package_version: String,
 }
 
@@ -123,6 +137,7 @@ fn package_relative_path_string(package_relative_path: &std::path::Path) -> Stri
         .join("/")
 }
 
+/// Extension implementation that is compiled directly into the current process.
 pub trait FromLib: Extension + Send + Sync {
     /// Initialize extension from a library.
     fn new() -> Self
@@ -130,6 +145,7 @@ pub trait FromLib: Extension + Send + Sync {
         Self: Sized;
 }
 
+/// Extension implementation that is loaded by invoking a process.
 pub trait FromProcess: Extension + Send + Sync {
     /// Initialize extension from a process.
     fn from_process(
@@ -140,11 +156,12 @@ pub trait FromProcess: Extension + Send + Sync {
         Self: Sized;
 }
 
+/// Registry and dependency behavior implemented by every Thirdpass extension.
 pub trait Extension: Send + Sync {
-    // Returns extension short name.
+    /// Return the extension short name.
     fn name(&self) -> String;
 
-    // Returns supported registries host names.
+    /// Return registry host names supported by this extension.
     fn registries(&self) -> Vec<String>;
 
     /// Return automatic review-target selection policy for this extension.

@@ -1,14 +1,27 @@
+//! Wire-format types shared by Thirdpass clients and the server API.
+//!
+//! These structures are serialized as JSON for review requests, review
+//! assignments, review submissions, and review records. They intentionally keep
+//! fields simple and explicit so API consumers can construct or inspect payloads
+//! without depending on CLI-only state.
+
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
+/// Package release that a review or assignment refers to.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct ReviewTarget {
+    /// Registry host that identifies the package ecosystem.
     pub registry_host: String,
+    /// Package name inside the registry.
     pub package_name: String,
+    /// Package version inside the registry.
     pub package_version: String,
+    /// Content hash for the package source artifact.
     pub package_hash: String,
 }
 
+/// Review output for a single package-relative file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewFile {
     /// Path of the reviewed file relative to the package root.
@@ -72,77 +85,117 @@ pub enum FileHashAlgorithm {
     Blake3,
 }
 
+/// Comment or finding reported during a file review.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewComment {
+    /// Human-readable comment text.
     pub comment: String,
+    /// Security priority assigned to the comment.
     pub security: Priority,
+    /// Complexity priority assigned to the comment.
     pub complexity: Priority,
+    /// Optional source selection associated with the comment.
     #[serde(default)]
     pub selection: Option<Selection>,
 }
 
+/// Source range selected by a review comment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Selection {
+    /// Inclusive start position.
     pub start: Position,
+    /// Exclusive end position.
     pub end: Position,
 }
 
+/// Zero-based line and character position within a file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Position {
+    /// Zero-based line number.
     pub line: i64,
+    /// Zero-based character offset within the line.
     pub character: i64,
 }
 
+/// Review submission sent by a client to the Thirdpass server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewSubmission {
+    /// Package release under review.
     pub target: ReviewTarget,
+    /// Client and agent metadata for the reviewer.
     #[serde(alias = "metadata")]
     pub reviewer_details: ReviewerDetails,
+    /// Files covered by this submission.
     pub files: Vec<ReviewFile>,
+    /// Authoritative package file inventory, when supplied by trusted tooling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package_manifest: Option<PackageManifest>,
+    /// Overall security summary across reviewed files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overall_security_summary: Option<SecuritySummary>,
+    /// Agent confidence in the overall security summary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overall_security_confidence: Option<ReviewConfidence>,
+    /// Agent-written package-level summary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_summary: Option<String>,
 }
 
+/// Approved review record returned by the server API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewRecord {
+    /// Server-assigned review identifier.
     pub id: String,
+    /// Package release that was reviewed.
     pub target: ReviewTarget,
+    /// Client and agent metadata for the reviewer.
     pub reviewer_details: ReviewerDetails,
+    /// Files covered by this review.
     pub files: Vec<ReviewFile>,
+    /// Agent-written package-level summary.
     #[serde(default)]
     pub agent_summary: Option<String>,
+    /// Overall security summary across reviewed files.
     pub overall_security_summary: SecuritySummary,
+    /// Agent confidence in the overall security summary.
     #[serde(default)]
     pub overall_security_confidence: Option<ReviewConfidence>,
 }
 
+/// Metadata describing the client and agent that produced a review.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewerDetails {
+    /// Public reviewer identifier shown by the website.
     pub public_user_id: String,
+    /// Review agent executable or provider name.
     pub agent_name: String,
+    /// Review agent model identifier.
     pub agent_model: String,
+    /// Review agent reasoning effort or equivalent setting.
     pub agent_reasoning_effort: String,
+    /// Strategy identifier used to produce the review.
     pub review_strategy: String,
+    /// Scope of files covered by the review.
     pub review_scope: ReviewScope,
+    /// Review creation timestamp serialized by the client.
     pub created_at: String,
+    /// Thirdpass client version that produced the review.
     #[serde(alias = "tool_version")]
     pub thirdpass_version: String,
 }
 
+/// Scope of source coverage represented by a review.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewScope {
+    /// The review covers the full target file.
     TargetFileFull,
+    /// The review covers only part of the target file.
     TargetFilePartial,
 }
 
 impl ReviewScope {
+    /// Return the serialized snake-case value for this review scope.
     pub fn as_str(&self) -> &'static str {
         match self {
             ReviewScope::TargetFileFull => "target_file_full",
@@ -150,6 +203,7 @@ impl ReviewScope {
         }
     }
 
+    /// Parse a review scope, defaulting unknown values to partial coverage.
     pub fn parse_or_partial(value: &str) -> Self {
         match value {
             "target_file_full" => ReviewScope::TargetFileFull,
@@ -167,43 +221,62 @@ impl FromStr for ReviewScope {
     }
 }
 
+/// Coarse priority for a finding or comment.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Priority {
+    /// Critical priority.
     Critical,
+    /// Medium priority.
     Medium,
+    /// Low priority.
     Low,
 }
 
+/// Overall security outcome for a file or package review.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum SecuritySummary {
+    /// Critical security concern found.
     Critical,
+    /// Medium security concern found.
     Medium,
+    /// Low security concern found.
     Low,
+    /// No security concern found.
     None,
 }
 
+/// Confidence level assigned by a review agent.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ReviewConfidence {
+    /// High confidence.
     High,
+    /// Medium confidence.
     Medium,
+    /// Low confidence.
     Low,
 }
 
+/// Query parameters for filtering review records.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewQuery {
+    /// Optional registry host filter.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registry_host: Option<String>,
+    /// Optional package name filter.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub package_name: Option<String>,
+    /// Optional package version filter.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub package_version: Option<String>,
+    /// Optional package-relative file path filter.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_path: Option<String>,
 }
 
+/// Request body used by a client when asking the server for review work.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewRequest {
     /// Explicit candidate targets the client can choose from.
@@ -216,11 +289,14 @@ pub struct ReviewRequest {
         std::collections::BTreeMap<String, crate::extension::ReviewTargetPolicy>,
 }
 
+/// Server assignment response for one review request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReviewAssignment {
+    /// Assigned target, or `None` when no target is available.
     pub target: Option<ReviewCandidate>,
 }
 
+/// Candidate package files that a client can review.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct ReviewCandidate {
     /// Registry host that identifies the package ecosystem.

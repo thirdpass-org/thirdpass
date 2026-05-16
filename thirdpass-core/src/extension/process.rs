@@ -2,6 +2,7 @@ use anyhow::{format_err, Context, Result};
 
 use super::common;
 
+/// Static metadata advertised by a process-backed extension.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct StaticData {
     /// Extension short name.
@@ -13,6 +14,10 @@ pub struct StaticData {
     pub review_target_policy: common::ReviewTargetPolicy,
 }
 
+/// Extension adapter that communicates with an extension executable.
+///
+/// The adapter caches static extension metadata in a YAML file and invokes the
+/// process for each dependency or registry metadata query.
 #[derive(Debug, Clone)]
 pub struct ProcessExtension {
     process_path_: std::path::PathBuf,
@@ -144,9 +149,12 @@ impl common::Extension for ProcessExtension {
     }
 }
 
+/// JSON envelope used for process extension command responses.
 #[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProcessResult<T> {
+    /// Successful command result.
     pub ok: Option<T>,
+    /// Command error message.
     pub err: Option<String>,
 }
 
