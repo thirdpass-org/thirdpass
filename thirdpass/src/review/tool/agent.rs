@@ -34,6 +34,28 @@ const CODEX_ALLOWED_ENV: &[&str] = &[
     "TMPDIR",
 ];
 const CODEX_SANDBOX_MODE: &str = "read-only";
+const CLAUDE_ALLOWED_ENV: &[&str] = &[
+    "ALL_PROXY",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CONFIG_DIR",
+    "HOME",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "NIX_SSL_CERT_FILE",
+    "NO_PROXY",
+    "PATH",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "TEMP",
+    "TERM",
+    "TMP",
+    "TMPDIR",
+];
+const CLAUDE_PERMISSION_MODE: &str = "dontAsk";
 const REVIEW_STRATEGY: &str = "package-release/v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,7 +200,12 @@ pub fn run(
         build_agent_log(agent, agent_model, agent_reasoning_effort),
         workspace_path.display()
     );
-    let mut child = Command::new(agent.binary_name())
+    let mut command = Command::new(agent.binary_name());
+    if agent == AgentKind::Claude {
+        apply_claude_environment(&mut command);
+        apply_claude_args(&mut command);
+    }
+    let mut child = command
         .current_dir(workspace_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -416,15 +443,56 @@ where
     K: AsRef<std::ffi::OsStr>,
     V: AsRef<std::ffi::OsStr>,
 {
+    apply_allowed_environment_from(cmd, variables, CODEX_ALLOWED_ENV);
+}
+
+fn apply_claude_args(cmd: &mut Command) {
+    cmd.arg("-p");
+    cmd.arg("--input-format");
+    cmd.arg("text");
+    cmd.arg("--output-format");
+    cmd.arg("text");
+    cmd.arg("--permission-mode");
+    cmd.arg(CLAUDE_PERMISSION_MODE);
+    cmd.arg("--tools");
+    cmd.arg("Read");
+    cmd.arg("--disable-slash-commands");
+    cmd.arg("--strict-mcp-config");
+    cmd.arg("--no-session-persistence");
+    cmd.arg("--no-chrome");
+    cmd.arg("--setting-sources");
+    cmd.arg("user");
+}
+
+fn apply_claude_environment(cmd: &mut Command) {
+    cmd.env_clear();
+    apply_claude_environment_from(cmd, std::env::vars_os());
+}
+
+fn apply_claude_environment_from<I, K, V>(cmd: &mut Command, variables: I)
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<std::ffi::OsStr>,
+    V: AsRef<std::ffi::OsStr>,
+{
+    apply_allowed_environment_from(cmd, variables, CLAUDE_ALLOWED_ENV);
+}
+
+fn apply_allowed_environment_from<I, K, V>(cmd: &mut Command, variables: I, allowed_env: &[&str])
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: AsRef<std::ffi::OsStr>,
+    V: AsRef<std::ffi::OsStr>,
+{
     for (key, value) in variables {
-        if codex_allows_env_key(key.as_ref()) {
+        if allows_env_key(key.as_ref(), allowed_env) {
             cmd.env(key, value);
         }
     }
 }
 
-fn codex_allows_env_key(key: &std::ffi::OsStr) -> bool {
-    CODEX_ALLOWED_ENV
+fn allows_env_key(key: &std::ffi::OsStr, allowed_env: &[&str]) -> bool {
+    allowed_env
         .iter()
         .any(|allowed| key == std::ffi::OsStr::new(allowed))
 }
@@ -474,6 +542,22 @@ fn build_agent_log(
         parts.push(CODEX_SANDBOX_MODE.to_string());
         parts.push("--ignore-rules".to_string());
         parts.push("--ephemeral".to_string());
+    } else if agent == AgentKind::Claude {
+        parts.push("-p".to_string());
+        parts.push("--input-format".to_string());
+        parts.push("text".to_string());
+        parts.push("--output-format".to_string());
+        parts.push("text".to_string());
+        parts.push("--permission-mode".to_string());
+        parts.push(CLAUDE_PERMISSION_MODE.to_string());
+        parts.push("--tools".to_string());
+        parts.push("Read".to_string());
+        parts.push("--disable-slash-commands".to_string());
+        parts.push("--strict-mcp-config".to_string());
+        parts.push("--no-session-persistence".to_string());
+        parts.push("--no-chrome".to_string());
+        parts.push("--setting-sources".to_string());
+        parts.push("user".to_string());
     }
     parts.join(" ")
 }
@@ -799,8 +883,9 @@ fn parse_selection(entry: &Value) -> Option<Selection> {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_codex_args, apply_codex_environment_from, build_agent_log, recorded_codex_model,
-        review_strategy, AgentKind, CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
+        apply_claude_args, apply_claude_environment_from, apply_codex_args,
+        apply_codex_environment_from, build_agent_log, recorded_codex_model, review_strategy,
+        AgentKind, CLAUDE_PERMISSION_MODE, CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
     };
 
     #[test]
@@ -892,6 +977,78 @@ mod tests {
             env.get("HTTPS_PROXY").and_then(|value| value.as_deref()),
             Some("http://proxy.example")
         );
+        assert!(!env.contains_key("AWS_SECRET_ACCESS_KEY"));
+        assert!(!env.contains_key("GITHUB_TOKEN"));
+        assert!(!env.contains_key("SSH_AUTH_SOCK"));
+    }
+
+    #[test]
+    fn claude_args_force_noninteractive_read_only_tools() {
+        let mut cmd = std::process::Command::new("claude");
+        apply_claude_args(&mut cmd);
+
+        let args = cmd
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(args.iter().any(|arg| arg == "-p"));
+        assert!(args
+            .windows(2)
+            .any(|window| window == ["--permission-mode", CLAUDE_PERMISSION_MODE]));
+        assert!(args.windows(2).any(|window| window == ["--tools", "Read"]));
+        assert!(args.iter().any(|arg| arg == "--disable-slash-commands"));
+        assert!(args.iter().any(|arg| arg == "--strict-mcp-config"));
+        assert!(args.iter().any(|arg| arg == "--no-session-persistence"));
+        assert!(args.iter().any(|arg| arg == "--no-chrome"));
+        assert!(args
+            .windows(2)
+            .any(|window| window == ["--setting-sources", "user"]));
+        assert!(!args.iter().any(|arg| arg == "--bare"));
+        assert!(build_agent_log(AgentKind::Claude, None, None)
+            .contains("--permission-mode dontAsk --tools Read"));
+    }
+
+    #[test]
+    fn claude_environment_uses_allowlist() {
+        let mut cmd = std::process::Command::new("claude");
+        apply_claude_environment_from(
+            &mut cmd,
+            [
+                ("PATH", "/usr/bin"),
+                ("ANTHROPIC_API_KEY", "test-anthropic-key"),
+                ("HTTPS_PROXY", "http://proxy.example"),
+                ("OPENAI_API_KEY", "test-openai-key"),
+                ("AWS_SECRET_ACCESS_KEY", "test-aws-secret"),
+                ("GITHUB_TOKEN", "test-github-token"),
+                ("SSH_AUTH_SOCK", "/tmp/ssh-agent.sock"),
+            ],
+        );
+
+        let env = cmd
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().to_string(),
+                    value.map(|value| value.to_string_lossy().to_string()),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        assert_eq!(
+            env.get("PATH").and_then(|value| value.as_deref()),
+            Some("/usr/bin")
+        );
+        assert_eq!(
+            env.get("ANTHROPIC_API_KEY")
+                .and_then(|value| value.as_deref()),
+            Some("test-anthropic-key")
+        );
+        assert_eq!(
+            env.get("HTTPS_PROXY").and_then(|value| value.as_deref()),
+            Some("http://proxy.example")
+        );
+        assert!(!env.contains_key("OPENAI_API_KEY"));
         assert!(!env.contains_key("AWS_SECRET_ACCESS_KEY"));
         assert!(!env.contains_key("GITHUB_TOKEN"));
         assert!(!env.contains_key("SSH_AUTH_SOCK"));
