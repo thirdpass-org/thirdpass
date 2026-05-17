@@ -6,7 +6,7 @@
 //! without depending on CLI-only state.
 
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 /// Package release that a review or assignment refers to.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
@@ -100,7 +100,7 @@ pub struct ReviewComment {
 }
 
 /// Source range selected by a review comment.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Selection {
     /// Inclusive start position.
     pub start: Position,
@@ -109,7 +109,7 @@ pub struct Selection {
 }
 
 /// Zero-based line and character position within a file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Position {
     /// Zero-based line number.
     pub line: i64,
@@ -163,7 +163,7 @@ pub struct ReviewRecord {
 }
 
 /// Metadata describing the client and agent that produced a review.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct ReviewerDetails {
     /// Public reviewer identifier shown by the website.
     pub public_user_id: String,
@@ -185,12 +185,15 @@ pub struct ReviewerDetails {
 }
 
 /// Scope of source coverage represented by a review.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewScope {
     /// The review covers the full target file.
     TargetFileFull,
     /// The review covers only part of the target file.
+    #[default]
     TargetFilePartial,
 }
 
@@ -222,19 +225,24 @@ impl FromStr for ReviewScope {
 }
 
 /// Coarse priority for a finding or comment.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Priority {
     /// Critical priority.
     Critical,
     /// Medium priority.
+    #[default]
     Medium,
     /// Low priority.
     Low,
 }
 
 /// Overall security outcome for a file or package review.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum SecuritySummary {
     /// Critical security concern found.
@@ -244,11 +252,12 @@ pub enum SecuritySummary {
     /// Low security concern found.
     Low,
     /// No security concern found.
+    #[default]
     None,
 }
 
 /// Confidence level assigned by a review agent.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Ord, PartialOrd)]
 #[serde(rename_all = "lowercase")]
 pub enum ReviewConfidence {
     /// High confidence.
@@ -257,6 +266,24 @@ pub enum ReviewConfidence {
     Medium,
     /// Low confidence.
     Low,
+}
+
+impl fmt::Display for Priority {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+
+impl fmt::Display for SecuritySummary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+
+impl fmt::Display for ReviewConfidence {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
 }
 
 /// Query parameters for filtering review records.

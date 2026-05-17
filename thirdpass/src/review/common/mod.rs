@@ -1,24 +1,9 @@
-//! A module for data structures which are available to all super modules.
-//!
-//! This module contains data structures which are available to all super modules.
-//! The number of data structures in this module should be minimized. The data structures
-//! should be as simple as possible.
-//!
-//! Print statements are prohibited within this module. Logging is allowed.
-
-use std::hash::Hash;
-
-pub mod confidence;
-pub mod metadata;
-pub mod priority;
-pub mod security_summary;
 pub mod summary;
 
-pub use confidence::ReviewConfidence;
-pub use metadata::{ReviewScope, ReviewerDetails};
-pub use priority::Priority;
-pub use security_summary::SecuritySummary;
 pub use summary::Summary;
+pub use thirdpass_core::schema::{
+    Priority, ReviewConfidence, ReviewScope, ReviewerDetails, SecuritySummary,
+};
 
 #[derive(
     Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize,

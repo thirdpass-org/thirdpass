@@ -1,21 +1,6 @@
 use crate::review::common::{Priority, Summary};
-use std::hash::Hash;
 
-#[derive(
-    Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
-)]
-pub struct Position {
-    pub line: i64,
-    pub character: i64,
-}
-
-#[derive(
-    Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize,
-)]
-pub struct Selection {
-    pub start: Position,
-    pub end: Position,
-}
+pub use thirdpass_core::schema::{Position, Selection};
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Comment {

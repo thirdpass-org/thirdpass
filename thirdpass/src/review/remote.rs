@@ -4,8 +4,7 @@ use crate::package;
 use crate::peer;
 use crate::registry;
 use crate::review;
-use crate::review::comment::{Comment, Selection};
-use crate::review::common::{Priority, ReviewConfidence, ReviewerDetails, SecuritySummary};
+use crate::review::comment::Comment;
 use anyhow::{format_err, Result};
 use reqwest::StatusCode;
 use thirdpass_core::schema as api;
@@ -82,7 +81,7 @@ pub fn submit(
         target,
         files,
         package_manifest: Some(package_manifest.clone()),
-        reviewer_details: to_api_reviewer_details(&review.reviewer_details),
+        reviewer_details: review.reviewer_details.clone(),
         agent_summary: if review.agent_summary.trim().is_empty() {
             None
         } else {
@@ -300,8 +299,8 @@ fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> R
                 file_path: std::path::PathBuf::from(file_path),
                 file_hash,
                 agent_summary: summary,
-                security_summary: security_summary.as_ref().map(from_api_security_summary),
-                confidence: confidence.as_ref().map(from_api_confidence),
+                security_summary,
+                confidence,
                 comments,
             }
         })
@@ -312,12 +311,10 @@ fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> R
         peer,
         package,
         targets,
-        reviewer_details: from_api_reviewer_details(&reviewer_details),
+        reviewer_details,
         agent_summary: agent_summary.unwrap_or_default(),
-        overall_security_summary: from_api_security_summary(&overall_security_summary),
-        overall_security_confidence: overall_security_confidence
-            .as_ref()
-            .map(from_api_confidence),
+        overall_security_summary,
+        overall_security_confidence,
     };
 
     review::store_submitted(&review)?;
@@ -331,11 +328,8 @@ fn to_api_review_files(targets: &[review::ReviewTarget]) -> Vec<api::ReviewFile>
             file_path: target.file_path.display().to_string(),
             file_hash: target.file_hash.clone(),
             summary: target.agent_summary.clone(),
-            security_summary: target
-                .security_summary
-                .as_ref()
-                .map(to_api_security_summary),
-            confidence: target.confidence.as_ref().map(to_api_confidence),
+            security_summary: target.security_summary,
+            confidence: target.confidence,
             comments: target
                 .comments
                 .iter()
@@ -349,137 +343,21 @@ fn to_api_review_files(targets: &[review::ReviewTarget]) -> Vec<api::ReviewFile>
 fn to_remote_comment(comment: Comment) -> api::ReviewComment {
     api::ReviewComment {
         comment: comment.message,
-        security: to_api_priority(&comment.security),
-        complexity: to_api_priority(&comment.complexity),
-        selection: comment.selection.as_ref().map(to_api_selection),
+        security: comment.security,
+        complexity: comment.complexity,
+        selection: comment.selection,
     }
 }
 
 fn from_remote_comment(comment: api::ReviewComment, file_path: &str) -> Comment {
     Comment {
         id: 0,
-        security: from_api_priority(&comment.security),
-        complexity: from_api_priority(&comment.complexity),
+        security: comment.security,
+        complexity: comment.complexity,
         summary: None,
         path: std::path::PathBuf::from(file_path),
         message: comment.comment,
-        selection: comment.selection.as_ref().map(from_api_selection),
-    }
-}
-
-fn to_api_selection(selection: &Selection) -> api::Selection {
-    api::Selection {
-        start: api::Position {
-            line: selection.start.line,
-            character: selection.start.character,
-        },
-        end: api::Position {
-            line: selection.end.line,
-            character: selection.end.character,
-        },
-    }
-}
-
-fn from_api_selection(selection: &api::Selection) -> Selection {
-    Selection {
-        start: crate::review::comment::common::Position {
-            line: selection.start.line,
-            character: selection.start.character,
-        },
-        end: crate::review::comment::common::Position {
-            line: selection.end.line,
-            character: selection.end.character,
-        },
-    }
-}
-
-fn to_api_priority(priority: &Priority) -> api::Priority {
-    match priority {
-        Priority::Critical => api::Priority::Critical,
-        Priority::Medium => api::Priority::Medium,
-        Priority::Low => api::Priority::Low,
-    }
-}
-
-fn from_api_priority(priority: &api::Priority) -> Priority {
-    match priority {
-        api::Priority::Critical => Priority::Critical,
-        api::Priority::Medium => Priority::Medium,
-        api::Priority::Low => Priority::Low,
-    }
-}
-
-fn to_api_security_summary(summary: &SecuritySummary) -> api::SecuritySummary {
-    match summary {
-        SecuritySummary::Critical => api::SecuritySummary::Critical,
-        SecuritySummary::Medium => api::SecuritySummary::Medium,
-        SecuritySummary::Low => api::SecuritySummary::Low,
-        SecuritySummary::None => api::SecuritySummary::None,
-    }
-}
-
-fn from_api_security_summary(summary: &api::SecuritySummary) -> SecuritySummary {
-    match summary {
-        api::SecuritySummary::Critical => SecuritySummary::Critical,
-        api::SecuritySummary::Medium => SecuritySummary::Medium,
-        api::SecuritySummary::Low => SecuritySummary::Low,
-        api::SecuritySummary::None => SecuritySummary::None,
-    }
-}
-
-fn to_api_confidence(confidence: &ReviewConfidence) -> api::ReviewConfidence {
-    match confidence {
-        ReviewConfidence::High => api::ReviewConfidence::High,
-        ReviewConfidence::Medium => api::ReviewConfidence::Medium,
-        ReviewConfidence::Low => api::ReviewConfidence::Low,
-    }
-}
-
-fn from_api_confidence(confidence: &api::ReviewConfidence) -> ReviewConfidence {
-    match confidence {
-        api::ReviewConfidence::High => ReviewConfidence::High,
-        api::ReviewConfidence::Medium => ReviewConfidence::Medium,
-        api::ReviewConfidence::Low => ReviewConfidence::Low,
-    }
-}
-
-fn to_api_reviewer_details(details: &ReviewerDetails) -> api::ReviewerDetails {
-    api::ReviewerDetails {
-        public_user_id: details.public_user_id.clone(),
-        agent_name: details.agent_name.clone(),
-        agent_model: details.agent_model.clone(),
-        agent_reasoning_effort: details.agent_reasoning_effort.clone(),
-        review_strategy: details.review_strategy.clone(),
-        review_scope: to_api_review_scope(&details.review_scope),
-        created_at: details.created_at.clone(),
-        thirdpass_version: details.thirdpass_version.clone(),
-    }
-}
-
-fn from_api_reviewer_details(details: &api::ReviewerDetails) -> ReviewerDetails {
-    ReviewerDetails {
-        public_user_id: details.public_user_id.clone(),
-        agent_name: details.agent_name.clone(),
-        agent_model: details.agent_model.clone(),
-        agent_reasoning_effort: details.agent_reasoning_effort.clone(),
-        review_strategy: details.review_strategy.clone(),
-        review_scope: from_api_review_scope(&details.review_scope),
-        created_at: details.created_at.clone(),
-        thirdpass_version: details.thirdpass_version.clone(),
-    }
-}
-
-fn to_api_review_scope(scope: &review::ReviewScope) -> api::ReviewScope {
-    match scope {
-        review::ReviewScope::TargetFileFull => api::ReviewScope::TargetFileFull,
-        review::ReviewScope::TargetFilePartial => api::ReviewScope::TargetFilePartial,
-    }
-}
-
-fn from_api_review_scope(scope: &api::ReviewScope) -> review::ReviewScope {
-    match scope {
-        api::ReviewScope::TargetFileFull => review::ReviewScope::TargetFileFull,
-        api::ReviewScope::TargetFilePartial => review::ReviewScope::TargetFilePartial,
+        selection: comment.selection,
     }
 }
 
@@ -525,8 +403,8 @@ mod tests {
             file_path: std::path::PathBuf::from("index.js"),
             file_hash: Some(file_hash.clone()),
             agent_summary: Some("Reviewed the file.".to_string()),
-            security_summary: Some(SecuritySummary::Low),
-            confidence: Some(ReviewConfidence::High),
+            security_summary: Some(api::SecuritySummary::Low),
+            confidence: Some(api::ReviewConfidence::High),
             comments: std::collections::BTreeSet::new(),
         }];
 

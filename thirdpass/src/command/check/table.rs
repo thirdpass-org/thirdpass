@@ -4,7 +4,7 @@ use anyhow::Result;
 use prettytable::{self, cell};
 
 fn get_row(dependency_report: &report::DependencyReport) -> prettytable::Row {
-    let summary: prettytable::Cell = dependency_report.summary.clone().into();
+    let summary = security_summary_cell(dependency_report.summary);
     let package_version = match &dependency_report.version {
         Some(v) => v.as_str(),
         None => "",
@@ -70,30 +70,28 @@ fn get_note_cell(dependency_report: &report::DependencyReport) -> prettytable::C
     note
 }
 
-impl From<review::SecuritySummary> for prettytable::Cell {
-    fn from(summary: review::SecuritySummary) -> Self {
-        let label = match summary {
-            review::SecuritySummary::None => "      ",
-            review::SecuritySummary::Low => " LOW  ",
-            review::SecuritySummary::Medium => " MED  ",
-            review::SecuritySummary::Critical => " CRIT ",
-        };
+fn security_summary_cell(summary: review::SecuritySummary) -> prettytable::Cell {
+    let label = match summary {
+        review::SecuritySummary::None => "      ",
+        review::SecuritySummary::Low => " LOW  ",
+        review::SecuritySummary::Medium => " MED  ",
+        review::SecuritySummary::Critical => " CRIT ",
+    };
 
-        let background_color = match summary {
-            review::SecuritySummary::None => None,
-            review::SecuritySummary::Low => Some(prettytable::color::BRIGHT_GREEN),
-            review::SecuritySummary::Medium => Some(prettytable::color::YELLOW),
-            review::SecuritySummary::Critical => Some(prettytable::color::BRIGHT_RED),
-        };
+    let background_color = match summary {
+        review::SecuritySummary::None => None,
+        review::SecuritySummary::Low => Some(prettytable::color::BRIGHT_GREEN),
+        review::SecuritySummary::Medium => Some(prettytable::color::YELLOW),
+        review::SecuritySummary::Critical => Some(prettytable::color::BRIGHT_RED),
+    };
 
-        if let Some(background_color) = background_color {
-            prettytable::Cell::new_align(label, prettytable::format::Alignment::CENTER)
-                .with_style(prettytable::Attr::BackgroundColor(background_color))
-                .with_style(prettytable::Attr::ForegroundColor(
-                    prettytable::color::BLACK,
-                ))
-        } else {
-            prettytable::Cell::new_align(label, prettytable::format::Alignment::CENTER)
-        }
+    if let Some(background_color) = background_color {
+        prettytable::Cell::new_align(label, prettytable::format::Alignment::CENTER)
+            .with_style(prettytable::Attr::BackgroundColor(background_color))
+            .with_style(prettytable::Attr::ForegroundColor(
+                prettytable::color::BLACK,
+            ))
+    } else {
+        prettytable::Cell::new_align(label, prettytable::format::Alignment::CENTER)
     }
 }
