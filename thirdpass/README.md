@@ -63,22 +63,25 @@ cargo install thirdpass --force
 
 Thirdpass supports multiple ecosystems via extensions.
 
-Install an extension:
+External extensions are installed as normal Cargo binaries. Install the Ansible
+Galaxy extension:
 
 ```bash
-thirdpass extension add py
+cargo install thirdpass-ansible
 ```
 
-Install from repository URL:
-
-```bash
-thirdpass extension add https://github.com/thirdpass-org/thirdpass-py
-```
-
-List installed extensions:
+Ensure Cargo's binary directory, usually `~/.cargo/bin`, is on `PATH`, then
+verify Thirdpass can discover the extension:
 
 ```bash
 thirdpass extension list
+```
+
+Enable or disable a discovered extension:
+
+```bash
+thirdpass extension enable ansible
+thirdpass extension disable ansible
 ```
 
 Official extensions:

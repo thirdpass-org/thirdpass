@@ -253,6 +253,22 @@ mod tests {
     }
 
     #[test]
+    fn cli_rejects_extension_install_commands() {
+        for command in ["add", "remove"] {
+            let parsed = std::panic::catch_unwind(|| {
+                Opts::from_iter_safe(&["thirdpass", "extension", command, "ansible"])
+            });
+
+            assert!(parsed.is_ok(), "CLI parsing panicked.");
+            assert!(
+                parsed.unwrap().is_err(),
+                "Expected extension {} parsing to fail.",
+                command
+            );
+        }
+    }
+
+    #[test]
     fn cli_parses_config_get_without_field() {
         let parsed =
             std::panic::catch_unwind(|| Opts::from_iter_safe(&["thirdpass", "config", "get"]));

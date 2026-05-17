@@ -119,12 +119,6 @@ fn get_candidate_extension_paths() -> Result<Vec<std::path::PathBuf>> {
     if config_paths.extensions_directory.exists() {
         paths.push(config_paths.extensions_directory);
     }
-
-    if let Some(extensions_home_directory) = crate::common::fs::get_extensions_default_directory() {
-        if extensions_home_directory.exists() {
-            paths.push(extensions_home_directory);
-        }
-    }
     Ok(paths)
 }
 
