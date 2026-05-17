@@ -1,4 +1,4 @@
-use crate::review::common::{Priority, Summary};
+use crate::review::common::Priority;
 
 pub use thirdpass_core::schema::{Position, Selection};
 
@@ -10,8 +10,6 @@ pub struct Comment {
     pub security: Priority,
     #[serde(default)]
     pub complexity: Priority,
-    #[serde(skip_serializing, default)]
-    pub summary: Option<Summary>,
     #[serde(rename = "file")]
     pub path: std::path::PathBuf,
     #[serde(rename = "description")]
@@ -24,7 +22,6 @@ impl Ord for Comment {
         (
             &self.security,
             &self.complexity,
-            &self.summary,
             &self.path,
             &self.message,
             &self.selection,
@@ -33,7 +30,6 @@ impl Ord for Comment {
             .cmp(&(
                 &other.security,
                 &other.complexity,
-                &other.summary,
                 &other.path,
                 &other.message,
                 &other.selection,
@@ -45,18 +41,5 @@ impl Ord for Comment {
 impl PartialOrd for Comment {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
-    }
-}
-
-impl Comment {
-    pub fn apply_legacy_summary(&mut self) {
-        if let Some(summary) = &self.summary {
-            self.security = match summary {
-                Summary::Fail => Priority::Critical,
-                Summary::Warn => Priority::Medium,
-                Summary::Pass => Priority::Low,
-                Summary::Todo => Priority::Low,
-            };
-        }
     }
 }

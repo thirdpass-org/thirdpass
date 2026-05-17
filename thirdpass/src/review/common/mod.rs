@@ -1,6 +1,3 @@
-pub mod summary;
-
-pub use summary::Summary;
 pub use thirdpass_core::schema::{
     Priority, ReviewConfidence, ReviewScope, ReviewerDetails, SecuritySummary,
 };

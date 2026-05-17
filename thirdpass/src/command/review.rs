@@ -542,7 +542,6 @@ where
 {
     let mut normalized = std::collections::BTreeSet::<review::comment::Comment>::new();
     for mut comment in comments {
-        comment.apply_legacy_summary();
         comment.id = 0;
         normalized.insert(comment);
     }

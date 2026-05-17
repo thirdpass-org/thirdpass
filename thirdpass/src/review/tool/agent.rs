@@ -126,7 +126,6 @@ impl AgentComment {
             id: 0,
             security: self.security,
             complexity: self.complexity,
-            summary: None,
             path: self.path,
             message: self.comment,
             selection: self.selection,

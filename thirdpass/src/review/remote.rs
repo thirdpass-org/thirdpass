@@ -354,7 +354,6 @@ fn from_remote_comment(comment: api::ReviewComment, file_path: &str) -> Comment 
         id: 0,
         security: comment.security,
         complexity: comment.complexity,
-        summary: None,
         path: std::path::PathBuf::from(file_path),
         message: comment.comment,
         selection: comment.selection,

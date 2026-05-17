@@ -123,7 +123,6 @@ pub struct ReviewSubmission {
     /// Package release under review.
     pub target: ReviewTarget,
     /// Client and agent metadata for the reviewer.
-    #[serde(alias = "metadata")]
     pub reviewer_details: ReviewerDetails,
     /// Files covered by this submission.
     pub files: Vec<ReviewFile>,
@@ -180,7 +179,6 @@ pub struct ReviewerDetails {
     /// Review creation timestamp serialized by the client.
     pub created_at: String,
     /// Thirdpass client version that produced the review.
-    #[serde(alias = "tool_version")]
     pub thirdpass_version: String,
 }
 
@@ -332,7 +330,7 @@ pub struct ReviewCandidate {
     pub package_name: String,
     /// Package version to review.
     pub package_version: String,
-    /// Primary file path for legacy clients and single-file targets.
+    /// Primary file path for single-file targets.
     pub file_path: String,
     /// Full file list for bundled targets.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
