@@ -16,12 +16,15 @@ impl VersionError {
     pub fn from_parse_error(raw_version_number: &str) -> Self {
         Self(format!("Version parse error: {}", raw_version_number))
     }
+}
 
-    /// Return the human-readable error message.
-    pub fn message(&self) -> String {
-        self.0.clone()
+impl std::fmt::Display for VersionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
     }
 }
+
+impl std::error::Error for VersionError {}
 
 /// Parsed dependency version or a version parsing error.
 pub type VersionParseResult = std::result::Result<String, VersionError>;

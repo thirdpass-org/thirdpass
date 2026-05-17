@@ -120,7 +120,7 @@ fn select_review_dependency(
                         log::debug!(
                             "Skipping dependency {} because version is not reviewable: {}",
                             dependency.name,
-                            error.message()
+                            error
                         );
                         continue;
                     }

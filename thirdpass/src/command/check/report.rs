@@ -25,7 +25,7 @@ pub fn get_dependency_report(
                 name: dependency.name.clone(),
                 version: None,
                 review_count: None,
-                note: Some(error.message()),
+                note: Some(error.to_string()),
             });
         }
     };
