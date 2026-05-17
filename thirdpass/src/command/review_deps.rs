@@ -36,7 +36,7 @@ pub struct Arguments {
 
     /// Use local target selection and save the review locally without submission.
     #[structopt(long = "local-only")]
-    pub skip_coordination: bool,
+    pub local_only: bool,
 }
 
 pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
@@ -64,7 +64,7 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         agent_model: args.agent_model.clone(),
         agent_reasoning_effort: args.agent_reasoning_effort.clone(),
         submit_existing: false,
-        skip_coordination: args.skip_coordination,
+        local_only: args.local_only,
     })
 }
 
@@ -261,14 +261,14 @@ mod tests {
             crate::command::Command::ReviewDeps(args) => {
                 assert_eq!(args.extension_names, Some(vec!["js".to_string()]));
                 assert_eq!(args.agent.as_deref(), Some("codex"));
-                assert!(args.skip_coordination);
+                assert!(args.local_only);
             }
             _ => panic!("Expected review-deps command."),
         }
     }
 
     #[test]
-    fn command_rejects_old_review_deps_coordination_aliases() {
+    fn command_rejects_removed_review_deps_coordination_flags() {
         let parsed = std::panic::catch_unwind(|| {
             crate::command::Opts::from_iter_safe(&[
                 "thirdpass",
@@ -280,7 +280,7 @@ mod tests {
         assert!(parsed.is_ok(), "CLI parsing panicked.");
         assert!(
             parsed.unwrap().is_err(),
-            "old skip-coordination alias should be rejected"
+            "removed skip-coordination flag should be rejected"
         );
 
         let parsed = std::panic::catch_unwind(|| {
@@ -290,7 +290,7 @@ mod tests {
         assert!(parsed.is_ok(), "CLI parsing panicked.");
         assert!(
             parsed.unwrap().is_err(),
-            "old no-submit alias should be rejected"
+            "removed no-submit flag should be rejected"
         );
     }
 

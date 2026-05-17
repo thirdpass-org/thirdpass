@@ -10,7 +10,7 @@ pub struct Core {
     #[serde(rename = "api-key", default)]
     pub api_key: String,
     /// Private client identifier shared only with the Thirdpass server.
-    #[serde(rename = "client-id", default)]
+    #[serde(rename = "client-id")]
     pub client_id: String,
     /// Server-derived public user identifier exposed on submitted reviews.
     #[serde(rename = "public-user-id", default)]
@@ -118,19 +118,15 @@ mod tests {
     }
 
     #[test]
-    fn missing_client_id_defaults_to_empty_for_legacy_configs() {
-        let core: Core = serde_yaml::from_str(
+    fn missing_client_id_is_rejected() {
+        let result = serde_yaml::from_str::<Core>(
             r#"
 api-key: tmp_api_key
 api-base: https://thirdpass.dev/api
 public-user-id: user-1
 "#,
-        )
-        .expect("failed to deserialize core config");
+        );
 
-        assert_eq!(core.client_id, "");
-        assert_eq!(core.api_key, "tmp_api_key");
-        assert_eq!(core.api_base, "https://thirdpass.dev/api");
-        assert_eq!(core.public_user_id, "user-1");
+        assert!(result.is_err());
     }
 }

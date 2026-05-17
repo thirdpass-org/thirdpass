@@ -104,7 +104,7 @@ fn run_assigned_target(
         agent_model: args.agent_model.clone(),
         agent_reasoning_effort: args.agent_reasoning_effort.clone(),
         submit_existing: false,
-        skip_coordination: false,
+        local_only: false,
     })
 }
 
@@ -338,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn command_rejects_old_review_any_loop_arg() {
+    fn command_rejects_removed_review_any_loop_arg() {
         let parsed = std::panic::catch_unwind(|| {
             crate::command::Opts::from_iter_safe(&["thirdpass", "review-any", "--loop"])
         });

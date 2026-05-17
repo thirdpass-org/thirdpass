@@ -59,7 +59,7 @@ pub struct Arguments {
 
     /// Use local target selection and save the review locally without submission.
     #[structopt(long = "local-only")]
-    pub skip_coordination: bool,
+    pub local_only: bool,
 }
 
 /// Summary of a completed review command.
@@ -124,7 +124,7 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
 
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
-    if args.submit_existing && args.skip_coordination {
+    if args.submit_existing && args.local_only {
         return Err(format_err!(
             "--submit-existing cannot be combined with --local-only."
         ));
@@ -177,7 +177,7 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
             &workspace_manifest.workspace_path,
             &review,
             &config,
-            args.skip_coordination,
+            args.local_only,
         )?
     };
 
@@ -297,7 +297,7 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
             Err(err) => {
                 if is_network_error(&err) {
                     log::warn!(
-                        "Failed to submit review due to network error: {}. Use --local-only to skip coordination.",
+                        "Failed to submit review due to network error: {}. Use --local-only to save locally without submitting.",
                         err
                     );
                     return Ok(ReviewCommandOutcome::from_review(&existing.review, false));
@@ -459,7 +459,7 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
     let pending_review_path = review::store_pending(&review)?;
     println!("Review saved.");
 
-    let submit_result = if args.skip_coordination {
+    let submit_result = if args.local_only {
         Ok(None)
     } else {
         let package_label = package_target_label(&review);
@@ -480,7 +480,7 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
         Err(err) => {
             if is_network_error(&err) {
                 log::warn!(
-                    "Failed to submit review due to network error: {}. Use --local-only to skip coordination.",
+                    "Failed to submit review due to network error: {}. Use --local-only to save locally without submitting.",
                     err
                 );
                 return Ok(ReviewCommandOutcome::from_review(&review, false));
@@ -490,7 +490,7 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
     };
 
     let mut submitted = false;
-    if !args.skip_coordination {
+    if !args.local_only {
         if let Some(submit_result) = submit_result {
             let public_user_id_changed = apply_server_public_user_id(
                 &mut config,
@@ -595,7 +595,7 @@ fn select_target_files(
     workspace_path: &std::path::PathBuf,
     review: &review::Review,
     config: &common::config::Config,
-    skip_coordination: bool,
+    local_only: bool,
 ) -> Result<Vec<thirdpass_core::package::SelectedTarget>> {
     let analysis = review::workspace::analyse(workspace_path)?;
     let registry = review
@@ -637,7 +637,7 @@ fn select_target_files(
         })
         .collect::<Vec<_>>();
 
-    if !skip_coordination {
+    if !local_only {
         match review::remote::request_target(request_candidates, config) {
             Ok(Some(target)) => {
                 let mut selected_targets = Vec::new();

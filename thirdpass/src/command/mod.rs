@@ -181,14 +181,14 @@ mod tests {
         let parsed = parsed.unwrap().expect("CLI parsing failed.");
         match parsed.command {
             Command::Review(args) => {
-                assert!(args.skip_coordination);
+                assert!(args.local_only);
             }
             _ => panic!("Expected review command."),
         }
     }
 
     #[test]
-    fn cli_rejects_old_review_coordination_aliases() {
+    fn cli_rejects_removed_review_coordination_flags() {
         let parsed = std::panic::catch_unwind(|| {
             Opts::from_iter_safe(&["thirdpass", "review", "d3", "4.10.0", "--skip-coordination"])
         });
@@ -196,7 +196,7 @@ mod tests {
         assert!(parsed.is_ok(), "CLI parsing panicked.");
         assert!(
             parsed.unwrap().is_err(),
-            "old skip-coordination alias should be rejected"
+            "removed skip-coordination flag should be rejected"
         );
 
         let parsed = std::panic::catch_unwind(|| {
@@ -206,7 +206,7 @@ mod tests {
         assert!(parsed.is_ok(), "CLI parsing panicked.");
         assert!(
             parsed.unwrap().is_err(),
-            "old no-submit alias should be rejected"
+            "removed no-submit flag should be rejected"
         );
     }
 
@@ -221,7 +221,7 @@ mod tests {
         );
         assert!(
             !help.contains("--skip-coordination"),
-            "review help should hide the old skip-coordination alias:\n{}",
+            "review help should not show removed skip-coordination flag:\n{}",
             help
         );
     }
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn cli_rejects_legacy_config_shape() {
+    fn cli_rejects_config_without_subcommand() {
         let parsed = std::panic::catch_unwind(|| {
             Opts::from_iter_safe(&["thirdpass", "config", "core.api-base"])
         });
