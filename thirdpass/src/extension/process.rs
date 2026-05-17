@@ -7,6 +7,7 @@ use crate::extension::common;
 pub static EXTENSION_FILE_NAME_PREFIX: &str = "thirdpass-";
 
 const RESERVED_PROCESS_NAMES: &[&str] = &["admin", "server"];
+const SUPPORTED_PROCESS_NAMES: &[&str] = &["ansible"];
 
 /// Return handles to all known extensions.
 pub fn get_all() -> Result<Vec<Box<dyn thirdpass_core::extension::Extension>>> {
@@ -152,6 +153,9 @@ fn get_extension_name(file_path: &std::path::Path) -> Result<Option<String>> {
     if RESERVED_PROCESS_NAMES.contains(&name) {
         return Ok(None);
     }
+    if !SUPPORTED_PROCESS_NAMES.contains(&name) {
+        return Ok(None);
+    }
     Ok(Some(name.to_string()))
 }
 
@@ -161,10 +165,13 @@ mod tests {
 
     #[test]
     fn extension_name_reads_process_extension_file_name() -> Result<()> {
-        assert_eq!(extension_name("/tmp/thirdpass-py")?, Some("py".to_string()));
         assert_eq!(
-            extension_name("/tmp/thirdpass-py.d")?,
-            Some("py".to_string())
+            extension_name("/tmp/thirdpass-ansible")?,
+            Some("ansible".to_string())
+        );
+        assert_eq!(
+            extension_name("/tmp/thirdpass-ansible.d")?,
+            Some("ansible".to_string())
         );
         Ok(())
     }
@@ -173,6 +180,13 @@ mod tests {
     fn extension_name_skips_core_thirdpass_binaries() -> Result<()> {
         assert_eq!(extension_name("/tmp/thirdpass-admin")?, None);
         assert_eq!(extension_name("/tmp/thirdpass-server")?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn extension_name_skips_unsupported_process_extension_name() -> Result<()> {
+        assert_eq!(extension_name("/tmp/thirdpass-evil")?, None);
+        assert_eq!(extension_name("/tmp/thirdpass-py")?, None);
         Ok(())
     }
 
