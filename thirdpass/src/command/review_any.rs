@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn nightshift_progress_reports_clean_review_impact() {
-        let outcome = outcome("d3", "4.10.0", 1, 0, 0, 0, 0, true);
+        let outcome = OutcomeBuilder::new("d3", "4.10.0").build();
         let mut session = NightshiftSession::default();
         session.record(&outcome);
 
@@ -365,7 +365,11 @@ mod tests {
 
     #[test]
     fn nightshift_progress_reports_finding_breakdown() {
-        let outcome = outcome("left-pad", "1.0.0", 2, 3, 1, 2, 0, true);
+        let outcome = OutcomeBuilder::new("left-pad", "1.0.0")
+            .target_file_count(2)
+            .critical_findings(1)
+            .medium_findings(2)
+            .build();
         let mut session = NightshiftSession::default();
         session.record(&outcome);
 
@@ -396,26 +400,57 @@ mod tests {
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn outcome(
-        package_name: &str,
-        package_version: &str,
+    struct OutcomeBuilder {
+        package_name: String,
+        package_version: String,
         target_file_count: usize,
-        comment_count: usize,
         critical_comment_count: usize,
         medium_comment_count: usize,
         low_comment_count: usize,
         submitted: bool,
-    ) -> crate::command::review::ReviewCommandOutcome {
-        crate::command::review::ReviewCommandOutcome {
-            package_name: package_name.to_string(),
-            package_version: package_version.to_string(),
-            target_file_count,
-            comment_count,
-            critical_comment_count,
-            medium_comment_count,
-            low_comment_count,
-            submitted,
+    }
+
+    impl OutcomeBuilder {
+        fn new(package_name: &str, package_version: &str) -> Self {
+            Self {
+                package_name: package_name.to_string(),
+                package_version: package_version.to_string(),
+                target_file_count: 1,
+                critical_comment_count: 0,
+                medium_comment_count: 0,
+                low_comment_count: 0,
+                submitted: true,
+            }
+        }
+
+        fn target_file_count(mut self, target_file_count: usize) -> Self {
+            self.target_file_count = target_file_count;
+            self
+        }
+
+        fn critical_findings(mut self, critical_comment_count: usize) -> Self {
+            self.critical_comment_count = critical_comment_count;
+            self
+        }
+
+        fn medium_findings(mut self, medium_comment_count: usize) -> Self {
+            self.medium_comment_count = medium_comment_count;
+            self
+        }
+
+        fn build(self) -> crate::command::review::ReviewCommandOutcome {
+            let comment_count =
+                self.critical_comment_count + self.medium_comment_count + self.low_comment_count;
+            crate::command::review::ReviewCommandOutcome {
+                package_name: self.package_name,
+                package_version: self.package_version,
+                target_file_count: self.target_file_count,
+                comment_count,
+                critical_comment_count: self.critical_comment_count,
+                medium_comment_count: self.medium_comment_count,
+                low_comment_count: self.low_comment_count,
+                submitted: self.submitted,
+            }
         }
     }
 }
