@@ -1,6 +1,6 @@
 [package]
 name = "thirdpass-core"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["rndhouse <rndhouse@protonmail.com>"]
 edition = "2018"
 repository = "https://github.com/thirdpass-org/thirdpass"
