@@ -16,8 +16,9 @@ pub struct StaticData {
 
 /// Extension adapter that communicates with an extension executable.
 ///
-/// The adapter caches static extension metadata in a YAML file and invokes the
-/// process for each dependency or registry metadata query.
+/// The adapter refreshes static extension metadata into a YAML cache when the
+/// extension is loaded and invokes the process for each dependency or registry
+/// metadata query.
 #[derive(Debug, Clone)]
 pub struct ProcessExtension {
     process_path_: std::path::PathBuf,
@@ -34,27 +35,7 @@ impl common::FromProcess for ProcessExtension {
     where
         Self: Sized,
     {
-        let static_data: StaticData = if extension_config_path.is_file() {
-            let file = std::fs::File::open(extension_config_path)?;
-            let reader = std::io::BufReader::new(file);
-            serde_yaml::from_reader(reader)?
-        } else {
-            let static_data: Box<StaticData> = run_process(process_path, &["static-data"])?;
-            let static_data = *static_data;
-
-            let file = std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(extension_config_path)
-                .context(format!(
-                    "Can't open/create file for writing: {}",
-                    extension_config_path.display()
-                ))?;
-            let writer = std::io::BufWriter::new(file);
-            serde_yaml::to_writer(writer, &static_data)?;
-            static_data
-        };
+        let static_data = refresh_static_data(process_path, extension_config_path)?;
 
         Ok(ProcessExtension {
             process_path_: process_path.to_path_buf(),
@@ -149,6 +130,35 @@ impl common::Extension for ProcessExtension {
     }
 }
 
+fn refresh_static_data(
+    process_path: &std::path::Path,
+    extension_config_path: &std::path::Path,
+) -> Result<StaticData> {
+    let static_data: Box<StaticData> = run_process(process_path, &["static-data"])?;
+    let static_data = *static_data;
+
+    if let Some(parent) = extension_config_path.parent() {
+        std::fs::create_dir_all(parent).context(format!(
+            "Can't create extension config directory: {}",
+            parent.display()
+        ))?;
+    }
+
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(extension_config_path)
+        .context(format!(
+            "Can't open/create file for writing: {}",
+            extension_config_path.display()
+        ))?;
+    let writer = std::io::BufWriter::new(file);
+    serde_yaml::to_writer(writer, &static_data)?;
+
+    Ok(static_data)
+}
+
 /// JSON envelope used for process extension command responses.
 #[derive(Debug, Clone, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ProcessResult<T> {
@@ -230,34 +240,51 @@ mod tests {
         assert_eq!(data.review_target_policy, ReviewTargetPolicy::default());
     }
 
+    #[cfg(unix)]
     #[test]
-    fn process_extension_loads_review_target_policy_from_static_data() {
+    fn process_extension_refreshes_cached_static_data() {
         let tmp = tempfile::tempdir().expect("failed to create tempdir");
-        let config_path = tmp.path().join("thirdpass-rs.yaml");
+        let config_path = tmp.path().join("config").join("thirdpass-rs.yaml");
         let process_path = tmp.path().join("thirdpass-rs");
-        let data = StaticData {
-            name: "rs".to_string(),
-            registry_host_names: vec!["crates.io".to_string()],
-            review_target_policy: ReviewTargetPolicy {
-                excluded_exact_paths: vec!["Cargo.lock".to_string()],
-            },
+        let stale_data = StaticData {
+            name: "stale".to_string(),
+            registry_host_names: vec!["stale.example".to_string()],
+            review_target_policy: ReviewTargetPolicy::default(),
         };
+        std::fs::create_dir_all(config_path.parent().expect("config path has parent"))
+            .expect("failed to create config directory");
         std::fs::write(
             &config_path,
-            serde_yaml::to_string(&data).expect("failed to serialize static data"),
+            serde_yaml::to_string(&stale_data).expect("failed to serialize stale static data"),
         )
-        .expect("failed to write static data");
+        .expect("failed to write stale static data");
+        std::fs::write(
+            &process_path,
+            "#!/bin/sh\nprintf '%s\\n' '{\"ok\":{\"name\":\"rs\",\"registry_host_names\":[\"crates.io\"],\"review_target_policy\":{\"excluded_exact_paths\":[\"Cargo.lock\"]}}}'\n",
+        )
+        .expect("failed to write process extension fixture");
+
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(&process_path, permissions)
+            .expect("failed to make process extension executable");
 
         let extension = ProcessExtension::from_process(&process_path, &config_path)
             .expect("failed to load extension");
+        let cached_data_file =
+            std::fs::File::open(&config_path).expect("failed to open refreshed static data cache");
+        let cached_data: StaticData = serde_yaml::from_reader(cached_data_file)
+            .expect("failed to read refreshed static data cache");
+
+        let expected_policy = ReviewTargetPolicy {
+            excluded_exact_paths: vec!["Cargo.lock".to_string()],
+        };
 
         assert_eq!(extension.name(), "rs");
         assert_eq!(extension.registries(), vec!["crates.io"]);
-        assert_eq!(
-            extension.review_target_policy(),
-            ReviewTargetPolicy {
-                excluded_exact_paths: vec!["Cargo.lock".to_string()],
-            }
-        );
+        assert_eq!(extension.review_target_policy(), expected_policy);
+        assert_eq!(cached_data.name, "rs");
+        assert_eq!(cached_data.registry_host_names, vec!["crates.io"]);
+        assert_eq!(cached_data.review_target_policy, expected_policy);
     }
 }
