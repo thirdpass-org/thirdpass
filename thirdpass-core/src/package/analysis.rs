@@ -22,7 +22,7 @@ pub struct PathAnalysis {
 pub type Analysis = std::collections::BTreeMap<std::path::PathBuf, PathAnalysis>;
 
 /// Compute the lowercase Blake3 digest for a file.
-pub fn file_blake3_digest(path: &std::path::PathBuf) -> Result<String> {
+pub fn file_blake3_digest(path: &std::path::Path) -> Result<String> {
     let input = std::fs::File::open(path)?;
     let reader = std::io::BufReader::new(input);
     blake3_digest(reader)
@@ -44,7 +44,7 @@ fn blake3_digest<R: std::io::Read>(mut reader: R) -> Result<String> {
 }
 
 fn get_file_line_counts(
-    workspace_directory: &std::path::PathBuf,
+    workspace_directory: &std::path::Path,
 ) -> Result<std::collections::BTreeMap<std::path::PathBuf, usize>> {
     let paths = &[workspace_directory];
     let excluded = &[];
@@ -70,7 +70,7 @@ fn get_file_line_counts(
 
 fn get_directory_line_counts(
     file_line_counts: &std::collections::BTreeMap<std::path::PathBuf, usize>,
-    workspace_directory: &std::path::PathBuf,
+    workspace_directory: &std::path::Path,
 ) -> Result<std::collections::BTreeMap<std::path::PathBuf, usize>> {
     let mut directory_line_counts = std::collections::BTreeMap::new();
     for (file_path, line_count) in file_line_counts.iter() {
@@ -86,7 +86,7 @@ fn get_directory_line_counts(
 }
 
 /// Analyze a package workspace and return file and directory line counts.
-pub fn analyse(workspace_directory: &std::path::PathBuf) -> Result<Analysis> {
+pub fn analyse(workspace_directory: &std::path::Path) -> Result<Analysis> {
     let file_line_counts = get_file_line_counts(workspace_directory)?;
     let directory_line_counts = get_directory_line_counts(&file_line_counts, workspace_directory)?;
 

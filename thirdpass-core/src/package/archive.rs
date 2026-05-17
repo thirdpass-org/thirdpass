@@ -15,14 +15,6 @@ pub enum ArchiveType {
     Unknown,
 }
 
-impl std::convert::TryFrom<&std::path::PathBuf> for ArchiveType {
-    type Error = anyhow::Error;
-
-    fn try_from(path: &std::path::PathBuf) -> Result<Self, Self::Error> {
-        Self::try_from(path.as_path())
-    }
-}
-
 impl std::convert::TryFrom<&std::path::Path> for ArchiveType {
     type Error = anyhow::Error;
 
@@ -72,8 +64,8 @@ fn get_file_extension(path: &std::path::Path) -> Result<String> {
 
 /// Extract an archive into the destination directory and return its root.
 pub fn extract(
-    archive_path: &std::path::PathBuf,
-    destination_directory: &std::path::PathBuf,
+    archive_path: &std::path::Path,
+    destination_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf> {
     log::debug!("Extracting archive: {}", archive_path.display());
     let archive_type = ArchiveType::try_from(archive_path)?;
@@ -97,7 +89,7 @@ pub fn extract(
 }
 
 fn extract_zip(
-    archive_path: &std::path::PathBuf,
+    archive_path: &std::path::Path,
     destination_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf> {
     let file = std::fs::File::open(archive_path).context(format!(
@@ -134,8 +126,8 @@ fn extract_zip(
 }
 
 fn extract_tar_gz(
-    archive_path: &std::path::PathBuf,
-    destination_directory: &std::path::PathBuf,
+    archive_path: &std::path::Path,
+    destination_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf> {
     let root_layout = get_tar_root_layout(archive_path)?;
 
@@ -171,7 +163,7 @@ fn extract_tar_gz(
         for path in paths {
             let file_name = path?.file_name();
             let path = destination_directory.join(&file_name);
-            if path == workspace_directory || &path == archive_path {
+            if path == workspace_directory || path == archive_path {
                 continue;
             }
             std::fs::rename(&path, workspace_directory.join(&file_name))?;
@@ -194,7 +186,7 @@ enum TarRootLayout {
     Flat,
 }
 
-fn get_tar_root_layout(archive_path: &std::path::PathBuf) -> Result<TarRootLayout> {
+fn get_tar_root_layout(archive_path: &std::path::Path) -> Result<TarRootLayout> {
     let file = std::fs::File::open(archive_path).context(format!(
         "Can't open tar archive: {}",
         archive_path.display()
@@ -237,7 +229,7 @@ fn get_tar_root_layout(archive_path: &std::path::PathBuf) -> Result<TarRootLayou
 }
 
 /// Download a package archive to the requested local path.
-pub fn download(target_url: &url::Url, destination_path: &std::path::PathBuf) -> Result<()> {
+pub fn download(target_url: &url::Url, destination_path: &std::path::Path) -> Result<()> {
     log::debug!(
         "Downloading archive to destination path: {}",
         destination_path.display()
@@ -268,7 +260,7 @@ mod tests {
 
     #[test]
     fn test_correct_extension_extracted_for_tar_gz() -> Result<()> {
-        let result = get_file_extension(&std::path::PathBuf::from("/d3/d3-4.10.0.tar.gz"))?;
+        let result = get_file_extension(std::path::Path::new("/d3/d3-4.10.0.tar.gz"))?;
         let expected = "tar.gz".to_string();
         assert_eq!(result, expected);
         Ok(())
@@ -276,14 +268,14 @@ mod tests {
 
     #[test]
     fn test_crate_archives_are_treated_as_tar_gz() -> Result<()> {
-        let result = ArchiveType::try_from(&std::path::PathBuf::from("/serde/serde-1.0.0.crate"))?;
+        let result = ArchiveType::try_from(std::path::Path::new("/serde/serde-1.0.0.crate"))?;
         assert_eq!(result, ArchiveType::TarGz);
         Ok(())
     }
 
     #[test]
     fn test_extensionless_archives_are_unknown() -> Result<()> {
-        let result = ArchiveType::try_from(&std::path::PathBuf::from("/downloads/archive"))?;
+        let result = ArchiveType::try_from(std::path::Path::new("/downloads/archive"))?;
         assert_eq!(result, ArchiveType::Unknown);
         Ok(())
     }

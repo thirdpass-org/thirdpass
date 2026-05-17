@@ -226,7 +226,7 @@ fn write_manifest(workspace_manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
-fn read_manifest(path: &std::path::PathBuf) -> Result<Manifest> {
+fn read_manifest(path: &std::path::Path) -> Result<Manifest> {
     let file = std::fs::File::open(path)?;
     let reader = std::io::BufReader::new(file);
     // serde_yaml can read the JSON manifests written by current clients and
@@ -304,7 +304,7 @@ fn get_workspace_directory_name(package_name: &str, package_version: &str) -> st
 }
 
 fn normalize_workspace_directory_name(
-    workspace_directory: &std::path::PathBuf,
+    workspace_directory: &std::path::Path,
     parent_directory: &std::path::Path,
     package_name: &str,
     package_version: &str,
@@ -355,14 +355,14 @@ pub fn remove(paths: &WorkspacePaths, workspace_manifest: &Manifest) -> Result<(
 
 fn remove_empty_workspace_directories(
     workspace_path: &std::path::Path,
-    working_directory: &std::path::PathBuf,
+    working_directory: &std::path::Path,
 ) -> Result<()> {
     let mut absolute_path = if workspace_path.is_absolute() {
         workspace_path.to_path_buf()
     } else {
         working_directory.join(workspace_path)
     };
-    while absolute_path.starts_with(working_directory) && &absolute_path != working_directory {
+    while absolute_path.starts_with(working_directory) && absolute_path != working_directory {
         if !absolute_path.exists() {
             absolute_path.pop();
             continue;

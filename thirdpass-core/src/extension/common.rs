@@ -40,9 +40,9 @@ pub struct Dependency {
 /// Common view over dependency collections returned by extensions.
 pub trait DependenciesCollection: Sized {
     /// Registry host that owns the dependencies.
-    fn registry_host_name(&self) -> &String;
+    fn registry_host_name(&self) -> &str;
     /// Dependencies found for the registry or file.
-    fn dependencies(&self) -> &Vec<Dependency>;
+    fn dependencies(&self) -> &[Dependency];
 }
 
 /// Package dependencies found by querying a registry.
@@ -59,10 +59,11 @@ pub struct PackageDependencies {
 }
 
 impl DependenciesCollection for PackageDependencies {
-    fn registry_host_name(&self) -> &String {
+    fn registry_host_name(&self) -> &str {
         &self.registry_host_name
     }
-    fn dependencies(&self) -> &Vec<Dependency> {
+
+    fn dependencies(&self) -> &[Dependency] {
         &self.dependencies
     }
 }
@@ -81,10 +82,11 @@ pub struct FileDefinedDependencies {
 }
 
 impl DependenciesCollection for FileDefinedDependencies {
-    fn registry_host_name(&self) -> &String {
+    fn registry_host_name(&self) -> &str {
         &self.registry_host_name
     }
-    fn dependencies(&self) -> &Vec<Dependency> {
+
+    fn dependencies(&self) -> &[Dependency] {
         &self.dependencies
     }
 }

@@ -20,9 +20,9 @@ pub fn add_from_url(url: &url::Url, extensions_bin_directory: &std::path::Path) 
     };
     log::info!("Using archive URL: {}", archive_url);
 
-    let archive_type = crate::common::fs::archive::ArchiveType::try_from(
-        &std::path::PathBuf::from(archive_url.path()),
-    )?;
+    let archive_type = crate::common::fs::archive::ArchiveType::try_from(std::path::Path::new(
+        archive_url.path(),
+    ))?;
 
     let tmp_dir = tempdir::TempDir::new("thirdpass_extension_add")?;
     let tmp_directory_path = tmp_dir.path().to_path_buf();
@@ -111,9 +111,10 @@ fn get_name_from_bin(
 }
 
 fn is_supported_archive_url(url: &url::Url) -> Result<bool> {
-    let path = std::path::PathBuf::from(url.path());
-    Ok(crate::common::fs::archive::ArchiveType::try_from(&path)?
-        != crate::common::fs::archive::ArchiveType::Unknown)
+    Ok(
+        crate::common::fs::archive::ArchiveType::try_from(std::path::Path::new(url.path()))?
+            != crate::common::fs::archive::ArchiveType::Unknown,
+    )
 }
 
 /// Returns a release archive URL.

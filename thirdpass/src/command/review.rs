@@ -593,7 +593,7 @@ fn build_targets_from_comments(
 }
 
 fn select_target_files(
-    workspace_path: &std::path::PathBuf,
+    workspace_path: &std::path::Path,
     review: &review::Review,
     config: &common::config::Config,
     local_only: bool,
