@@ -14,7 +14,7 @@ pub struct DependencyGroup {
     pub first_row_separate: bool,
 }
 
-pub fn print(groups: &Vec<DependencyGroup>, output: OutputFormat) -> Result<()> {
+pub fn print(groups: &[DependencyGroup], output: OutputFormat) -> Result<()> {
     match output {
         OutputFormat::Table => print_table(groups)?,
         OutputFormat::Plain => print_plain(groups),
@@ -23,7 +23,7 @@ pub fn print(groups: &Vec<DependencyGroup>, output: OutputFormat) -> Result<()> 
     Ok(())
 }
 
-fn print_table(groups: &Vec<DependencyGroup>) -> Result<()> {
+fn print_table(groups: &[DependencyGroup]) -> Result<()> {
     for (index, group) in groups.iter().enumerate() {
         if let Some(source_path) = &group.source_path {
             println!(
@@ -39,13 +39,13 @@ fn print_table(groups: &Vec<DependencyGroup>) -> Result<()> {
         table.printstd();
 
         if index + 1 != groups.len() {
-            println!("");
+            println!();
         }
     }
     Ok(())
 }
 
-fn print_plain(groups: &Vec<DependencyGroup>) {
+fn print_plain(groups: &[DependencyGroup]) {
     for (index, group) in groups.iter().enumerate() {
         if let Some(source_path) = &group.source_path {
             println!(
@@ -74,12 +74,12 @@ fn print_plain(groups: &Vec<DependencyGroup>) {
             );
         }
         if index + 1 != groups.len() {
-            println!("");
+            println!();
         }
     }
 }
 
-fn print_json(groups: &Vec<DependencyGroup>) -> Result<()> {
+fn print_json(groups: &[DependencyGroup]) -> Result<()> {
     let output = serde_json::to_string_pretty(groups)?;
     println!("{}", output);
     Ok(())

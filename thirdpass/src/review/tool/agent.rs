@@ -693,9 +693,8 @@ fn parse_agent_output(raw: &str) -> Result<AgentOutput> {
 }
 
 fn is_command_available(name: &str) -> bool {
-    std::env::var_os("PATH").map_or(false, |paths| {
-        std::env::split_paths(&paths).any(|path| path.join(name).is_file())
-    })
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|path| path.join(name).is_file()))
 }
 
 fn extract_json_payload(raw: &str) -> Option<String> {

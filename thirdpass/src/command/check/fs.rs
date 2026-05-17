@@ -13,14 +13,14 @@ pub fn report(
     config: &common::config::Config,
     output_format: OutputFormat,
 ) -> Result<()> {
-    let extensions = extension::manage::get_enabled(&extension_names, &config)?;
+    let extensions = extension::manage::get_enabled(extension_names, config)?;
     let working_directory = std::env::current_dir()?;
     log::debug!("Current working directory: {}", working_directory.display());
 
     let mut dependencies_found = false;
     let all_dependencies_specs = extension::identify_file_defined_dependencies(
         &extensions,
-        &extension_args,
+        extension_args,
         &working_directory,
     )?;
     let mut groups = Vec::new();
@@ -39,8 +39,8 @@ pub fn report(
                 continue;
             }
         };
-        for (_index, fs_dependencies) in extension_all_dependencies.iter().enumerate() {
-            let dependency_group = report_dependencies(&fs_dependencies, &config, false)?;
+        for fs_dependencies in extension_all_dependencies.iter() {
+            let dependency_group = report_dependencies(fs_dependencies, config, false)?;
             if let Some(dependency_group) = dependency_group {
                 dependencies_found = true;
                 groups.push(dependency_group);
@@ -71,13 +71,13 @@ fn report_dependencies(
     let dependencies = &package_dependencies.dependencies;
 
     let dependency_reports: Result<Vec<report::DependencyReport>> = dependencies
-        .into_iter()
+        .iter()
         .map(|dependency| -> Result<report::DependencyReport> {
-            Ok(report::get_dependency_report(
-                &dependency,
+            report::get_dependency_report(
+                dependency,
                 &package_dependencies.registry_host_name,
                 config,
-            )?)
+            )
         })
         .collect();
     let dependency_reports = dependency_reports?;

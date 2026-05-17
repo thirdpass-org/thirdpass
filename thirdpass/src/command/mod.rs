@@ -18,7 +18,7 @@ pub fn run_command(command: Command, extension_args: &[String]) -> Result<()> {
         }
         Command::ReviewDeps(args) => {
             log::info!("Running command: review-deps");
-            review_deps::run_command(&args, &extension_args)?;
+            review_deps::run_command(&args, extension_args)?;
         }
         Command::ReviewAny(args) => {
             log::info!("Running command: review-any");
@@ -26,7 +26,7 @@ pub fn run_command(command: Command, extension_args: &[String]) -> Result<()> {
         }
         Command::Check(args) => {
             log::info!("Running command: check");
-            check::run_command(&args, &extension_args)?;
+            check::run_command(&args, extension_args)?;
         }
         Command::Config(args) => {
             log::info!("Running command: config");

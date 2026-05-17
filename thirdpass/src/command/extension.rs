@@ -26,23 +26,23 @@ pub fn run_subcommand(subcommand: &Subcommands) -> Result<()> {
     match subcommand {
         Subcommands::Add(args) => {
             log::info!("Running command: extension add");
-            add(&args)?;
+            add(args)?;
         }
         Subcommands::Remove(args) => {
             log::info!("Running command: extension remove");
-            remove(&args)?;
+            remove(args)?;
         }
         Subcommands::Enable(args) => {
             log::info!("Running command: extension enable");
-            enable(&args)?;
+            enable(args)?;
         }
         Subcommands::Disable(args) => {
             log::info!("Running command: extension disable");
-            disable(&args)?;
+            disable(args)?;
         }
         Subcommands::List(args) => {
             log::info!("Running command: extension list");
-            list(&args)?;
+            list(args)?;
         }
     }
     Ok(())
@@ -111,7 +111,7 @@ fn add(args: &AddArguments) -> Result<()> {
 
 /// Returns true if Thirdpass can discover extensions stored in given directory.
 fn is_install_directory_discoverable(directory: &std::path::PathBuf) -> Result<bool> {
-    if is_directory_in_path_env(&directory)? {
+    if is_directory_in_path_env(directory)? {
         Ok(true)
     } else {
         match common::fs::get_extensions_default_directory() {

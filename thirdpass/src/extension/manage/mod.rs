@@ -5,14 +5,11 @@ use crate::common::config::Config;
 use crate::extension::{common, process};
 mod github;
 
-pub fn add_from_url(
-    url: &url::Url,
-    extensions_bin_directory: &std::path::PathBuf,
-) -> Result<String> {
-    let archive_url = if is_supported_archive_url(&url)? {
+pub fn add_from_url(url: &url::Url, extensions_bin_directory: &std::path::Path) -> Result<String> {
+    let archive_url = if is_supported_archive_url(url)? {
         url.clone()
     } else {
-        match get_archive_url(&url)? {
+        match get_archive_url(url)? {
             Some(url) => url,
             None => {
                 return Err(format_err!(
@@ -63,27 +60,27 @@ pub fn add_from_url(
 }
 
 #[cfg(target_family = "unix")]
-fn ensure_executable_permissions(path: &std::path::PathBuf) -> Result<()> {
+fn ensure_executable_permissions(path: &std::path::Path) -> Result<()> {
     log::debug!(
         "Setting executable permissions to 755 for file: {}",
         path.display()
     );
     use std::os::unix::fs::PermissionsExt;
     let permissions = std::fs::Permissions::from_mode(0o755);
-    std::fs::set_permissions(&path, permissions)?;
+    std::fs::set_permissions(path, permissions)?;
     Ok(())
 }
 
 #[cfg(not(target_family = "unix"))]
-fn ensure_executable_permissions(_path: &std::path::PathBuf) -> Result<()> {
+fn ensure_executable_permissions(_path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
 fn get_bin_file_metadata(
-    directory: &std::path::PathBuf,
+    directory: &std::path::Path,
 ) -> Result<Option<(std::path::PathBuf, String)>> {
     let regex_pattern = get_bin_name_regex()?;
-    for entry in std::fs::read_dir(&directory)? {
+    for entry in std::fs::read_dir(directory)? {
         let entry = entry?;
         let path = entry.path();
         if let Some(name) = get_name_from_bin(&path, &regex_pattern)? {
@@ -100,7 +97,7 @@ fn get_bin_name_regex() -> Result<regex::Regex> {
 }
 
 fn get_name_from_bin(
-    path: &std::path::PathBuf,
+    path: &std::path::Path,
     regex_pattern: &regex::Regex,
 ) -> Result<Option<String>> {
     if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
@@ -122,7 +119,7 @@ fn is_supported_archive_url(url: &url::Url) -> Result<bool> {
 /// Returns a release archive URL.
 fn get_archive_url(url: &url::Url) -> Result<Option<url::Url>> {
     Ok(if url.host_str() == Some("github.com") {
-        github::get_archive_url(&url)?
+        github::get_archive_url(url)?
     } else {
         None
     })
@@ -174,12 +171,8 @@ pub fn update_config(config: &mut Config) -> Result<()> {
     let all_found_names: std::collections::BTreeSet<_> =
         extension_name_map.keys().cloned().collect();
 
-    let configured_names: std::collections::BTreeSet<_> = config
-        .extensions
-        .enabled
-        .keys()
-        .map(|name| name.clone())
-        .collect();
+    let configured_names: std::collections::BTreeSet<_> =
+        config.extensions.enabled.keys().cloned().collect();
 
     let stale_names: Vec<_> = configured_names.difference(&all_found_names).collect();
     let registries_map = config.extensions.registries.clone();
@@ -217,7 +210,7 @@ pub fn update_config(config: &mut Config) -> Result<()> {
 
 /// Enable extension.
 pub fn enable(name: &str, config: &mut Config) -> Result<()> {
-    if let Some(enabled_status) = config.extensions.enabled.get_mut(&name.to_string()) {
+    if let Some(enabled_status) = config.extensions.enabled.get_mut(name) {
         *enabled_status = true;
         config.dump()?;
         Ok(())
@@ -228,7 +221,7 @@ pub fn enable(name: &str, config: &mut Config) -> Result<()> {
 
 /// Disable extension.
 pub fn disable(name: &str, config: &mut Config) -> Result<()> {
-    if let Some(enabled_status) = config.extensions.enabled.get_mut(&name.to_string()) {
+    if let Some(enabled_status) = config.extensions.enabled.get_mut(name) {
         *enabled_status = false;
         config.dump()?;
         Ok(())
@@ -253,7 +246,7 @@ pub fn remove(name: &str) -> Result<()> {
     }
 
     // Remove extension specific config file.
-    let path = common::get_config_path(&name)?;
+    let path = common::get_config_path(name)?;
     if path.is_file() {
         log::info!("Removing extension config file: {}", path.display());
         std::fs::remove_file(&path)?;
@@ -263,7 +256,7 @@ pub fn remove(name: &str) -> Result<()> {
     let extension_paths = process::get_extension_paths()?;
     if let Some(path) = extension_paths.get(name) {
         log::info!("Deleting extension bin file: {}", path.display());
-        std::fs::remove_file(&path)?;
+        std::fs::remove_file(path)?;
     }
 
     update_config(&mut config)?;
@@ -308,12 +301,7 @@ pub fn get_enabled_names(config: &Config) -> Result<std::collections::BTreeSet<S
 }
 
 pub fn get_all_names(config: &Config) -> Result<std::collections::BTreeSet<String>> {
-    Ok(config
-        .extensions
-        .enabled
-        .iter()
-        .map(|(name, _enabled_flag)| name.clone())
-        .collect())
+    Ok(config.extensions.enabled.keys().cloned().collect())
 }
 
 /// Check given extensions are enabled. If not specified select all enabled extensions.
@@ -325,8 +313,8 @@ pub fn handle_extension_names_arg(
         Some(extension_names) => {
             let disabled_names: Vec<_> = extension_names
                 .iter()
+                .filter(|&name| !is_enabled(name, config).unwrap_or(false))
                 .cloned()
-                .filter(|name| !is_enabled(&name, &config).unwrap_or(false))
                 .collect();
             if !disabled_names.is_empty() {
                 return Err(format_err!(
@@ -334,10 +322,10 @@ pub fn handle_extension_names_arg(
                     disabled_names.join(", ")
                 ));
             } else {
-                extension_names.into_iter().cloned().collect()
+                extension_names.iter().cloned().collect()
             }
         }
-        None => get_enabled_names(&config)?,
+        None => get_enabled_names(config)?,
     };
     log::debug!("Using extensions: {:?}", names);
     Ok(names)

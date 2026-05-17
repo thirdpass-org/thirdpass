@@ -159,15 +159,15 @@ fn supported_registry_hosts(config: &common::config::Config) -> Vec<String> {
         .extensions
         .registries
         .iter()
-        .filter_map(|(registry_host, extension_name)| {
+        .filter(|&(_registry_host, extension_name)| {
             config
                 .extensions
                 .enabled
                 .get(extension_name)
                 .copied()
                 .unwrap_or(false)
-                .then(|| registry_host.clone())
         })
+        .map(|(registry_host, _extension_name)| registry_host.clone())
         .collect()
 }
 
@@ -360,7 +360,7 @@ fn from_remote_comment(comment: api::ReviewComment, file_path: &str) -> Comment 
     }
 }
 
-fn get_primary_registry<'a>(package: &'a package::Package) -> Result<&'a registry::Registry> {
+fn get_primary_registry(package: &package::Package) -> Result<&registry::Registry> {
     let registry = package
         .registries
         .iter()

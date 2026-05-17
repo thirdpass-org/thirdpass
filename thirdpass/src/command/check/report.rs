@@ -98,7 +98,7 @@ fn pull_latest_reviews(
 }
 
 fn filter_reviews(
-    reviews: &Vec<review::Review>,
+    reviews: &[review::Review],
     registry_host_name: &str,
     package_name: &str,
     package_version: &str,
@@ -125,12 +125,14 @@ struct DependencyStats {
     pub count_medium_comments: i32,
 }
 
-fn get_dependency_stats(reviews: &Vec<review::Review>) -> Result<DependencyStats> {
-    let mut stats = DependencyStats::default();
-    stats.total_review_count = reviews.len();
+fn get_dependency_stats(reviews: &[review::Review]) -> Result<DependencyStats> {
+    let mut stats = DependencyStats {
+        total_review_count: reviews.len(),
+        ..DependencyStats::default()
+    };
 
     for review in reviews {
-        match review::overall_security_summary(&review)? {
+        match review::overall_security_summary(review)? {
             review::SecuritySummary::Critical => stats.count_critical_comments += 1,
             review::SecuritySummary::Medium => stats.count_medium_comments += 1,
             review::SecuritySummary::Low => {}

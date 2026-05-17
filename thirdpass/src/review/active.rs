@@ -14,7 +14,7 @@ struct ActiveReview {
 /// Ensure active review file is in place.
 pub fn ensure(
     review: &review::Review,
-    reviews_directory: &std::path::PathBuf,
+    reviews_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf> {
     let review_file_path = reviews_directory.join("local.review");
     if review_file_path.exists() {
@@ -35,6 +35,7 @@ pub fn ensure(
         .write(true)
         .append(false)
         .create(true)
+        .truncate(true)
         .open(&review_file_path)
         .context(format!(
             "Can't open/create file for writing: {}",

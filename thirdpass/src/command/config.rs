@@ -56,7 +56,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     match &args.subcommand {
         Some(Subcommand::Get(get)) => {
             if let Some(name) = &get.name {
-                println!("{}", config.get(&name)?);
+                println!("{}", config.get(name)?);
             } else {
                 println!("{}", config);
             }

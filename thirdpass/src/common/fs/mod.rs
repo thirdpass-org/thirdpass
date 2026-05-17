@@ -17,8 +17,8 @@ pub fn ensure_extensions_bin_directory() -> Result<Option<std::path::PathBuf>> {
                 "Creating Thirdpass extensions bin directory: {}",
                 extensions_directory.display()
             );
-            std::fs::create_dir_all(&extensions_directory)?;
-            set_directory_hidden_windows(&extensions_directory);
+            std::fs::create_dir_all(extensions_directory)?;
+            set_directory_hidden_windows(extensions_directory);
         }
     }
     Ok(extensions_directory)
@@ -85,9 +85,9 @@ pub struct DataPaths {
 }
 
 impl DataPaths {
-    pub fn from_root_directory(root_directory: &std::path::PathBuf) -> Result<Self> {
+    pub fn from_root_directory(root_directory: &std::path::Path) -> Result<Self> {
         Ok(Self {
-            root_directory: root_directory.clone(),
+            root_directory: root_directory.to_path_buf(),
 
             reviews_directory: root_directory.join("reviews"),
             pending_reviews_directory: root_directory.join("reviews").join(".pending"),
@@ -101,6 +101,6 @@ impl DataPaths {
             format_err!("Failed to obtain a handle on the local user directory."),
         )?;
         let root_directory = user_directories.data_local_dir();
-        Self::from_root_directory(&root_directory.into())
+        Self::from_root_directory(root_directory)
     }
 }

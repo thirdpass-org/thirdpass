@@ -7,7 +7,7 @@ pub fn get_archive_url(repo_url: &url::Url) -> Result<Option<url::Url>> {
     let platform = get_platform()?;
     log::debug!("Identified target platform: {}", platform);
 
-    let releases = get_releases(&repo_url)?;
+    let releases = get_releases(repo_url)?;
     if releases.is_empty() {
         log::debug!("Failed to find any releases corresponding to repository URL.");
     } else {
@@ -47,7 +47,7 @@ fn get_releases(repo_url: &url::Url) -> Result<Vec<serde_json::Value>> {
     let client = reqwest::blocking::Client::builder()
         .user_agent(common::HTTP_USER_AGENT)
         .build()?;
-    let mut result = client.get(&releases_url.to_string()).send()?;
+    let mut result = client.get(releases_url.to_string()).send()?;
     let mut body = String::new();
     result.read_to_string(&mut body)?;
     let releases: serde_json::Value =

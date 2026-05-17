@@ -19,7 +19,7 @@ pub fn get_unique_package_path(
 
 fn get_storage_file_path(
     review: &review::Review,
-    base_directory: &std::path::PathBuf,
+    base_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf> {
     // TODO: Handle multiple registries.
     let review_directory_path = get_unique_package_path(
@@ -61,12 +61,12 @@ pub fn add(review: &review::Review, status: ReviewStorageStatus) -> Result<std::
         ReviewStorageStatus::Submitted => &paths.reviews_directory,
         ReviewStorageStatus::Pending => &paths.pending_reviews_directory,
     };
-    let file_path = get_storage_file_path(&review, base_directory)?;
+    let file_path = get_storage_file_path(review, base_directory)?;
     let parent_directory = file_path.parent().ok_or(format_err!(
         "Can't find parent directory for file path: {}",
         file_path.display()
     ))?;
-    std::fs::create_dir_all(&parent_directory).context(format!(
+    std::fs::create_dir_all(parent_directory).context(format!(
         "Can't create directory: {}",
         parent_directory.display()
     ))?;
@@ -78,6 +78,7 @@ pub fn add(review: &review::Review, status: ReviewStorageStatus) -> Result<std::
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
+        .truncate(true)
         .open(&file_path)
         .context(format!(
             "Can't open/create file for writing: {}",
@@ -164,7 +165,7 @@ pub fn promote(
     if destination_path.exists() {
         std::fs::remove_file(&destination_path)?;
     }
-    std::fs::rename(&pending_path, &destination_path)?;
+    std::fs::rename(pending_path, &destination_path)?;
     Ok(destination_path)
 }
 

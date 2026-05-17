@@ -20,7 +20,7 @@ pub fn check_manual_install(config: &mut common::config::Config) -> Result<()> {
 }
 
 pub fn run_manual(
-    workspace_directory: &std::path::PathBuf,
+    workspace_directory: &std::path::Path,
     config: &common::config::Config,
 ) -> Result<()> {
     assert!(
@@ -29,7 +29,7 @@ pub fn run_manual(
     );
 
     log::debug!("Running review tool.");
-    vscode::run(&workspace_directory)?;
+    vscode::run(workspace_directory)?;
     log::debug!("Review tool exit complete.");
     Ok(())
 }
@@ -87,8 +87,8 @@ pub fn run_agent(
 
 /// Setup reviews directory within workspace.
 pub fn ensure_reviews_directory(
-    workspace_directory: &std::path::PathBuf,
+    workspace_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf> {
-    let review_directory = vscode::setup_reviews_directory(&workspace_directory)?;
+    let review_directory = vscode::setup_reviews_directory(workspace_directory)?;
     Ok(review_directory)
 }

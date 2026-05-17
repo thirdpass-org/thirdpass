@@ -19,7 +19,6 @@ pub fn overall_security_summary(review: &Review) -> Result<SecuritySummary> {
         .map(|target| {
             target
                 .security_summary
-                .clone()
                 .unwrap_or_else(|| security_summary_for_comments(&target.comments))
         })
         .fold(SecuritySummary::None, highest_security_summary))
@@ -62,16 +61,16 @@ fn security_summary_rank(summary: &SecuritySummary) -> u8 {
 }
 
 pub fn store_pending(review: &Review) -> Result<std::path::PathBuf> {
-    fs::add(&review, fs::ReviewStorageStatus::Pending)
+    fs::add(review, fs::ReviewStorageStatus::Pending)
 }
 
 pub fn store_submitted(review: &Review) -> Result<std::path::PathBuf> {
-    fs::add(&review, fs::ReviewStorageStatus::Submitted)
+    fs::add(review, fs::ReviewStorageStatus::Submitted)
 }
 
 pub fn promote_pending(
     review: &Review,
     pending_path: &std::path::PathBuf,
 ) -> Result<std::path::PathBuf> {
-    fs::promote(&review, pending_path)
+    fs::promote(review, pending_path)
 }

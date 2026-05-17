@@ -6,24 +6,24 @@ fn handle_nonempty_data_directory(directory_path: &std::path::PathBuf, force: bo
     let target_directory_empty = directory_path.read_dir()?.next().is_none();
     if force && !target_directory_empty {
         // Delete directory contents so setup can start cleanly.
-        std::fs::remove_dir_all(&directory_path)?;
-        std::fs::create_dir_all(&directory_path)?;
+        std::fs::remove_dir_all(directory_path)?;
+        std::fs::create_dir_all(directory_path)?;
     }
     Ok(())
 }
 
 fn setup_data_directory_contents(paths: &common::fs::DataPaths) -> Result<()> {
     std::fs::create_dir_all(&paths.reviews_directory)?;
-    std::fs::File::create(&paths.reviews_directory.join(".gitkeep"))?;
+    std::fs::File::create(paths.reviews_directory.join(".gitkeep"))?;
 
     std::fs::create_dir_all(&paths.pending_reviews_directory)?;
-    std::fs::File::create(&paths.pending_reviews_directory.join(".gitkeep"))?;
+    std::fs::File::create(paths.pending_reviews_directory.join(".gitkeep"))?;
 
     std::fs::create_dir_all(&paths.ongoing_reviews_directory)?;
-    std::fs::File::create(&paths.ongoing_reviews_directory.join(".gitkeep"))?;
+    std::fs::File::create(paths.ongoing_reviews_directory.join(".gitkeep"))?;
 
     std::fs::create_dir_all(&paths.archives_directory)?;
-    std::fs::File::create(&paths.archives_directory.join(".gitkeep"))?;
+    std::fs::File::create(paths.archives_directory.join(".gitkeep"))?;
 
     // TODO: Populate README.md with reasonable message, stats, links.
     let readme_file_path = paths.root_directory.join("README.md");

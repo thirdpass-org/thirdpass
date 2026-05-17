@@ -13,14 +13,14 @@ fn get_row(dependency_report: &report::DependencyReport) -> prettytable::Row {
         Some(v) => v.to_string(),
         None => "".to_string(),
     };
-    let note = get_note_cell(&dependency_report);
+    let note = get_note_cell(dependency_report);
     prettytable::Row::new(vec![
         summary,
         prettytable::Cell::new_align(
             &dependency_report.name,
             prettytable::format::Alignment::LEFT,
         ),
-        prettytable::Cell::new_align(&package_version, prettytable::format::Alignment::RIGHT),
+        prettytable::Cell::new_align(package_version, prettytable::format::Alignment::RIGHT),
         prettytable::Cell::new_align(&review_count, prettytable::format::Alignment::RIGHT),
         note,
     ])
@@ -28,7 +28,7 @@ fn get_row(dependency_report: &report::DependencyReport) -> prettytable::Row {
 
 /// Generates and returns a table from a given vector of dependency review reports.
 pub fn get(
-    dependency_reports: &Vec<report::DependencyReport>,
+    dependency_reports: &[report::DependencyReport],
     first_row_separate: bool,
 ) -> Result<prettytable::Table> {
     let mut table = prettytable::Table::new();
@@ -38,14 +38,14 @@ pub fn get(
     let mut dependency_reports_iter = dependency_reports.iter();
     if first_row_separate {
         if let Some(dependency_report) = dependency_reports_iter.next() {
-            let row = get_row(&dependency_report);
+            let row = get_row(dependency_report);
             table.add_row(row);
             table.add_row(prettytable::row![c => "  ", "", "", "", ""]);
         }
     }
 
     for dependency_report in dependency_reports_iter {
-        let row = get_row(&dependency_report);
+        let row = get_row(dependency_report);
         table.add_row(row);
     }
     Ok(table)
@@ -56,7 +56,7 @@ fn get_note_cell(dependency_report: &report::DependencyReport) -> prettytable::C
         Some(v) => v.as_str(),
         None => "",
     };
-    let mut note = prettytable::Cell::new_align(&note, prettytable::format::Alignment::LEFT);
+    let mut note = prettytable::Cell::new_align(note, prettytable::format::Alignment::LEFT);
 
     if dependency_report.summary == review::SecuritySummary::Critical {
         note = note

@@ -78,16 +78,16 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
     match &args.package_name {
         Some(package_name) => {
             package::report(
-                &package_name,
+                package_name,
                 &args.package_version.as_deref(),
                 &extension_names,
-                &extension_args,
+                extension_args,
                 &config,
                 output,
             )?;
         }
         None => {
-            fs::report(&extension_names, &extension_args, &config, output)?;
+            fs::report(&extension_names, extension_args, &config, output)?;
         }
     }
     Ok(())

@@ -16,14 +16,14 @@ pub fn report(
     config: &common::config::Config,
     output_format: OutputFormat,
 ) -> Result<()> {
-    let extensions = extension::manage::get_enabled(&extension_names, &config)?;
+    let extensions = extension::manage::get_enabled(extension_names, config)?;
 
     let mut dependencies_found = false;
     let all_extensions_results = extension::identify_package_dependencies(
-        &package_name,
-        &package_version,
+        package_name,
+        package_version,
         &extensions,
-        &extension_args,
+        extension_args,
     )?;
 
     let mut groups = Vec::new();
@@ -43,10 +43,9 @@ pub fn report(
             }
         };
 
-        for (_index, package_dependencies) in extension_all_package_dependencies.iter().enumerate()
-        {
+        for package_dependencies in extension_all_package_dependencies.iter() {
             let dependency_group =
-                report_dependencies(&package_name, &package_dependencies, &config, true)?;
+                report_dependencies(package_name, package_dependencies, config, true)?;
             dependencies_found = true;
             groups.push(dependency_group);
         }
@@ -81,7 +80,7 @@ fn report_dependencies(
     dependency_reports.push(target_package_dependency_report);
     for dependency in dependencies {
         let dependency_report = report::get_dependency_report(
-            &dependency,
+            dependency,
             &package_dependencies.registry_host_name,
             config,
         )?;

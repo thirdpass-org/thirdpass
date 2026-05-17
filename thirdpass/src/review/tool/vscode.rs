@@ -2,7 +2,7 @@ use anyhow::{format_err, Context, Result};
 
 /// Setup reviews directory within workspace.
 pub fn setup_reviews_directory(
-    workspace_directory: &std::path::PathBuf,
+    workspace_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf> {
     let vscode_review_directory = workspace_directory.join(".vscode").join("reviews");
     std::fs::create_dir_all(&vscode_review_directory).context(format!(
@@ -12,7 +12,7 @@ pub fn setup_reviews_directory(
     Ok(vscode_review_directory)
 }
 
-pub fn run(workspace_directory: &std::path::PathBuf) -> Result<()> {
+pub fn run(workspace_directory: &std::path::Path) -> Result<()> {
     let mut child = std::process::Command::new("code")
         .args(vec![
             "--wait",

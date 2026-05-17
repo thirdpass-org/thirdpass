@@ -128,7 +128,7 @@ fn get_candidate_extension_paths() -> Result<Vec<std::path::PathBuf>> {
     Ok(paths)
 }
 
-fn get_extension_name(file_path: &std::path::PathBuf) -> Result<Option<String>> {
+fn get_extension_name(file_path: &std::path::Path) -> Result<Option<String>> {
     let file_name = file_path
         .file_name()
         .ok_or(format_err!("Failed to parse path file name."))?

@@ -241,18 +241,19 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
             )
         };
 
-        let existing = match find_matching_local_review(
-            &config,
-            &review.package.name,
-            &review.package.version,
-            &review.package.package_hash,
-            &target_paths,
+        let criteria = LocalReviewMatchCriteria {
+            package_name: &review.package.name,
+            package_version: &review.package.version,
+            package_hash: &review.package.package_hash,
+            target_paths: &target_paths,
             expected_scope,
-            &expected_agent_name,
-            expected_agent_model.as_deref(),
-            &expected_agent_reasoning_effort,
-            &expected_review_strategy,
-        ) {
+            expected_agent_name: &expected_agent_name,
+            expected_agent_model: expected_agent_model.as_deref(),
+            expected_agent_reasoning_effort: &expected_agent_reasoning_effort,
+            expected_review_strategy: &expected_review_strategy,
+        };
+
+        let existing = match find_matching_local_review(&config, &criteria) {
             Ok(existing) => existing,
             Err(err) => {
                 review::workspace::remove(&workspace_manifest)?;
@@ -413,7 +414,7 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
                 }
                 agent_summary.push_str(summary);
             }
-            let file_confidence = agent_run.confidence.clone();
+            let file_confidence = agent_run.confidence;
             let comments = normalize_comments(agent_run.comments)
                 .into_iter()
                 .map(|mut comment| {
@@ -510,20 +511,20 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
 fn get_comments(
     active_review_file: &std::path::PathBuf,
 ) -> Result<std::collections::BTreeSet<review::comment::Comment>> {
-    let comments = review::active::parse(&active_review_file)?;
+    let comments = review::active::parse(active_review_file)?;
     Ok(normalize_comments(comments))
 }
 
 fn run_manual_review(
     review: &review::Review,
-    workspace_path: &std::path::PathBuf,
+    workspace_path: &std::path::Path,
     config: &common::config::Config,
 ) -> Result<std::collections::BTreeSet<review::comment::Comment>> {
-    let reviews_directory = review::tool::ensure_reviews_directory(&workspace_path)?;
-    let active_review_file = review::active::ensure(&review, &reviews_directory)?;
+    let reviews_directory = review::tool::ensure_reviews_directory(workspace_path)?;
+    let active_review_file = review::active::ensure(review, &reviews_directory)?;
 
     println!("Starting review tool.");
-    review::tool::run_manual(&workspace_path, &config)?;
+    review::tool::run_manual(workspace_path, config)?;
     if !active_review_file.exists() {
         println!("Review file not found.");
         return Ok(std::collections::BTreeSet::new());
@@ -841,17 +842,21 @@ fn format_agent_token(
     details.join("-")
 }
 
+struct LocalReviewMatchCriteria<'a> {
+    package_name: &'a str,
+    package_version: &'a str,
+    package_hash: &'a str,
+    target_paths: &'a std::collections::BTreeSet<std::path::PathBuf>,
+    expected_scope: review::ReviewScope,
+    expected_agent_name: &'a str,
+    expected_agent_model: Option<&'a str>,
+    expected_agent_reasoning_effort: &'a str,
+    expected_review_strategy: &'a str,
+}
+
 fn find_matching_local_review(
     config: &common::config::Config,
-    package_name: &str,
-    package_version: &str,
-    package_hash: &str,
-    target_paths: &std::collections::BTreeSet<std::path::PathBuf>,
-    expected_scope: review::ReviewScope,
-    expected_agent_name: &str,
-    expected_agent_model: Option<&str>,
-    expected_agent_reasoning_effort: &str,
-    expected_review_strategy: &str,
+    criteria: &LocalReviewMatchCriteria,
 ) -> Result<Option<review::fs::StoredReview>> {
     let stored_reviews = review::fs::list_with_status()?;
     let mut best_submitted: Option<review::fs::StoredReview> = None;
@@ -859,30 +864,32 @@ fn find_matching_local_review(
 
     for stored in stored_reviews {
         let current = &stored.review;
-        if current.package.name != package_name
-            || current.package.version != package_version
-            || current.package.package_hash != package_hash
+        if current.package.name != criteria.package_name
+            || current.package.version != criteria.package_version
+            || current.package.package_hash != criteria.package_hash
         {
             continue;
         }
         if current.reviewer_details.public_user_id != config.core.public_user_id {
             continue;
         }
-        if current.reviewer_details.agent_name != expected_agent_name {
+        if current.reviewer_details.agent_name != criteria.expected_agent_name {
             continue;
         }
-        if current.reviewer_details.review_scope != expected_scope {
+        if current.reviewer_details.review_scope != criteria.expected_scope {
             continue;
         }
-        if current.reviewer_details.review_strategy != expected_review_strategy {
+        if current.reviewer_details.review_strategy != criteria.expected_review_strategy {
             continue;
         }
-        if let Some(model) = expected_agent_model {
+        if let Some(model) = criteria.expected_agent_model {
             if current.reviewer_details.agent_model != model {
                 continue;
             }
         }
-        if current.reviewer_details.agent_reasoning_effort != expected_agent_reasoning_effort {
+        if current.reviewer_details.agent_reasoning_effort
+            != criteria.expected_agent_reasoning_effort
+        {
             continue;
         }
 
@@ -891,7 +898,7 @@ fn find_matching_local_review(
             .iter()
             .map(|target| target.file_path.clone())
             .collect::<std::collections::BTreeSet<_>>();
-        if &stored_target_paths != target_paths {
+        if &stored_target_paths != criteria.target_paths {
             continue;
         }
 
@@ -934,7 +941,7 @@ fn setup_review(
     extension_names: &std::collections::BTreeSet<String>,
     config: &common::config::Config,
 ) -> Result<(review::Review, thirdpass_core::package::Manifest)> {
-    let extensions = extension::manage::get_enabled(&extension_names, &config)?;
+    let extensions = extension::manage::get_enabled(extension_names, config)?;
 
     let package_version_was_given = package_version.is_some();
 
@@ -971,7 +978,7 @@ fn setup_review(
         artifact_url: url::Url::parse(&registry_metadata.artifact_url)?,
     };
     let workspace_manifest = review::workspace::ensure(
-        &package_name,
+        package_name,
         &package_version,
         &registry.host_name,
         &registry.artifact_url,

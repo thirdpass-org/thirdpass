@@ -182,7 +182,7 @@ fn matches_dependency_candidate(candidate: &DependencyReviewKey, review: &review
             .any(|registry| registry.host_name == candidate.registry_host_name)
 }
 
-fn sort_dependency_review_candidates(candidates: &mut Vec<DependencyReviewCandidate>) {
+fn sort_dependency_review_candidates(candidates: &mut [DependencyReviewCandidate]) {
     candidates.sort_by(|a, b| {
         a.current_reviewer_review_count
             .cmp(&b.current_reviewer_review_count)

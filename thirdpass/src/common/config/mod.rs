@@ -39,29 +39,29 @@ impl Config {
     pub fn set(&mut self, name: &str, value: &str) -> Result<()> {
         let name_error_message = format!("Unknown settings field: {}", name);
 
-        return if core::is_match(name)? {
-            Ok(core::set(&mut self.core, &name, &value)?)
+        if core::is_match(name)? {
+            Ok(core::set(&mut self.core, name, value)?)
         } else if extensions::is_match(name)? {
-            Ok(extensions::set(&mut self.extensions, &name, &value)?)
+            Ok(extensions::set(&mut self.extensions, name, value)?)
         } else if review_tool::is_match(name)? {
-            Ok(review_tool::set(&mut self.review_tool, &name, &value)?)
+            Ok(review_tool::set(&mut self.review_tool, name, value)?)
         } else {
             Err(format_err!(name_error_message.clone()))
-        };
+        }
     }
 
     pub fn get(&self, name: &str) -> Result<String> {
         let name_error_message = format!("Unknown settings field: {}", name);
 
-        return if core::is_match(name)? {
-            Ok(core::get(&self.core, &name)?)
+        if core::is_match(name)? {
+            Ok(core::get(&self.core, name)?)
         } else if extensions::is_match(name)? {
-            Ok(extensions::get(&self.extensions, &name)?)
+            Ok(extensions::get(&self.extensions, name)?)
         } else if review_tool::is_match(name)? {
-            Ok(review_tool::get(&self.review_tool, &name)?)
+            Ok(review_tool::get(&self.review_tool, name)?)
         } else {
             Err(format_err!(name_error_message.clone()))
-        };
+        }
     }
 }
 
@@ -134,7 +134,7 @@ impl std::fmt::Display for Config {
         write!(
             f,
             "{}",
-            serde_yaml::to_string(&display_config).map_err(|_| std::fmt::Error::default())?
+            serde_yaml::to_string(&display_config).map_err(|_| std::fmt::Error)?
         )
     }
 }

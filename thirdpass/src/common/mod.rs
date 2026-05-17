@@ -25,9 +25,7 @@ impl std::convert::TryFrom<&str> for GitUrl {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let value = remove_suffix(value, ".git");
-        Ok(Self {
-            0: url::Url::parse(value)?,
-        })
+        Ok(Self(url::Url::parse(value)?))
     }
 }
 
@@ -36,15 +34,13 @@ impl std::convert::TryFrom<&String> for GitUrl {
 
     fn try_from(value: &String) -> Result<Self, Self::Error> {
         let value = remove_suffix(value, ".git");
-        Ok(Self {
-            0: url::Url::parse(value)?,
-        })
+        Ok(Self(url::Url::parse(value)?))
     }
 }
 
 fn remove_suffix<'a>(s: &'a str, p: &str) -> &'a str {
-    if s.ends_with(p) {
-        &s[..s.len() - p.len()]
+    if let Some(stripped) = s.strip_suffix(p) {
+        stripped
     } else {
         s
     }
@@ -52,7 +48,7 @@ fn remove_suffix<'a>(s: &'a str, p: &str) -> &'a str {
 
 impl std::fmt::Display for GitUrl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.to_string())
+        write!(f, "{}", self.0)
     }
 }
 
@@ -61,7 +57,7 @@ impl serde::Serialize for GitUrl {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.0.to_string())
+        serializer.serialize_str(self.0.as_ref())
     }
 }
 
@@ -78,8 +74,7 @@ impl<'de> serde::de::Visitor<'de> for UrlVisitor {
     where
         E: serde::de::Error,
     {
-        Ok(GitUrl::try_from(value)
-            .map_err(|_| E::custom(format!("failed to parse URL \"{}\"", value)))?)
+        GitUrl::try_from(value).map_err(|_| E::custom(format!("failed to parse URL \"{}\"", value)))
     }
 }
 
@@ -88,6 +83,6 @@ impl<'de> serde::Deserialize<'de> for GitUrl {
     where
         D: serde::Deserializer<'de>,
     {
-        Ok(deserializer.deserialize_str(UrlVisitor)?)
+        deserializer.deserialize_str(UrlVisitor)
     }
 }
