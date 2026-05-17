@@ -21,17 +21,11 @@ fn get_storage_file_path(
     review: &review::Review,
     base_directory: &std::path::Path,
 ) -> Result<std::path::PathBuf> {
-    // TODO: Handle multiple registries.
+    let registry_host_name = review_registry_host(review)?;
     let review_directory_path = get_unique_package_path(
         &review.package.name,
         &review.package.version,
-        &review
-            .package
-            .registries
-            .iter()
-            .next()
-            .ok_or(format_err!("Package does not have associated registries."))?
-            .host_name,
+        registry_host_name,
     )?;
 
     let public_user = if review.reviewer_details.public_user_id.is_empty() {
@@ -44,6 +38,24 @@ fn get_storage_file_path(
         .join(&review.package.package_hash)
         .join(public_user);
     Ok(package_specific_directory.join(review_file_name()))
+}
+
+fn review_registry_host(review: &review::Review) -> Result<&str> {
+    let mut registries = review.package.registries.iter();
+    match (registries.next(), registries.next()) {
+        (Some(registry), None) => Ok(&registry.host_name),
+        (None, _) => Err(format_err!(
+            "Review storage requires exactly one registry for {}@{}; found none.",
+            review.package.name,
+            review.package.version
+        )),
+        (Some(_), Some(_)) => Err(format_err!(
+            "Review storage requires exactly one registry for {}@{}; found {}.",
+            review.package.name,
+            review.package.version,
+            review.package.registries.len()
+        )),
+    }
 }
 
 fn review_file_name() -> std::path::PathBuf {
@@ -190,4 +202,85 @@ fn collect_review_files(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::package;
+    use crate::peer;
+    use crate::registry;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn storage_path_uses_the_single_review_registry() -> Result<()> {
+        let review = stored_review(vec![registry("crates.io")?]);
+
+        let path = get_storage_file_path(&review, std::path::Path::new("/reviews"))?;
+        let parent = path.parent().ok_or(format_err!(
+            "Review storage path did not include a parent directory."
+        ))?;
+
+        assert_eq!(
+            parent,
+            std::path::Path::new("/reviews/crates.io/demo/1.0.0/package-hash/user-1")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn storage_path_rejects_reviews_without_registries() {
+        let review = stored_review(Vec::new());
+
+        let err = get_storage_file_path(&review, std::path::Path::new("/reviews"))
+            .expect_err("review without registries should fail");
+
+        assert!(err
+            .to_string()
+            .contains("requires exactly one registry for demo@1.0.0; found none"));
+    }
+
+    #[test]
+    fn storage_path_rejects_reviews_with_multiple_registries() -> Result<()> {
+        let review = stored_review(vec![registry("crates.io")?, registry("npmjs.com")?]);
+
+        let err = get_storage_file_path(&review, std::path::Path::new("/reviews"))
+            .expect_err("review with multiple registries should fail");
+
+        assert!(err
+            .to_string()
+            .contains("requires exactly one registry for demo@1.0.0; found 2"));
+        Ok(())
+    }
+
+    fn stored_review(registries: Vec<registry::Registry>) -> review::Review {
+        review::Review {
+            id: 0,
+            peer: peer::Peer::default(),
+            package: package::Package {
+                id: 0,
+                name: "demo".to_string(),
+                version: "1.0.0".to_string(),
+                registries: registries.into_iter().collect::<BTreeSet<_>>(),
+                package_hash: "package-hash".to_string(),
+            },
+            targets: Vec::new(),
+            reviewer_details: review::ReviewerDetails {
+                public_user_id: "user-1".to_string(),
+                ..Default::default()
+            },
+            agent_summary: String::new(),
+            overall_security_summary: review::SecuritySummary::default(),
+            overall_security_confidence: None,
+        }
+    }
+
+    fn registry(host_name: &str) -> Result<registry::Registry> {
+        Ok(registry::Registry {
+            id: 0,
+            host_name: host_name.to_string(),
+            human_url: url::Url::parse(&format!("https://{}/package", host_name))?,
+            artifact_url: url::Url::parse(&format!("https://{}/package/archive.tgz", host_name))?,
+        })
+    }
 }
