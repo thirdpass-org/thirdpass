@@ -13,18 +13,17 @@ pub fn setup_reviews_directory(
 }
 
 pub fn run(workspace_directory: &std::path::Path) -> Result<()> {
+    let workspace_directory = workspace_directory.to_str().ok_or_else(|| {
+        format_err!(
+            "Failed to convert path to UTF-8: {}",
+            workspace_directory.display()
+        )
+    })?;
     let mut child = std::process::Command::new("code")
-        .args(vec![
-            "--wait",
-            "--new-window",
-            workspace_directory.to_str().ok_or(format_err!(
-                "Failed to convert PathBuf to str: {}",
-                workspace_directory.display()
-            ))?,
-        ])
+        .args(["--wait", "--new-window", workspace_directory])
         .current_dir(workspace_directory)
         .spawn()
-        .expect("Failed to start vscode.");
+        .context("Failed to start VS Code. Is the `code` command available on PATH?")?;
     let _result = child.wait()?;
     Ok(())
 }
@@ -43,10 +42,10 @@ pub fn setup() -> Result<()> {
 
     log::debug!("Attempting to install vscode extension.");
     let child = std::process::Command::new("code")
-        .args(vec!["--install-extension", "thirdpass-org.thirdpass"])
+        .args(["--install-extension", "thirdpass-org.thirdpass"])
         .stdout(std::process::Stdio::piped())
         .spawn()
-        .expect("Failed to start vscode.");
+        .context("Failed to start VS Code. Is the `code` command available on PATH?")?;
     let output = child.wait_with_output()?;
 
     let stdout = std::str::from_utf8(&output.stdout)?;

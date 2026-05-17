@@ -1,4 +1,4 @@
-use anyhow::{format_err, Result};
+use anyhow::{format_err, Context, Result};
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use structopt::{self, StructOpt};
@@ -374,7 +374,7 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
             let file_contents = std::fs::read_to_string(&target.absolute_path)?;
             let spinner = ProgressBar::new_spinner();
             let spinner_style = ProgressStyle::with_template("{spinner} {msg}")
-                .unwrap()
+                .context("Failed to configure review progress indicator.")?
                 .tick_strings(&["|", "/", "-", "\\"]);
             spinner.set_style(spinner_style);
             spinner.enable_steady_tick(std::time::Duration::from_millis(120));

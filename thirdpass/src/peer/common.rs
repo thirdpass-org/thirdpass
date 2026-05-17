@@ -10,9 +10,8 @@ use anyhow::Result;
 use std::convert::TryFrom;
 use std::hash::Hash;
 pub static ROOT_ALIAS: &str = "root";
-pub static ROOT_DEFAULT_GIT_URL: &str = "https://localhost";
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)] //, Ord, PartialOrd)]
+#[derive(Debug, Clone, Default, Hash, Eq, PartialEq)] //, Ord, PartialOrd)]
 pub struct Peer {
     pub id: crate::common::index::ID,
     pub alias: String,
@@ -46,17 +45,6 @@ impl Ord for Peer {
 impl PartialOrd for Peer {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
-    }
-}
-
-impl Default for Peer {
-    fn default() -> Self {
-        Peer {
-            id: 0,
-            alias: "".to_string(),
-            git_url: crate::common::GitUrl::try_from(ROOT_DEFAULT_GIT_URL).unwrap(),
-            parent_id: None,
-        }
     }
 }
 

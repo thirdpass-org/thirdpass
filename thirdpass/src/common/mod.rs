@@ -16,16 +16,22 @@ pub mod index;
 pub static HTTP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"),);
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct GitUrl(url::Url);
+pub struct GitUrl(String);
 
 impl GitUrl {}
+
+impl Default for GitUrl {
+    fn default() -> Self {
+        Self("https://localhost/".to_string())
+    }
+}
 
 impl std::convert::TryFrom<&str> for GitUrl {
     type Error = url::ParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let value = remove_suffix(value, ".git");
-        Ok(Self(url::Url::parse(value)?))
+        Ok(Self(url::Url::parse(value)?.to_string()))
     }
 }
 
@@ -34,7 +40,7 @@ impl std::convert::TryFrom<&String> for GitUrl {
 
     fn try_from(value: &String) -> Result<Self, Self::Error> {
         let value = remove_suffix(value, ".git");
-        Ok(Self(url::Url::parse(value)?))
+        Ok(Self(url::Url::parse(value)?.to_string()))
     }
 }
 
@@ -57,7 +63,7 @@ impl serde::Serialize for GitUrl {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(self.0.as_ref())
+        serializer.serialize_str(&self.0)
     }
 }
 
