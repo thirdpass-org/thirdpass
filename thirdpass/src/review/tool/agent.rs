@@ -56,8 +56,6 @@ const CLAUDE_ALLOWED_ENV: &[&str] = &[
     "TMPDIR",
 ];
 const CLAUDE_PERMISSION_MODE: &str = "dontAsk";
-const MAX_EMBEDDED_FILE_CONTENT_BYTES: usize = 128 * 1024;
-const FILE_CONTENT_EXCERPT_CHARS: usize = 8 * 1024;
 const REVIEW_STRATEGY: &str = "package-release/v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,11 +184,10 @@ pub fn run(
     agent: AgentKind,
     workspace_path: &std::path::PathBuf,
     display_path: &str,
-    file_contents: &str,
     agent_model: Option<&str>,
     agent_reasoning_effort: Option<&str>,
 ) -> Result<AgentRunResult> {
-    let prompt = build_prompt(display_path, file_contents);
+    let prompt = build_prompt(display_path);
 
     if agent == AgentKind::Codex {
         return run_codex_exec(workspace_path, &prompt, agent_model, agent_reasoning_effort);
@@ -601,15 +598,15 @@ fn extract_reset_hint(value: &str) -> Option<String> {
     None
 }
 
-fn build_prompt(display_path: &str, file_contents: &str) -> String {
-    let file_contents = prompt_file_contents(display_path, file_contents);
+fn build_prompt(display_path: &str) -> String {
     format!(
         r#"You are a malicious-code reviewer for open-source dependency archives.
 Your goal is to detect evidence of supply-chain compromise or malicious behavior.
 This is NOT a general vulnerability audit: avoid generic "unsafe pattern" findings unless they
 are used to execute hidden/encoded/remote/untrusted payloads or are unsafe-by-default.
 
-Review ONLY the single file below. You are in read-only mode.
+Review ONLY the target file at the path below. You are in read-only mode.
+Inspect the target file from the current workspace before returning JSON.
 You may inspect other files in the package if your tool supports it, but only report issues in the target file.
 
 Focus areas (security):
@@ -665,46 +662,10 @@ Return ONLY valid JSON with this schema. Do NOT include any preamble or code fen
 
 If no issues are found, return an empty comments list.
 
-File path: {file_path}
-
---- FILE CONTENTS ---
-{file_contents}
+Target file path (relative to current workspace): {file_path}
 "#,
-        file_path = display_path,
-        file_contents = file_contents
+        file_path = display_path
     )
-}
-
-fn prompt_file_contents(display_path: &str, file_contents: &str) -> String {
-    if file_contents.len() <= MAX_EMBEDDED_FILE_CONTENT_BYTES {
-        return file_contents.to_string();
-    }
-
-    let line_count = file_contents.lines().count().max(1);
-    let head = take_chars(file_contents, FILE_CONTENT_EXCERPT_CHARS);
-    let tail = take_last_chars(file_contents, FILE_CONTENT_EXCERPT_CHARS);
-    format!(
-        "[Target file is {bytes} bytes across {lines} line(s), so it is not embedded verbatim. \
-Inspect `{path}` directly from the read-only workspace before deciding whether there are findings. \
-Use targeted searches and chunked reads; do not report a finding unless it is present in the target file.]\n\n\
---- BEGIN LEADING EXCERPT ---\n{head}\n--- END LEADING EXCERPT ---\n\n\
---- BEGIN TRAILING EXCERPT ---\n{tail}\n--- END TRAILING EXCERPT ---",
-        bytes = file_contents.len(),
-        lines = line_count,
-        path = display_path,
-        head = head,
-        tail = tail
-    )
-}
-
-fn take_chars(value: &str, max_chars: usize) -> String {
-    value.chars().take(max_chars).collect()
-}
-
-fn take_last_chars(value: &str, max_chars: usize) -> String {
-    let mut chars = value.chars().rev().take(max_chars).collect::<Vec<_>>();
-    chars.reverse();
-    chars.into_iter().collect()
 }
 
 fn parse_agent_output(raw: &str) -> Result<AgentOutput> {
@@ -920,8 +881,7 @@ mod tests {
         apply_claude_args, apply_claude_environment_from, apply_codex_args,
         apply_codex_environment_from, build_agent_log, build_prompt, recorded_codex_model,
         review_strategy, truncate_for_log, AgentKind, CLAUDE_PERMISSION_MODE,
-        CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE, FILE_CONTENT_EXCERPT_CHARS,
-        MAX_EMBEDDED_FILE_CONTENT_BYTES,
+        CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
     };
 
     #[test]
@@ -943,29 +903,19 @@ mod tests {
     }
 
     #[test]
-    fn build_prompt_embeds_small_file_contents() {
-        let prompt = build_prompt("src/index.js", "console.log('review me');");
+    fn build_prompt_points_agent_at_target_path() {
+        let prompt = build_prompt("src/index.js");
 
-        assert!(prompt.contains("File path: src/index.js"));
-        assert!(prompt.contains("--- FILE CONTENTS ---\nconsole.log('review me');"));
-        assert!(!prompt.contains("not embedded verbatim"));
+        assert!(prompt.contains("Target file path (relative to current workspace): src/index.js"));
+        assert!(prompt.contains("Inspect the target file from the current workspace"));
     }
 
     #[test]
-    fn build_prompt_uses_workspace_path_for_large_file_contents() {
-        let large_contents = format!(
-            "{}middle{}",
-            "a".repeat(MAX_EMBEDDED_FILE_CONTENT_BYTES),
-            "z".repeat(FILE_CONTENT_EXCERPT_CHARS + 16)
-        );
-        let prompt = build_prompt("data/labels.json", &large_contents);
+    fn build_prompt_does_not_embed_file_contents() {
+        let prompt = build_prompt("data/labels.json");
 
-        assert!(prompt.contains("not embedded verbatim"));
-        assert!(prompt.contains("Inspect `data/labels.json` directly"));
-        assert!(prompt.len() < large_contents.len() / 2);
-        assert!(!prompt.contains("middle"));
-        assert!(prompt.contains(&"a".repeat(FILE_CONTENT_EXCERPT_CHARS)));
-        assert!(prompt.contains(&"z".repeat(FILE_CONTENT_EXCERPT_CHARS)));
+        assert!(!prompt.contains("--- FILE CONTENTS ---"));
+        assert!(!prompt.contains("review me"));
     }
 
     #[test]

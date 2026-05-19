@@ -371,7 +371,6 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
 
         for target in &selected_targets {
             let target_display = target.relative_path.display().to_string();
-            let file_contents = std::fs::read_to_string(&target.absolute_path)?;
             let spinner = ProgressBar::new_spinner();
             let spinner_style = ProgressStyle::with_template("{spinner} {msg}")
                 .context("Failed to configure review progress indicator.")?
@@ -383,7 +382,6 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
                 agent,
                 &workspace_manifest.workspace_path,
                 &target_display,
-                &file_contents,
                 effective_agent_model,
                 effective_agent_reasoning_effort,
             );

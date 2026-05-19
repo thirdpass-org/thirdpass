@@ -71,7 +71,6 @@ pub fn run_agent(
     agent: AgentKind,
     workspace_path: &std::path::PathBuf,
     display_path: &str,
-    file_contents: &str,
     agent_model: Option<&str>,
     agent_reasoning_effort: Option<&str>,
 ) -> Result<AgentRunResult> {
@@ -79,7 +78,6 @@ pub fn run_agent(
         agent,
         workspace_path,
         display_path,
-        file_contents,
         agent_model,
         agent_reasoning_effort,
     )
