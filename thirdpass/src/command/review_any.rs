@@ -34,28 +34,38 @@ pub struct Arguments {
     /// Keep reviewing assigned targets until interrupted.
     #[structopt(long = "nightshift")]
     pub nightshift: bool,
+
+    /// Restrict assigned targets to a registry host. May be repeated.
+    #[structopt(long = "registry", value_name = "registry")]
+    pub registry_hosts: Vec<String>,
 }
 
 pub fn run_command(args: &Arguments) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
+    let supported_registry_hosts =
+        review::remote::supported_registry_hosts_for_filter(&config, &args.registry_hosts)?;
 
     if args.nightshift {
-        return run_nightshift(args, &config);
+        return run_nightshift(args, &config, &supported_registry_hosts);
     }
 
-    let target = review::remote::request_global_target(&config)?
+    let target = review::remote::request_global_target(&config, &supported_registry_hosts)?
         .ok_or(format_err!("No review target is currently available."))?;
     run_assigned_target(args, &config, target, None).map(|_| ())
 }
 
-fn run_nightshift(args: &Arguments, config: &common::config::Config) -> Result<()> {
+fn run_nightshift(
+    args: &Arguments,
+    config: &common::config::Config,
+    supported_registry_hosts: &[String],
+) -> Result<()> {
     let mut session = NightshiftSession::default();
     println!("Nightshift started. Press Ctrl-C to stop.");
     println!("Looking for high-priority package files to review.");
 
     loop {
-        match review::remote::request_global_target(config) {
+        match review::remote::request_global_target(config, supported_registry_hosts) {
             Ok(Some(target)) => {
                 let review_number = session.completed_reviews + 1;
                 let outcome = run_assigned_target(args, config, target, Some(review_number))?;
@@ -289,6 +299,30 @@ mod tests {
                 assert_eq!(args.agent_model.as_deref(), Some("gpt-5.4"));
                 assert_eq!(args.agent_reasoning_effort.as_deref(), Some("high"));
                 assert!(!args.nightshift);
+                assert!(args.registry_hosts.is_empty());
+            }
+            _ => panic!("Expected review-any command."),
+        }
+    }
+
+    #[test]
+    fn command_parses_review_any_registry_args() {
+        let parsed = std::panic::catch_unwind(|| {
+            crate::command::Opts::from_iter_safe(&[
+                "thirdpass",
+                "review-any",
+                "--registry",
+                "crates.io",
+                "--registry",
+                "pypi.org",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            crate::command::Command::ReviewAny(args) => {
+                assert_eq!(args.registry_hosts, vec!["crates.io", "pypi.org"]);
             }
             _ => panic!("Expected review-any command."),
         }

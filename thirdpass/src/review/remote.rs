@@ -125,11 +125,8 @@ pub fn request_target(
     if candidates.is_empty() {
         return Ok(None);
     }
-    let payload = api::ReviewRequest {
-        candidates,
-        supported_registry_hosts: supported_registry_hosts(config),
-        review_target_policies: review_target_policies(config)?,
-    };
+    let supported_registry_hosts = supported_registry_hosts(config);
+    let payload = review_request(candidates, config, supported_registry_hosts)?;
     let assignment = match post_review_request(&payload, config) {
         Ok(assignment) => assignment,
         Err(err) => {
@@ -145,12 +142,9 @@ pub fn request_target(
 
 pub fn request_global_target(
     config: &common::config::Config,
+    supported_registry_hosts: &[String],
 ) -> Result<Option<api::ReviewCandidate>> {
-    let payload = api::ReviewRequest {
-        candidates: Vec::new(),
-        supported_registry_hosts: supported_registry_hosts(config),
-        review_target_policies: review_target_policies(config)?,
-    };
+    let payload = review_request(Vec::new(), config, supported_registry_hosts.to_vec())?;
     Ok(post_review_request(&payload, config)?.target)
 }
 
@@ -169,6 +163,81 @@ fn supported_registry_hosts(config: &common::config::Config) -> Vec<String> {
         })
         .map(|(registry_host, _extension_name)| registry_host.clone())
         .collect()
+}
+
+pub(crate) fn supported_registry_hosts_for_filter(
+    config: &common::config::Config,
+    requested_registry_hosts: &[String],
+) -> Result<Vec<String>> {
+    if requested_registry_hosts.is_empty() {
+        return Ok(supported_registry_hosts(config));
+    }
+
+    let requested_registry_hosts = normalized_registry_hosts(requested_registry_hosts)?;
+    let mut supported = Vec::new();
+    let mut unknown = Vec::new();
+    let mut disabled = Vec::new();
+
+    for registry_host in requested_registry_hosts {
+        match config.extensions.registries.get(&registry_host) {
+            Some(extension_name)
+                if config
+                    .extensions
+                    .enabled
+                    .get(extension_name)
+                    .copied()
+                    .unwrap_or(false) =>
+            {
+                supported.push(registry_host)
+            }
+            Some(extension_name) => {
+                disabled.push(format!("{} ({})", registry_host, extension_name));
+            }
+            None => unknown.push(registry_host),
+        }
+    }
+
+    if !unknown.is_empty() {
+        return Err(format_err!(
+            "Unknown registry requested: {}. Known registries: {}",
+            unknown.join(", "),
+            known_registry_hosts(config)
+        ));
+    }
+
+    if !disabled.is_empty() {
+        return Err(format_err!(
+            "Requested registry is configured for a disabled extension: {}. Enable the extension with `thirdpass extension enable <name>`.",
+            disabled.join(", ")
+        ));
+    }
+
+    Ok(supported)
+}
+
+fn normalized_registry_hosts(registry_hosts: &[String]) -> Result<Vec<String>> {
+    let mut normalized = std::collections::BTreeSet::new();
+    for registry_host in registry_hosts {
+        let registry_host = registry_host.trim().to_ascii_lowercase();
+        if registry_host.is_empty() {
+            return Err(format_err!("Registry cannot be empty."));
+        }
+        normalized.insert(registry_host);
+    }
+    Ok(normalized.into_iter().collect())
+}
+
+fn known_registry_hosts(config: &common::config::Config) -> String {
+    if config.extensions.registries.is_empty() {
+        return "none".to_string();
+    }
+    config
+        .extensions
+        .registries
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub(crate) fn review_target_policies(
@@ -216,6 +285,24 @@ fn enabled_extension_names_for_registries(
         })
         .cloned()
         .collect()
+}
+
+fn review_request(
+    candidates: Vec<api::ReviewCandidate>,
+    config: &common::config::Config,
+    supported_registry_hosts: Vec<String>,
+) -> Result<api::ReviewRequest> {
+    let mut review_target_policies = review_target_policies(config)?;
+    let supported_registry_hosts_set: std::collections::BTreeSet<_> =
+        supported_registry_hosts.iter().cloned().collect();
+    review_target_policies
+        .retain(|registry_host, _policy| supported_registry_hosts_set.contains(registry_host));
+
+    Ok(api::ReviewRequest {
+        candidates,
+        supported_registry_hosts,
+        review_target_policies,
+    })
 }
 
 fn post_review_request(
@@ -462,5 +549,62 @@ mod tests {
             .insert("crates.io".to_string(), "rs".to_string());
 
         assert_eq!(supported_registry_hosts(&config), vec!["npmjs.com"]);
+    }
+
+    #[test]
+    fn supported_registry_hosts_for_filter_limits_to_requested_enabled_registries() -> Result<()> {
+        let mut config = common::config::Config::default();
+        config.extensions.enabled.insert("js".to_string(), true);
+        config.extensions.enabled.insert("rs".to_string(), true);
+        config
+            .extensions
+            .registries
+            .insert("npmjs.com".to_string(), "js".to_string());
+        config
+            .extensions
+            .registries
+            .insert("crates.io".to_string(), "rs".to_string());
+
+        let requested = vec!["NPMJS.COM".to_string(), "npmjs.com".to_string()];
+
+        assert_eq!(
+            supported_registry_hosts_for_filter(&config, &requested)?,
+            vec!["npmjs.com"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn supported_registry_hosts_for_filter_rejects_unknown_registries() {
+        let mut config = common::config::Config::default();
+        config.extensions.enabled.insert("js".to_string(), true);
+        config
+            .extensions
+            .registries
+            .insert("npmjs.com".to_string(), "js".to_string());
+
+        let requested = vec!["crates.io".to_string()];
+        let err = supported_registry_hosts_for_filter(&config, &requested).unwrap_err();
+
+        assert!(err.to_string().contains("Unknown registry requested"));
+        assert!(err.to_string().contains("npmjs.com"));
+    }
+
+    #[test]
+    fn supported_registry_hosts_for_filter_rejects_disabled_registries() {
+        let mut config = common::config::Config::default();
+        config.extensions.enabled.insert("rs".to_string(), false);
+        config
+            .extensions
+            .registries
+            .insert("crates.io".to_string(), "rs".to_string());
+
+        let requested = vec!["crates.io".to_string()];
+        let err = supported_registry_hosts_for_filter(&config, &requested).unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("configured for a disabled extension"));
+        assert!(err.to_string().contains("crates.io (rs)"));
     }
 }
