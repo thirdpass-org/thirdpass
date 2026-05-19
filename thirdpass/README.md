@@ -24,6 +24,8 @@ The CLI asks [thirdpass.dev](https://thirdpass.dev) for useful work to review. W
 
 A review can cover a whole package or a smaller target, such as a single file. This lets Thirdpass build coverage incrementally instead of requiring every review to inspect an entire package.
 
+For more detail, see the [Thirdpass documentation](https://thirdpass.dev/docs).
+
 Thirdpass currently supports packages from:
 
 * crates.io
