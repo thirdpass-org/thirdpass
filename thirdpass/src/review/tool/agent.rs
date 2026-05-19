@@ -56,6 +56,8 @@ const CLAUDE_ALLOWED_ENV: &[&str] = &[
     "TMPDIR",
 ];
 const CLAUDE_PERMISSION_MODE: &str = "dontAsk";
+const MAX_EMBEDDED_FILE_CONTENT_BYTES: usize = 128 * 1024;
+const FILE_CONTENT_EXCERPT_CHARS: usize = 8 * 1024;
 const REVIEW_STRATEGY: &str = "package-release/v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -411,10 +413,11 @@ fn recorded_codex_model(requested_model: Option<&str>, reported_model: String) -
 }
 
 fn truncate_for_log(value: &str, max_len: usize) -> String {
-    if value.len() <= max_len {
+    let mut chars = value.chars();
+    let mut truncated = chars.by_ref().take(max_len).collect::<String>();
+    if chars.next().is_none() {
         return value.to_string();
     }
-    let mut truncated = value[..max_len].to_string();
     truncated.push_str("…<truncated>");
     truncated
 }
@@ -599,6 +602,7 @@ fn extract_reset_hint(value: &str) -> Option<String> {
 }
 
 fn build_prompt(display_path: &str, file_contents: &str) -> String {
+    let file_contents = prompt_file_contents(display_path, file_contents);
     format!(
         r#"You are a malicious-code reviewer for open-source dependency archives.
 Your goal is to detect evidence of supply-chain compromise or malicious behavior.
@@ -669,6 +673,38 @@ File path: {file_path}
         file_path = display_path,
         file_contents = file_contents
     )
+}
+
+fn prompt_file_contents(display_path: &str, file_contents: &str) -> String {
+    if file_contents.len() <= MAX_EMBEDDED_FILE_CONTENT_BYTES {
+        return file_contents.to_string();
+    }
+
+    let line_count = file_contents.lines().count().max(1);
+    let head = take_chars(file_contents, FILE_CONTENT_EXCERPT_CHARS);
+    let tail = take_last_chars(file_contents, FILE_CONTENT_EXCERPT_CHARS);
+    format!(
+        "[Target file is {bytes} bytes across {lines} line(s), so it is not embedded verbatim. \
+Inspect `{path}` directly from the read-only workspace before deciding whether there are findings. \
+Use targeted searches and chunked reads; do not report a finding unless it is present in the target file.]\n\n\
+--- BEGIN LEADING EXCERPT ---\n{head}\n--- END LEADING EXCERPT ---\n\n\
+--- BEGIN TRAILING EXCERPT ---\n{tail}\n--- END TRAILING EXCERPT ---",
+        bytes = file_contents.len(),
+        lines = line_count,
+        path = display_path,
+        head = head,
+        tail = tail
+    )
+}
+
+fn take_chars(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
+}
+
+fn take_last_chars(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars().rev().take(max_chars).collect::<Vec<_>>();
+    chars.reverse();
+    chars.into_iter().collect()
 }
 
 fn parse_agent_output(raw: &str) -> Result<AgentOutput> {
@@ -882,8 +918,10 @@ fn parse_selection(entry: &Value) -> Option<Selection> {
 mod tests {
     use super::{
         apply_claude_args, apply_claude_environment_from, apply_codex_args,
-        apply_codex_environment_from, build_agent_log, recorded_codex_model, review_strategy,
-        AgentKind, CLAUDE_PERMISSION_MODE, CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
+        apply_codex_environment_from, build_agent_log, build_prompt, recorded_codex_model,
+        review_strategy, truncate_for_log, AgentKind, CLAUDE_PERMISSION_MODE,
+        CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE, FILE_CONTENT_EXCERPT_CHARS,
+        MAX_EMBEDDED_FILE_CONTENT_BYTES,
     };
 
     #[test]
@@ -902,6 +940,44 @@ mod tests {
     #[test]
     fn recorded_codex_model_uses_reported_model_without_request() {
         assert_eq!(recorded_codex_model(None, "GPT-5".to_string()), "GPT-5");
+    }
+
+    #[test]
+    fn build_prompt_embeds_small_file_contents() {
+        let prompt = build_prompt("src/index.js", "console.log('review me');");
+
+        assert!(prompt.contains("File path: src/index.js"));
+        assert!(prompt.contains("--- FILE CONTENTS ---\nconsole.log('review me');"));
+        assert!(!prompt.contains("not embedded verbatim"));
+    }
+
+    #[test]
+    fn build_prompt_uses_workspace_path_for_large_file_contents() {
+        let large_contents = format!(
+            "{}middle{}",
+            "a".repeat(MAX_EMBEDDED_FILE_CONTENT_BYTES),
+            "z".repeat(FILE_CONTENT_EXCERPT_CHARS + 16)
+        );
+        let prompt = build_prompt("data/labels.json", &large_contents);
+
+        assert!(prompt.contains("not embedded verbatim"));
+        assert!(prompt.contains("Inspect `data/labels.json` directly"));
+        assert!(prompt.len() < large_contents.len() / 2);
+        assert!(!prompt.contains("middle"));
+        assert!(prompt.contains(&"a".repeat(FILE_CONTENT_EXCERPT_CHARS)));
+        assert!(prompt.contains(&"z".repeat(FILE_CONTENT_EXCERPT_CHARS)));
+    }
+
+    #[test]
+    fn truncate_for_log_handles_utf8() {
+        assert_eq!(
+            truncate_for_log("\u{05d0}\u{05d1}\u{05d2}\u{05d3}\u{05d4}", 3),
+            "\u{05d0}\u{05d1}\u{05d2}…<truncated>"
+        );
+        assert_eq!(
+            truncate_for_log("\u{05d0}\u{05d1}\u{05d2}", 3),
+            "\u{05d0}\u{05d1}\u{05d2}"
+        );
     }
 
     #[test]
