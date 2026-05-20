@@ -626,6 +626,14 @@ Focus areas (complexity):
 Rules:
 - Output ONLY valid JSON, no markdown, no extra keys.
 - Always include a brief summary and confidence, even if there are no comments.
+- The summary must be specific to the target file: describe what it appears to contain or do,
+  and mention the security-relevant behavior you checked.
+- If comments is empty, the summary must positively state that no concrete malicious or
+  supply-chain indicators were found and briefly name the checked categories that were absent,
+  such as install hooks, network/exfiltration, credential access, dynamic code loading,
+  obfuscation, or persistence.
+- Do not use generic clean summaries like "looks fine" or "no issues found" without explaining
+  what was reviewed.
 - If there are no concrete malicious or supply-chain indicators, return an empty comments list.
 - Comments must be specific and actionable, tied to the shown code, and include evidence:
   behavior + trigger + impact + why it is suspicious.
@@ -647,7 +655,7 @@ Rules:
 Return ONLY valid JSON with this schema. Do NOT include any preamble or code fences.
 {{
   "model": "<model name used>",
-  "summary": "<one or two sentence summary of the review in your own words>",
+  "summary": "<one or two sentence target-specific summary of what was reviewed and what was found or ruled out>",
   "confidence": "high|medium|low",
   "comments": [
     {{
@@ -911,6 +919,8 @@ mod tests {
 
         assert!(prompt.contains("Target file path (relative to current workspace): src/index.js"));
         assert!(prompt.contains("Inspect the target file from the current workspace"));
+        assert!(prompt.contains("The summary must be specific to the target file"));
+        assert!(prompt.contains("briefly name the checked categories that were absent"));
     }
 
     #[test]
