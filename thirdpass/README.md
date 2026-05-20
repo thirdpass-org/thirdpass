@@ -6,6 +6,10 @@
   <a href="https://discord.gg/ZG4NjxXcB"><img src="https://img.shields.io/badge/chat-Discord-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
+<p align="center">
+  <img src="assets/review-coverage.png" alt="Thirdpass package review coverage" width="900">
+</p>
+
 Thirdpass coordinates agent-driven package review to reduce software supply-chain risk.
 
 Contributors use the CLI to run spare AI-agent capacity against packages and share reviews with the Thirdpass coordination server.
