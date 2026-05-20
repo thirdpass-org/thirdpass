@@ -1,6 +1,7 @@
 use anyhow::{format_err, Context, Result};
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::path::{Component, Path, PathBuf};
 use structopt::{self, StructOpt};
 
 use crate::common;
@@ -413,13 +414,11 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
                 agent_summary.push_str(summary);
             }
             let file_confidence = agent_run.confidence;
-            let comments = normalize_comments(agent_run.comments)
-                .into_iter()
-                .map(|mut comment| {
-                    comment.path = target.relative_path.clone();
-                    comment
-                })
-                .collect::<std::collections::BTreeSet<_>>();
+            let comments = validate_agent_comments_for_target(
+                normalize_comments(agent_run.comments),
+                &workspace_manifest.workspace_path,
+                &target.relative_path,
+            )?;
             let security_summary = review::security_summary_for_comments(&comments);
             targets.push(review::ReviewTarget {
                 file_path: target.relative_path.clone(),
@@ -545,6 +544,72 @@ where
         normalized.insert(comment);
     }
     normalized
+}
+
+fn validate_agent_comments_for_target<I>(
+    comments: I,
+    workspace_path: &Path,
+    target_relative_path: &Path,
+) -> Result<std::collections::BTreeSet<review::comment::Comment>>
+where
+    I: IntoIterator<Item = review::comment::Comment>,
+{
+    let expected_path = normalize_relative_review_path(target_relative_path).ok_or(format_err!(
+        "Selected target path is not workspace-relative: {}",
+        target_relative_path.display()
+    ))?;
+    let mut normalized = std::collections::BTreeSet::<review::comment::Comment>::new();
+
+    for mut comment in comments {
+        let original_path = comment.path.clone();
+        let comment_path = normalize_agent_comment_path(workspace_path, &comment.path)?;
+        if comment_path != expected_path {
+            return Err(format_err!(
+                "Agent reported a finding for {}, but the selected target is {}. Agent review comments must only reference the selected target file.",
+                original_path.display(),
+                expected_path.display()
+            ));
+        }
+        comment.path = expected_path.clone();
+        normalized.insert(comment);
+    }
+
+    Ok(normalized)
+}
+
+fn normalize_agent_comment_path(workspace_path: &Path, comment_path: &Path) -> Result<PathBuf> {
+    let relative_path = if comment_path.is_absolute() {
+        comment_path.strip_prefix(workspace_path).map_err(|_| {
+            format_err!(
+                "Agent reported a finding outside the review workspace: {}",
+                comment_path.display()
+            )
+        })?
+    } else {
+        comment_path
+    };
+
+    normalize_relative_review_path(relative_path).ok_or(format_err!(
+        "Agent reported an invalid review path: {}",
+        comment_path.display()
+    ))
+}
+
+fn normalize_relative_review_path(path: &Path) -> Option<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => normalized.push(part),
+            Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
 }
 
 fn build_targets_from_comments(
@@ -1046,6 +1111,83 @@ mod tests {
             ),
             "codex-gpt-5.4-high"
         );
+    }
+
+    #[test]
+    fn validate_agent_comments_accepts_target_relative_path() -> Result<()> {
+        let comments = validate_agent_comments_for_target(
+            [agent_comment("src/index.js")],
+            Path::new("/workspace"),
+            Path::new("src/index.js"),
+        )?;
+
+        let comment = comments.iter().next().expect("expected comment");
+        assert_eq!(comment.path, PathBuf::from("src/index.js"));
+        Ok(())
+    }
+
+    #[test]
+    fn validate_agent_comments_accepts_workspace_absolute_target_path() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let comments = validate_agent_comments_for_target(
+            [agent_comment(workspace.path().join("src/index.js"))],
+            workspace.path(),
+            Path::new("src/index.js"),
+        )?;
+
+        let comment = comments.iter().next().expect("expected comment");
+        assert_eq!(comment.path, PathBuf::from("src/index.js"));
+        Ok(())
+    }
+
+    #[test]
+    fn validate_agent_comments_rejects_different_file_path() {
+        let err = validate_agent_comments_for_target(
+            [agent_comment("src/context.js")],
+            Path::new("/workspace"),
+            Path::new("src/index.js"),
+        )
+        .expect_err("expected mismatched file path to fail");
+
+        assert!(err.to_string().contains("selected target is src/index.js"));
+    }
+
+    #[test]
+    fn validate_agent_comments_rejects_path_traversal() {
+        let err = validate_agent_comments_for_target(
+            [agent_comment("../outside.js")],
+            Path::new("/workspace"),
+            Path::new("src/index.js"),
+        )
+        .expect_err("expected traversal path to fail");
+
+        assert!(err.to_string().contains("invalid review path"));
+    }
+
+    #[test]
+    fn validate_agent_comments_rejects_absolute_path_outside_workspace() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        let err = validate_agent_comments_for_target(
+            [agent_comment(outside.path().join("src/index.js"))],
+            workspace.path(),
+            Path::new("src/index.js"),
+        )
+        .expect_err("expected outside-workspace path to fail");
+
+        assert!(err.to_string().contains("outside the review workspace"));
+        Ok(())
+    }
+
+    fn agent_comment(path: impl Into<PathBuf>) -> review::comment::Comment {
+        review::comment::Comment {
+            id: 0,
+            security: review::Priority::Low,
+            complexity: review::Priority::Low,
+            path: path.into(),
+            message: "test comment".to_string(),
+            selection: None,
+        }
     }
 
     fn stored_review(
