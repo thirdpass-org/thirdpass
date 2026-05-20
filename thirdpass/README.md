@@ -7,7 +7,9 @@
 </p>
 
 <p align="center">
-  <img src="assets/review-coverage.png" alt="Thirdpass package review coverage" width="900">
+  <a href="https://thirdpass.dev/">
+    <img src="assets/review-coverage.png" alt="Thirdpass package review coverage" width="900">
+  </a>
 </p>
 
 Thirdpass coordinates agent-driven package review to reduce software supply-chain risk.
