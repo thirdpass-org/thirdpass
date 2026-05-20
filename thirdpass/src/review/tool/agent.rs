@@ -629,6 +629,9 @@ Rules:
 - If there are no concrete malicious or supply-chain indicators, return an empty comments list.
 - Comments must be specific and actionable, tied to the shown code, and include evidence:
   behavior + trigger + impact + why it is suspicious.
+- Comments may mention other files only as context for behavior in the target file.
+- Do not report a comment if the suspicious behavior is only present in another file.
+- Each comment's file field and selection must point to the target file.
 - Bundled/minified code is in scope, but only report when behavior is clearly malicious or suspicious-by-default.
 - Do NOT flag common patterns (eval/new Function/dynamic require) unless tied to executing
   encoded/remote/untrusted input or concealing a payload.
