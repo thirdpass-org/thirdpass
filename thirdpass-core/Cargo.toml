@@ -27,10 +27,11 @@ flate2 = { version = "1.0.14", optional = true }
 tar = { version = "0.4.33", optional = true }
 tokei = { version = "12.1.2", optional = true }
 crossbeam-utils = { version = "0.8.1", optional = true }
+rand = { version = "0.8.6", optional = true }
 
 [features]
 default = []
-package = ["blake3", "uuid", "zip", "flate2", "tar", "tokei"]
+package = ["blake3", "uuid", "zip", "flate2", "tar", "tokei", "rand"]
 registry = ["crossbeam-utils"]
 
 [dev-dependencies]

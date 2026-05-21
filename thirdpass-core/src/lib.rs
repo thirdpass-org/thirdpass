@@ -9,7 +9,7 @@
 //!
 //! - `package` enables archive download, extraction, workspace preparation,
 //!   manifest generation, file hashing, line-count analysis, and review target
-//!   selection helpers in [`package`].
+//!   selection and parceling helpers in [`package`].
 //! - `registry` enables registry lookup helpers in [`registry`].
 //! - The default feature set keeps the crate limited to schema and extension
 //!   contracts.
