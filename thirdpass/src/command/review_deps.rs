@@ -44,10 +44,48 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
     extension::manage::update_config(&mut config)?;
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
+    let extensions = extension::manage::get_enabled(&extension_names, &config)?;
+    let working_directory = std::env::current_dir()?;
+    let discovery =
+        discover_review_dependencies(&extensions, extension_args, &working_directory, &config)?;
 
-    let candidate = select_review_dependency(&extension_names, extension_args, &config)?.ok_or(
-        format_err!("No reviewable dependencies found in the current directory."),
+    if discovery.candidates.is_empty() {
+        return Err(format_err!(
+            "No reviewable dependencies found in the current directory."
+        ));
+    }
+
+    let queue_packages = discovery
+        .candidates
+        .iter()
+        .map(DependencyReviewCandidate::queue_package)
+        .collect::<Vec<_>>();
+    println!(
+        "Preparing dependency review queue for {} dependencies.",
+        queue_packages.len()
+    );
+    let queue = review::dependency_queue::ensure_for_project(
+        &working_directory,
+        &discovery.dependency_files,
+        &queue_packages,
+        &extensions,
     )?;
+    println!(
+        "Dependency review queue: {} packages, {} review parcels ({}).",
+        queue.queue.packages.len(),
+        queue.queue.parcel_count(),
+        queue.path.display()
+    );
+    if !queue.queue.skipped_packages.is_empty() {
+        println!(
+            "Skipped {} dependencies while building the queue.",
+            queue.queue.skipped_packages.len()
+        );
+    }
+
+    let candidate = select_review_dependency(discovery.candidates).ok_or(format_err!(
+        "No reviewable dependencies found in the current directory."
+    ))?;
 
     println!(
         "Selected dependency for review: {} {} ({})",
@@ -78,6 +116,23 @@ struct DependencyReviewCandidate {
     total_review_count: usize,
 }
 
+impl DependencyReviewCandidate {
+    fn queue_package(&self) -> review::dependency_queue::DependencyQueuePackage {
+        review::dependency_queue::DependencyQueuePackage {
+            extension_name: self.extension_name.clone(),
+            registry_host_name: self.registry_host_name.clone(),
+            package_name: self.package_name.clone(),
+            package_version: self.package_version.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct DependencyReviewDiscovery {
+    dependency_files: Vec<std::path::PathBuf>,
+    candidates: Vec<DependencyReviewCandidate>,
+}
+
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 struct DependencyReviewKey {
     extension_name: String,
@@ -86,20 +141,20 @@ struct DependencyReviewKey {
     package_version: String,
 }
 
-fn select_review_dependency(
-    extension_names: &std::collections::BTreeSet<String>,
+fn discover_review_dependencies(
+    extensions: &[Box<dyn thirdpass_core::extension::Extension>],
     extension_args: &[String],
+    working_directory: &std::path::Path,
     config: &common::config::Config,
-) -> Result<Option<DependencyReviewCandidate>> {
-    let extensions = extension::manage::get_enabled(extension_names, config)?;
-    let working_directory = std::env::current_dir()?;
+) -> Result<DependencyReviewDiscovery> {
     let all_dependencies = extension::identify_file_defined_dependencies(
-        &extensions,
+        extensions,
         extension_args,
-        &working_directory,
+        working_directory,
     )?;
 
     let stored_reviews = review::fs::list()?;
+    let mut dependency_files = std::collections::BTreeSet::<std::path::PathBuf>::new();
     let mut candidates =
         std::collections::BTreeMap::<DependencyReviewKey, DependencyReviewCandidate>::new();
 
@@ -113,6 +168,7 @@ fn select_review_dependency(
         };
 
         for dependency_file in extension_dependencies {
+            dependency_files.insert(dependency_file.path.clone());
             for dependency in dependency_file.dependencies {
                 let package_version = match dependency.version {
                     Ok(package_version) => package_version,
@@ -149,7 +205,17 @@ fn select_review_dependency(
 
     let mut candidates = candidates.into_values().collect::<Vec<_>>();
     sort_dependency_review_candidates(&mut candidates);
-    Ok(candidates.into_iter().next())
+    Ok(DependencyReviewDiscovery {
+        dependency_files: dependency_files.into_iter().collect(),
+        candidates,
+    })
+}
+
+fn select_review_dependency(
+    mut candidates: Vec<DependencyReviewCandidate>,
+) -> Option<DependencyReviewCandidate> {
+    sort_dependency_review_candidates(&mut candidates);
+    candidates.into_iter().next()
 }
 
 fn count_matching_reviews(

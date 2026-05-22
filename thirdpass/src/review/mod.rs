@@ -3,6 +3,7 @@ use anyhow::Result;
 pub mod active;
 pub mod comment;
 mod common;
+pub(crate) mod dependency_queue;
 pub mod fs;
 pub mod remote;
 pub mod tool;

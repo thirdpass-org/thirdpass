@@ -32,6 +32,7 @@ pub struct DataPaths {
     pub pending_reviews_directory: std::path::PathBuf,
     pub ongoing_reviews_directory: std::path::PathBuf,
     pub archives_directory: std::path::PathBuf,
+    pub dependency_queues_directory: std::path::PathBuf,
 }
 
 impl DataPaths {
@@ -43,6 +44,7 @@ impl DataPaths {
             pending_reviews_directory: root_directory.join("reviews").join(".pending"),
             ongoing_reviews_directory: root_directory.join("reviews").join(".ongoing"),
             archives_directory: root_directory.join("archives"),
+            dependency_queues_directory: root_directory.join("dependency-queues"),
         })
     }
 
