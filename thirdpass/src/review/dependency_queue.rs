@@ -112,6 +112,12 @@ impl DependencyQueue {
             .filter(|parcel| parcel.status == DependencyQueueParcelStatus::Reviewed)
             .count()
     }
+
+    /// Count parcels that still need local review coverage.
+    pub(crate) fn remaining_parcel_count(&self) -> usize {
+        self.parcel_count()
+            .saturating_sub(self.reviewed_parcel_count())
+    }
 }
 
 /// Parcel sizing limits captured in a stored queue.
@@ -948,6 +954,7 @@ mod tests {
             .expect("partially covered queue should still select work");
 
         assert_eq!(queue.reviewed_parcel_count(), 1);
+        assert_eq!(queue.remaining_parcel_count(), 1);
         assert_eq!(selection.queue_rank, 2);
         assert_eq!(selection.queue_parcel_count, 2);
         assert_eq!(selection.package_parcel_rank, 2);
@@ -970,6 +977,7 @@ mod tests {
         assert!(refresh_queue_progress(&mut queue, &coverage));
 
         assert_eq!(queue.reviewed_parcel_count(), 2);
+        assert_eq!(queue.remaining_parcel_count(), 0);
         assert_eq!(select_next_review(&queue, &coverage), None);
     }
 

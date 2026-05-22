@@ -70,14 +70,9 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         &queue_packages,
         &extensions,
     )?;
-    let selection = queue.select_next_review(&config.core.public_user_id)?;
-    println!(
-        "Dependency review queue: {} packages, {} review parcels ({} reviewed) at {}.",
-        queue.queue.packages.len(),
-        queue.queue.parcel_count(),
-        queue.queue.reviewed_parcel_count(),
-        queue.path.display()
-    );
+    let mut session = DependencyReviewSession::default();
+    println!("Dependency review started. Press Ctrl-C to stop.");
+    print_queue_summary(&queue);
     if !queue.queue.skipped_packages.is_empty() {
         println!(
             "Skipped {} dependencies while building the queue.",
@@ -85,48 +80,36 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         );
     }
 
-    let selection = selection.ok_or(format_err!(
-        "All dependency review queue parcels already have local review coverage."
-    ))?;
+    loop {
+        let selection = match queue.select_next_review(&config.core.public_user_id)? {
+            Some(selection) => selection,
+            None => {
+                println!("Dependency review queue complete.");
+                return Ok(());
+            }
+        };
 
-    println!(
-        "Selected dependency parcel {}/{}: {} {} ({}) package parcel {}, {} of {} files remaining.",
-        selection.queue_rank,
-        selection.queue_parcel_count,
-        selection.package_name,
-        selection.package_version,
-        selection.registry_host,
-        selection.package_parcel_rank,
-        selection.target_files.len(),
-        selection.parcel_file_count
-    );
-    println!(
-        "Files: {}",
-        selection
-            .target_files
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
+        let review_number = session.completed_reviews + 1;
+        print_selected_parcel(review_number, &selection);
 
-    let queue_rank = selection.queue_rank;
-    let review_result = crate::command::review::run_command(&crate::command::review::Arguments {
-        package_name: selection.package_name,
-        package_version: Some(selection.package_version),
-        extension_names: Some(vec![selection.extension_name]),
-        target_files: selection.target_files,
-        manual: args.manual,
-        agent: args.agent.clone(),
-        agent_model: args.agent_model.clone(),
-        agent_reasoning_effort: args.agent_reasoning_effort.clone(),
-        submit_existing: false,
-        local_only: args.local_only,
-    });
-    if review_result.is_ok() {
+        let queue_rank = selection.queue_rank;
+        let outcome =
+            crate::command::review::run_command_with_outcome(&crate::command::review::Arguments {
+                package_name: selection.package_name,
+                package_version: Some(selection.package_version),
+                extension_names: Some(vec![selection.extension_name]),
+                target_files: selection.target_files,
+                manual: args.manual,
+                agent: args.agent.clone(),
+                agent_model: args.agent_model.clone(),
+                agent_reasoning_effort: args.agent_reasoning_effort.clone(),
+                submit_existing: false,
+                local_only: args.local_only,
+            })?;
         queue.mark_parcel_reviewed(queue_rank)?;
+        session.record(&outcome);
+        print_review_deps_progress(&queue, &session);
     }
-    review_result
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -156,12 +139,76 @@ struct DependencyReviewDiscovery {
     candidates: Vec<DependencyReviewCandidate>,
 }
 
+#[derive(Debug, Default)]
+struct DependencyReviewSession {
+    completed_reviews: usize,
+    reviewed_files: usize,
+    submitted_reviews: usize,
+}
+
+impl DependencyReviewSession {
+    fn record(&mut self, outcome: &crate::command::review::ReviewCommandOutcome) {
+        self.completed_reviews += 1;
+        self.reviewed_files += outcome.target_file_count;
+        if outcome.submitted {
+            self.submitted_reviews += 1;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 struct DependencyReviewKey {
     extension_name: String,
     registry_host_name: String,
     package_name: String,
     package_version: String,
+}
+
+fn print_queue_summary(queue: &review::dependency_queue::StoredDependencyQueue) {
+    println!(
+        "Dependency review queue: {} packages, {} review parcels ({} reviewed, {} remaining) at {}.",
+        queue.queue.packages.len(),
+        queue.queue.parcel_count(),
+        queue.queue.reviewed_parcel_count(),
+        queue.queue.remaining_parcel_count(),
+        queue.path.display()
+    );
+}
+
+fn print_selected_parcel(
+    review_number: usize,
+    selection: &review::dependency_queue::DependencyQueueSelection,
+) {
+    println!();
+    println!("Review #{}", review_number);
+    println!(
+        "Target: {}@{} ({})",
+        selection.package_name, selection.package_version, selection.registry_host
+    );
+    println!(
+        "Queue: parcel {}/{}; package parcel {}; {} of {} files remaining",
+        selection.queue_rank,
+        selection.queue_parcel_count,
+        selection.package_parcel_rank,
+        selection.target_files.len(),
+        selection.parcel_file_count
+    );
+    println!("Files: {}", selection.target_files.join(", "));
+}
+
+fn print_review_deps_progress(
+    queue: &review::dependency_queue::StoredDependencyQueue,
+    session: &DependencyReviewSession,
+) {
+    println!(
+        "Dependency review progress: {} reviewed, {} remaining.",
+        queue.queue.reviewed_parcel_count(),
+        queue.queue.remaining_parcel_count()
+    );
+    println!(
+        "Session total: {} reviews completed, {} submitted, {} files reviewed.",
+        session.completed_reviews, session.submitted_reviews, session.reviewed_files
+    );
 }
 
 fn discover_review_dependencies(
