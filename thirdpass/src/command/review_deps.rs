@@ -64,16 +64,18 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         "Preparing dependency review queue for {} dependencies.",
         queue_packages.len()
     );
-    let queue = review::dependency_queue::ensure_for_project(
+    let mut queue = review::dependency_queue::ensure_for_project(
         &working_directory,
         &discovery.dependency_files,
         &queue_packages,
         &extensions,
     )?;
+    let selection = queue.select_next_review(&config.core.public_user_id)?;
     println!(
-        "Dependency review queue: {} packages, {} review parcels ({}).",
+        "Dependency review queue: {} packages, {} review parcels ({} reviewed) at {}.",
         queue.queue.packages.len(),
         queue.queue.parcel_count(),
+        queue.queue.reviewed_parcel_count(),
         queue.path.display()
     );
     if !queue.queue.skipped_packages.is_empty() {
@@ -83,27 +85,48 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         );
     }
 
-    let candidate = select_review_dependency(discovery.candidates).ok_or(format_err!(
-        "No reviewable dependencies found in the current directory."
+    let selection = selection.ok_or(format_err!(
+        "All dependency review queue parcels already have local review coverage."
     ))?;
 
     println!(
-        "Selected dependency for review: {} {} ({})",
-        candidate.package_name, candidate.package_version, candidate.registry_host_name
+        "Selected dependency parcel {}/{}: {} {} ({}) package parcel {}, {} of {} files remaining.",
+        selection.queue_rank,
+        selection.queue_parcel_count,
+        selection.package_name,
+        selection.package_version,
+        selection.registry_host,
+        selection.package_parcel_rank,
+        selection.target_files.len(),
+        selection.parcel_file_count
+    );
+    println!(
+        "Files: {}",
+        selection
+            .target_files
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
     );
 
-    crate::command::review::run_command(&crate::command::review::Arguments {
-        package_name: candidate.package_name,
-        package_version: Some(candidate.package_version),
-        extension_names: Some(vec![candidate.extension_name]),
-        target_files: Vec::new(),
+    let queue_rank = selection.queue_rank;
+    let review_result = crate::command::review::run_command(&crate::command::review::Arguments {
+        package_name: selection.package_name,
+        package_version: Some(selection.package_version),
+        extension_names: Some(vec![selection.extension_name]),
+        target_files: selection.target_files,
         manual: args.manual,
         agent: args.agent.clone(),
         agent_model: args.agent_model.clone(),
         agent_reasoning_effort: args.agent_reasoning_effort.clone(),
         submit_existing: false,
         local_only: args.local_only,
-    })
+    });
+    if review_result.is_ok() {
+        queue.mark_parcel_reviewed(queue_rank)?;
+    }
+    review_result
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -209,13 +232,6 @@ fn discover_review_dependencies(
         dependency_files: dependency_files.into_iter().collect(),
         candidates,
     })
-}
-
-fn select_review_dependency(
-    mut candidates: Vec<DependencyReviewCandidate>,
-) -> Option<DependencyReviewCandidate> {
-    sort_dependency_review_candidates(&mut candidates);
-    candidates.into_iter().next()
 }
 
 fn count_matching_reviews(

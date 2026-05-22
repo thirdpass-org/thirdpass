@@ -1,7 +1,10 @@
 use anyhow::{format_err, Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
+const DEPENDENCY_QUEUE_SCHEMA_VERSION: u32 = 2;
 
 /// One dependency package that should be considered for the local queue.
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -23,6 +26,56 @@ pub(crate) struct StoredDependencyQueue {
     pub(crate) path: PathBuf,
     /// Queue contents.
     pub(crate) queue: DependencyQueue,
+}
+
+impl StoredDependencyQueue {
+    /// Refresh parcel status from local review storage and select the next work item.
+    pub(crate) fn select_next_review(
+        &mut self,
+        public_user_id: &str,
+    ) -> Result<Option<DependencyQueueSelection>> {
+        let coverage = local_review_coverage(public_user_id)?;
+        let changed = refresh_queue_progress(&mut self.queue, &coverage);
+        if changed {
+            write_queue_atomically(&self.path, &self.queue)?;
+        }
+        Ok(select_next_review(&self.queue, &coverage))
+    }
+
+    /// Mark a queue parcel as reviewed and persist the queue.
+    pub(crate) fn mark_parcel_reviewed(&mut self, queue_rank: usize) -> Result<()> {
+        if set_parcel_status(
+            &mut self.queue,
+            queue_rank,
+            DependencyQueueParcelStatus::Reviewed,
+        ) {
+            write_queue_atomically(&self.path, &self.queue)?;
+        }
+        Ok(())
+    }
+}
+
+/// A selected dependency parcel ready to hand to the review command.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct DependencyQueueSelection {
+    /// Extension name that can retrieve this package.
+    pub(crate) extension_name: String,
+    /// Registry host that owns this package.
+    pub(crate) registry_host: String,
+    /// Package name in the registry.
+    pub(crate) package_name: String,
+    /// Package version in the registry.
+    pub(crate) package_version: String,
+    /// One-based queue parcel rank.
+    pub(crate) queue_rank: usize,
+    /// Total parcel count in the queue.
+    pub(crate) queue_parcel_count: usize,
+    /// One-based parcel rank within this package.
+    pub(crate) package_parcel_rank: usize,
+    /// Number of files in the full parcel.
+    pub(crate) parcel_file_count: usize,
+    /// Package-relative files that still need local review coverage.
+    pub(crate) target_files: Vec<String>,
 }
 
 /// Local review queue built from a project's dependency files.
@@ -49,6 +102,15 @@ impl DependencyQueue {
             .iter()
             .map(|package| package.parcels.len())
             .sum()
+    }
+
+    /// Count parcels marked as reviewed in this queue.
+    pub(crate) fn reviewed_parcel_count(&self) -> usize {
+        self.packages
+            .iter()
+            .flat_map(|package| &package.parcels)
+            .filter(|parcel| parcel.status == DependencyQueueParcelStatus::Reviewed)
+            .count()
     }
 }
 
@@ -109,10 +171,22 @@ pub(crate) struct DependencyQueueParcel {
     pub(crate) queue_rank: usize,
     /// One-based rank within this package.
     pub(crate) package_parcel_rank: usize,
+    /// Current local review status for this parcel.
+    pub(crate) status: DependencyQueueParcelStatus,
     /// Total line count across parcel files.
     pub(crate) total_lines: usize,
     /// Files included in this parcel.
     pub(crate) files: Vec<DependencyQueueFile>,
+}
+
+/// Local review status for one dependency queue parcel.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DependencyQueueParcelStatus {
+    /// The parcel still has files without local review coverage.
+    Pending,
+    /// All parcel files have local review coverage.
+    Reviewed,
 }
 
 /// One file included in a local dependency review parcel.
@@ -215,7 +289,7 @@ fn build_queue(
     }
 
     Ok(DependencyQueue {
-        schema_version: 1,
+        schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
         generated_at_unix: now_unix_seconds()?,
         parcel_limits,
         source: DependencyQueueSource {
@@ -415,6 +489,7 @@ fn queue_parcels(
         .map(|(index, parcel)| DependencyQueueParcel {
             queue_rank: first_queue_rank + index,
             package_parcel_rank: parcel.package_parcel_rank,
+            status: DependencyQueueParcelStatus::Pending,
             total_lines: parcel.total_lines,
             files: parcel
                 .files
@@ -477,7 +552,7 @@ fn queue_id(
     packages: &[DependencyQueuePackage],
 ) -> Result<String> {
     let key = DependencyQueueKey {
-        schema_version: 1,
+        schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
         parcel_limits: dependency_queue_parcel_limits(),
         project_root,
         dependency_files,
@@ -485,6 +560,153 @@ fn queue_id(
     };
     let bytes = serde_json::to_vec(&key)?;
     Ok(blake3::hash(&bytes).to_hex().as_str().to_string())
+}
+
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+struct PackageReviewKey {
+    registry_host: String,
+    package_name: String,
+    package_version: String,
+    package_hash: String,
+}
+
+type PackageReviewCoverage = BTreeMap<PackageReviewKey, BTreeSet<String>>;
+
+fn local_review_coverage(public_user_id: &str) -> Result<PackageReviewCoverage> {
+    let mut coverage = PackageReviewCoverage::new();
+    for stored in crate::review::fs::list_with_status()? {
+        let review = stored.review;
+        if review.reviewer_details.public_user_id != public_user_id {
+            continue;
+        }
+
+        for registry in &review.package.registries {
+            let key = PackageReviewKey {
+                registry_host: registry.host_name.clone(),
+                package_name: review.package.name.clone(),
+                package_version: review.package.version.clone(),
+                package_hash: review.package.package_hash.clone(),
+            };
+            let package_coverage = coverage.entry(key).or_default();
+            for target in &review.targets {
+                package_coverage.insert(package_relative_path_string(&target.file_path));
+            }
+        }
+    }
+    Ok(coverage)
+}
+
+fn refresh_queue_progress(queue: &mut DependencyQueue, coverage: &PackageReviewCoverage) -> bool {
+    let mut changed = false;
+    for package in &mut queue.packages {
+        let package_key = package_review_key(package);
+        let covered_files = coverage.get(&package_key);
+        for parcel in &mut package.parcels {
+            let new_status = if parcel_is_covered(parcel, covered_files) {
+                DependencyQueueParcelStatus::Reviewed
+            } else {
+                DependencyQueueParcelStatus::Pending
+            };
+            if parcel.status != new_status {
+                parcel.status = new_status;
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+fn select_next_review(
+    queue: &DependencyQueue,
+    coverage: &PackageReviewCoverage,
+) -> Option<DependencyQueueSelection> {
+    let queue_parcel_count = queue.parcel_count();
+    for package in &queue.packages {
+        let package_key = package_review_key(package);
+        let covered_files = coverage.get(&package_key);
+        for parcel in &package.parcels {
+            if parcel.status == DependencyQueueParcelStatus::Reviewed {
+                continue;
+            }
+
+            let target_files = uncovered_parcel_files(parcel, covered_files);
+            if target_files.is_empty() {
+                continue;
+            }
+
+            return Some(DependencyQueueSelection {
+                extension_name: package.extension_name.clone(),
+                registry_host: package.registry_host.clone(),
+                package_name: package.package_name.clone(),
+                package_version: package.package_version.clone(),
+                queue_rank: parcel.queue_rank,
+                queue_parcel_count,
+                package_parcel_rank: parcel.package_parcel_rank,
+                parcel_file_count: parcel.files.len(),
+                target_files,
+            });
+        }
+    }
+    None
+}
+
+fn set_parcel_status(
+    queue: &mut DependencyQueue,
+    queue_rank: usize,
+    status: DependencyQueueParcelStatus,
+) -> bool {
+    for parcel in queue
+        .packages
+        .iter_mut()
+        .flat_map(|package| &mut package.parcels)
+    {
+        if parcel.queue_rank == queue_rank {
+            if parcel.status == status {
+                return false;
+            }
+            parcel.status = status;
+            return true;
+        }
+    }
+    false
+}
+
+fn package_review_key(package: &DependencyQueuePackageRecord) -> PackageReviewKey {
+    PackageReviewKey {
+        registry_host: package.registry_host.clone(),
+        package_name: package.package_name.clone(),
+        package_version: package.package_version.clone(),
+        package_hash: package.package_hash.clone(),
+    }
+}
+
+fn parcel_is_covered(
+    parcel: &DependencyQueueParcel,
+    covered_files: Option<&BTreeSet<String>>,
+) -> bool {
+    let Some(covered_files) = covered_files else {
+        return false;
+    };
+    parcel
+        .files
+        .iter()
+        .all(|file| covered_files.contains(&file.path))
+}
+
+fn uncovered_parcel_files(
+    parcel: &DependencyQueueParcel,
+    covered_files: Option<&BTreeSet<String>>,
+) -> Vec<String> {
+    parcel
+        .files
+        .iter()
+        .filter(|file| {
+            covered_files
+                .map(|covered_files| !covered_files.contains(&file.path))
+                .unwrap_or(true)
+        })
+        .map(|file| file.path.clone())
+        .collect()
 }
 
 fn dependency_queue_parcel_limits() -> DependencyQueueParcelLimits {
@@ -709,6 +931,48 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn select_next_review_skips_covered_files() {
+        let mut queue = queue_with_parcels();
+        let mut coverage = PackageReviewCoverage::new();
+        coverage.insert(
+            package_review_key(&queue.packages[0]),
+            ["src/a.rs", "src/b.rs", "src/c.rs"]
+                .iter()
+                .map(|path| path.to_string())
+                .collect(),
+        );
+
+        assert!(refresh_queue_progress(&mut queue, &coverage));
+        let selection = select_next_review(&queue, &coverage)
+            .expect("partially covered queue should still select work");
+
+        assert_eq!(queue.reviewed_parcel_count(), 1);
+        assert_eq!(selection.queue_rank, 2);
+        assert_eq!(selection.queue_parcel_count, 2);
+        assert_eq!(selection.package_parcel_rank, 2);
+        assert_eq!(selection.parcel_file_count, 2);
+        assert_eq!(selection.target_files, vec!["src/d.rs".to_string()]);
+    }
+
+    #[test]
+    fn select_next_review_returns_none_when_queue_is_covered() {
+        let mut queue = queue_with_parcels();
+        let mut coverage = PackageReviewCoverage::new();
+        coverage.insert(
+            package_review_key(&queue.packages[0]),
+            ["src/a.rs", "src/b.rs", "src/c.rs", "src/d.rs"]
+                .iter()
+                .map(|path| path.to_string())
+                .collect(),
+        );
+
+        assert!(refresh_queue_progress(&mut queue, &coverage));
+
+        assert_eq!(queue.reviewed_parcel_count(), 2);
+        assert_eq!(select_next_review(&queue, &coverage), None);
+    }
+
     fn source_file(path: &str, blake3: &str) -> DependencyQueueSourceFile {
         DependencyQueueSourceFile {
             path: path.to_string(),
@@ -732,7 +996,7 @@ mod tests {
 
     fn sample_queue() -> DependencyQueue {
         DependencyQueue {
-            schema_version: 1,
+            schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
             generated_at_unix: 1,
             parcel_limits: dependency_queue_parcel_limits(),
             source: DependencyQueueSource {
@@ -742,6 +1006,51 @@ mod tests {
             },
             packages: Vec::new(),
             skipped_packages: Vec::new(),
+        }
+    }
+
+    fn queue_with_parcels() -> DependencyQueue {
+        let mut queue = sample_queue();
+        queue.packages = vec![DependencyQueuePackageRecord {
+            extension_name: "rs".to_string(),
+            registry_host: "crates.io".to_string(),
+            package_name: "demo".to_string(),
+            package_version: "1.0.0".to_string(),
+            package_hash: "package-hash".to_string(),
+            human_url: "https://crates.io/crates/demo/1.0.0".to_string(),
+            artifact_url: "https://static.crates.io/crates/demo/demo-1.0.0.crate".to_string(),
+            parcels: vec![
+                parcel(1, 1, &["src/a.rs", "src/b.rs"]),
+                parcel(2, 2, &["src/c.rs", "src/d.rs"]),
+            ],
+        }];
+        queue
+    }
+
+    fn parcel(
+        queue_rank: usize,
+        package_parcel_rank: usize,
+        paths: &[&str],
+    ) -> DependencyQueueParcel {
+        DependencyQueueParcel {
+            queue_rank,
+            package_parcel_rank,
+            status: DependencyQueueParcelStatus::Pending,
+            total_lines: paths.len(),
+            files: paths
+                .iter()
+                .enumerate()
+                .map(|(index, path)| DependencyQueueFile {
+                    path: path.to_string(),
+                    file_hash: thirdpass_core::schema::FileHash::blake3(format!(
+                        "file-hash-{index}"
+                    )),
+                    size_bytes: 10,
+                    extension: Some("rs".to_string()),
+                    line_count: 1,
+                    file_rank: index + 1,
+                })
+                .collect(),
         }
     }
 }
