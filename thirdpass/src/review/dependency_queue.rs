@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-const DEPENDENCY_QUEUE_SCHEMA_VERSION: u32 = 2;
+const DEPENDENCY_QUEUE_SCHEMA_VERSION: u32 = 3;
 
 /// One dependency package that should be considered for the local queue.
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -40,6 +40,58 @@ impl StoredDependencyQueue {
             write_queue_atomically(&self.path, &self.queue)?;
         }
         Ok(select_next_review(&self.queue, &coverage))
+    }
+
+    /// Return the next dependency package waiting to be prepared.
+    pub(crate) fn next_pending_package(&self) -> Option<&DependencyQueuePackage> {
+        self.queue.pending_packages.first()
+    }
+
+    /// Download, analyze, and persist the next pending dependency package.
+    pub(crate) fn prepare_next_package(
+        &mut self,
+        extensions: &[Box<dyn thirdpass_core::extension::Extension>],
+    ) -> Result<Option<DependencyQueuePreparation>> {
+        let Some(package) = self.queue.pending_packages.first().cloned() else {
+            return Ok(None);
+        };
+
+        let first_queue_rank = self.queue.parcel_count() + 1;
+        let preparation = match build_package_record(
+            &package,
+            extensions,
+            &self.queue.queue_id,
+            first_queue_rank,
+        ) {
+            Ok(record) => {
+                let preparation = DependencyQueuePreparation::Prepared {
+                    extension_name: record.extension_name.clone(),
+                    registry_host: record.registry_host.clone(),
+                    package_name: record.package_name.clone(),
+                    package_version: record.package_version.clone(),
+                    parcel_count: record.parcels.len(),
+                    file_count: record.parcels.iter().map(|parcel| parcel.files.len()).sum(),
+                };
+                self.queue.packages.push(record);
+                preparation
+            }
+            Err(error) => {
+                let skipped = skipped_dependency_package(&package, error);
+                let preparation = DependencyQueuePreparation::Skipped {
+                    extension_name: skipped.extension_name.clone(),
+                    registry_host: skipped.registry_host.clone(),
+                    package_name: skipped.package_name.clone(),
+                    package_version: skipped.package_version.clone(),
+                    reason: skipped.reason.clone(),
+                };
+                self.queue.skipped_packages.push(skipped);
+                preparation
+            }
+        };
+
+        self.queue.pending_packages.remove(0);
+        write_queue_atomically(&self.path, &self.queue)?;
+        Ok(Some(preparation))
     }
 
     /// Mark a queue parcel as reviewed and persist the queue.
@@ -78,6 +130,39 @@ pub(crate) struct DependencyQueueSelection {
     pub(crate) target_files: Vec<String>,
 }
 
+/// Result of preparing one pending dependency package.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum DependencyQueuePreparation {
+    /// The package was analyzed into review parcels.
+    Prepared {
+        /// Extension name that can retrieve this package.
+        extension_name: String,
+        /// Registry host that owns this package.
+        registry_host: String,
+        /// Package name in the registry.
+        package_name: String,
+        /// Package version in the registry.
+        package_version: String,
+        /// Number of review parcels prepared for this package.
+        parcel_count: usize,
+        /// Number of files covered by the prepared parcels.
+        file_count: usize,
+    },
+    /// The package could not be prepared and was skipped.
+    Skipped {
+        /// Extension name that discovered this package.
+        extension_name: String,
+        /// Registry host that owns this package.
+        registry_host: String,
+        /// Package name in the registry.
+        package_name: String,
+        /// Package version in the registry.
+        package_version: String,
+        /// Human-readable skip reason.
+        reason: String,
+    },
+}
+
 /// Local review queue built from a project's dependency files.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DependencyQueue {
@@ -87,10 +172,14 @@ pub(crate) struct DependencyQueue {
     pub(crate) generated_at_unix: u64,
     /// Parcel sizing limits used to build this queue.
     pub(crate) parcel_limits: DependencyQueueParcelLimits,
+    /// Stable queue identifier used for package parcel shuffling.
+    pub(crate) queue_id: String,
     /// Project dependency snapshot used to derive this queue.
     pub(crate) source: DependencyQueueSource,
     /// Packages successfully analyzed into review parcels.
     pub(crate) packages: Vec<DependencyQueuePackageRecord>,
+    /// Packages discovered but not yet downloaded or analyzed.
+    pub(crate) pending_packages: Vec<DependencyQueuePackage>,
     /// Packages skipped while building the queue.
     pub(crate) skipped_packages: Vec<SkippedDependencyPackage>,
 }
@@ -117,6 +206,16 @@ impl DependencyQueue {
     pub(crate) fn remaining_parcel_count(&self) -> usize {
         self.parcel_count()
             .saturating_sub(self.reviewed_parcel_count())
+    }
+
+    /// Count dependency packages already prepared or skipped.
+    pub(crate) fn prepared_package_count(&self) -> usize {
+        self.packages.len() + self.skipped_packages.len()
+    }
+
+    /// Count dependency packages still waiting to be prepared.
+    pub(crate) fn pending_package_count(&self) -> usize {
+        self.pending_packages.len()
     }
 }
 
@@ -241,7 +340,6 @@ pub(crate) fn ensure_for_project(
     project_root: &Path,
     dependency_files: &[PathBuf],
     packages: &[DependencyQueuePackage],
-    extensions: &[Box<dyn thirdpass_core::extension::Extension>],
 ) -> Result<StoredDependencyQueue> {
     let project_root = canonical_path(project_root)?;
     let source_files = dependency_source_files(dependency_files)?;
@@ -258,13 +356,7 @@ pub(crate) fn ensure_for_project(
         });
     }
 
-    let queue = build_queue(
-        &project_root_string,
-        source_files,
-        packages,
-        extensions,
-        &queue_id,
-    )?;
+    let queue = new_queue(&project_root_string, source_files, packages, &queue_id)?;
     write_queue_atomically(&queue_path, &queue)?;
     Ok(StoredDependencyQueue {
         path: queue_path,
@@ -272,39 +364,25 @@ pub(crate) fn ensure_for_project(
     })
 }
 
-fn build_queue(
+fn new_queue(
     project_root: &str,
     dependency_files: Vec<DependencyQueueSourceFile>,
     packages: Vec<DependencyQueuePackage>,
-    extensions: &[Box<dyn thirdpass_core::extension::Extension>],
     queue_id: &str,
 ) -> Result<DependencyQueue> {
-    let parcel_limits = dependency_queue_parcel_limits();
-    let mut package_records = Vec::new();
-    let mut skipped_packages = Vec::new();
-    let mut next_queue_rank = 1usize;
-
-    for package in &packages {
-        match build_package_record(package, extensions, queue_id, next_queue_rank) {
-            Ok(record) => {
-                next_queue_rank += record.parcels.len();
-                package_records.push(record);
-            }
-            Err(error) => skipped_packages.push(skipped_dependency_package(package, error)),
-        }
-    }
-
     Ok(DependencyQueue {
         schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
         generated_at_unix: now_unix_seconds()?,
-        parcel_limits,
+        parcel_limits: dependency_queue_parcel_limits(),
+        queue_id: queue_id.to_string(),
         source: DependencyQueueSource {
             project_root: project_root.to_string(),
             dependency_files,
             dependency_count: packages.len(),
         },
-        packages: package_records,
-        skipped_packages,
+        packages: Vec::new(),
+        pending_packages: packages,
+        skipped_packages: Vec::new(),
     })
 }
 
@@ -895,6 +973,61 @@ mod tests {
     }
 
     #[test]
+    fn new_queue_keeps_packages_pending() -> Result<()> {
+        let packages = vec![
+            package("rs", "crates.io", "serde", "1.0.0"),
+            package("js", "npmjs.com", "left-pad", "1.3.0"),
+        ];
+
+        let queue = new_queue(
+            "/project",
+            vec![source_file("/project/Cargo.lock", "source-hash")],
+            packages.clone(),
+            "queue-id",
+        )?;
+
+        assert_eq!(queue.queue_id, "queue-id");
+        assert_eq!(queue.source.dependency_count, 2);
+        assert_eq!(queue.packages, Vec::new());
+        assert_eq!(queue.pending_packages, packages);
+        assert_eq!(queue.skipped_packages, Vec::new());
+        Ok(())
+    }
+
+    #[test]
+    fn prepare_next_package_skips_missing_extension_without_other_packages() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let mut queue = sample_queue();
+        queue.pending_packages = vec![package("rs", "crates.io", "serde", "1.0.0")];
+        queue.source.dependency_count = 1;
+        let mut stored = StoredDependencyQueue {
+            path: tmp.path().join("queue.json"),
+            queue,
+        };
+        let extensions: Vec<Box<dyn thirdpass_core::extension::Extension>> = Vec::new();
+
+        let preparation = stored
+            .prepare_next_package(&extensions)?
+            .expect("package should be skipped");
+
+        assert_eq!(
+            preparation,
+            DependencyQueuePreparation::Skipped {
+                extension_name: "rs".to_string(),
+                registry_host: "crates.io".to_string(),
+                package_name: "serde".to_string(),
+                package_version: "1.0.0".to_string(),
+                reason: "extension 'rs' is not enabled".to_string(),
+            }
+        );
+        assert_eq!(stored.queue.pending_package_count(), 0);
+        assert_eq!(stored.queue.skipped_packages.len(), 1);
+        assert_eq!(stored.queue.packages.len(), 0);
+        assert_eq!(read_queue(&stored.path)?, stored.queue);
+        Ok(())
+    }
+
+    #[test]
     fn collect_reviewable_files_marks_utf8_and_binary_files() -> Result<()> {
         let tmp = tempfile::tempdir()?;
         let workspace = tmp.path();
@@ -1007,12 +1140,14 @@ mod tests {
             schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
             generated_at_unix: 1,
             parcel_limits: dependency_queue_parcel_limits(),
+            queue_id: "queue-id".to_string(),
             source: DependencyQueueSource {
                 project_root: "/project".to_string(),
                 dependency_files: vec![source_file("/project/Cargo.toml", "hash")],
                 dependency_count: 1,
             },
             packages: Vec::new(),
+            pending_packages: Vec::new(),
             skipped_packages: Vec::new(),
         }
     }

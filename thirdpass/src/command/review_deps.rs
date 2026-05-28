@@ -68,22 +68,18 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         &working_directory,
         &discovery.dependency_files,
         &queue_packages,
-        &extensions,
     )?;
     let mut session = DependencyReviewSession::default();
     println!("Dependency review started. Press Ctrl-C to stop.");
     print_queue_summary(&queue);
-    if !queue.queue.skipped_packages.is_empty() {
-        println!(
-            "Skipped {} dependencies while building the queue.",
-            queue.queue.skipped_packages.len()
-        );
-    }
 
     loop {
         let selection = match queue.select_next_review(&config.core.public_user_id)? {
             Some(selection) => selection,
             None => {
+                if prepare_next_dependency(&mut queue, &extensions)? {
+                    continue;
+                }
                 println!("Dependency review queue complete.");
                 return Ok(());
             }
@@ -166,13 +162,73 @@ struct DependencyReviewKey {
 
 fn print_queue_summary(queue: &review::dependency_queue::StoredDependencyQueue) {
     println!(
-        "Dependency review queue: {} packages, {} review parcels ({} reviewed, {} remaining) at {}.",
-        queue.queue.packages.len(),
-        queue.queue.parcel_count(),
-        queue.queue.reviewed_parcel_count(),
-        queue.queue.remaining_parcel_count(),
+        "Dependency review queue: {} dependencies, {} prepared, {} pending at {}.",
+        queue.queue.source.dependency_count,
+        queue.queue.prepared_package_count(),
+        queue.queue.pending_package_count(),
         queue.path.display()
     );
+    if queue.queue.parcel_count() > 0 {
+        println!(
+            "Ready review parcels: {} total, {} reviewed, {} remaining.",
+            queue.queue.parcel_count(),
+            queue.queue.reviewed_parcel_count(),
+            queue.queue.remaining_parcel_count()
+        );
+    }
+}
+
+fn prepare_next_dependency(
+    queue: &mut review::dependency_queue::StoredDependencyQueue,
+    extensions: &[Box<dyn thirdpass_core::extension::Extension>],
+) -> Result<bool> {
+    let Some(package) = queue.next_pending_package().cloned() else {
+        return Ok(false);
+    };
+    let dependency_number = queue.queue.prepared_package_count() + 1;
+    let dependency_total = queue.queue.source.dependency_count;
+
+    println!();
+    println!(
+        "Preparing dependency {}/{}: {}@{} ({})",
+        dependency_number,
+        dependency_total,
+        package.package_name,
+        package.package_version,
+        package.registry_host_name
+    );
+    println!("Fetching metadata, source archive, and file inventory.");
+
+    match queue.prepare_next_package(extensions)? {
+        Some(review::dependency_queue::DependencyQueuePreparation::Prepared {
+            package_name,
+            package_version,
+            registry_host,
+            parcel_count,
+            file_count,
+            ..
+        }) => {
+            println!(
+                "Prepared {}@{} ({}): {} parcels, {} files.",
+                package_name, package_version, registry_host, parcel_count, file_count
+            );
+            Ok(true)
+        }
+        Some(review::dependency_queue::DependencyQueuePreparation::Skipped {
+            package_name,
+            package_version,
+            registry_host,
+            reason,
+            ..
+        }) => {
+            println!(
+                "Skipped {}@{} ({}): {}",
+                package_name, package_version, registry_host, reason
+            );
+            Ok(true)
+        }
+        None => Ok(false),
+    }
 }
 
 fn print_selected_parcel(
@@ -201,9 +257,10 @@ fn print_review_deps_progress(
     session: &DependencyReviewSession,
 ) {
     println!(
-        "Dependency review progress: {} reviewed, {} remaining.",
+        "Dependency review progress: {} reviewed, {} ready remaining, {} dependencies pending.",
         queue.queue.reviewed_parcel_count(),
-        queue.queue.remaining_parcel_count()
+        queue.queue.remaining_parcel_count(),
+        queue.queue.pending_package_count()
     );
     println!(
         "Session total: {} reviews completed, {} submitted, {} files reviewed.",
