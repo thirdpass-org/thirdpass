@@ -7,6 +7,9 @@ pub const DEFAULT_REVIEW_PARCEL_MAX_LINES: usize = 1_200;
 /// Default maximum number of files for one review parcel.
 pub const DEFAULT_REVIEW_PARCEL_MAX_FILES: usize = 5;
 
+/// Approximate bytes represented by one review-weight unit for binary files.
+pub const BINARY_REVIEW_WEIGHT_BYTES_PER_LINE: u64 = 80;
+
 /// Controls how package files are grouped into review parcels.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReviewParcelConfig {
@@ -68,7 +71,7 @@ pub struct ReviewableFile {
     pub size_bytes: u64,
     /// File extension without the leading dot, when known.
     pub extension: Option<String>,
-    /// Line count for text files; files without a line count are not parceled.
+    /// Line count for text files; files without a line count are weighted by bytes.
     pub line_count: Option<usize>,
 }
 
@@ -115,9 +118,10 @@ pub struct ReviewParcel {
 
 /// Build bounded review parcels for one package.
 ///
-/// The builder filters files using the supplied target policy, ignores files
-/// without line counts, assigns file ranks by package-relative path, shuffles
-/// the reviewable files, and groups them by configured line and file limits.
+/// The builder filters files using the supplied target policy, weights files
+/// without line counts by byte size, assigns file ranks by package-relative
+/// path, shuffles the reviewable files, and groups them by configured line and
+/// file limits.
 pub fn build_review_parcels(
     input: ReviewParcelInput,
     config: ReviewParcelConfig,
@@ -140,9 +144,9 @@ fn reviewable_files(
         if target_policy.excludes_exact_path(&file.path) {
             continue;
         }
-        let Some(line_count) = file.line_count else {
-            continue;
-        };
+        let line_count = file
+            .line_count
+            .unwrap_or_else(|| byte_review_weight(file.size_bytes));
         reviewable_files.push(ReviewParcelFile {
             path: file.path,
             file_hash: file.file_hash,
@@ -153,6 +157,16 @@ fn reviewable_files(
         });
     }
     reviewable_files
+}
+
+fn byte_review_weight(size_bytes: u64) -> usize {
+    let weight = size_bytes.saturating_add(BINARY_REVIEW_WEIGHT_BYTES_PER_LINE - 1)
+        / BINARY_REVIEW_WEIGHT_BYTES_PER_LINE;
+    if weight > usize::MAX as u64 {
+        usize::MAX
+    } else {
+        weight.max(1) as usize
+    }
 }
 
 fn shuffle_reviewable_files(files: &mut [ReviewParcelFile], shuffle_seed: Option<u64>) {
@@ -268,14 +282,14 @@ mod tests {
                 .iter()
                 .map(|parcel| parcel.total_lines)
                 .sum::<usize>(),
-            700
+            713
         );
         assert_eq!(
             parcels
                 .iter()
                 .map(|parcel| parcel.files.len())
                 .sum::<usize>(),
-            3
+            4
         );
         let mut files = parcels
             .iter()
@@ -289,8 +303,37 @@ mod tests {
                 ("src/a.rs", 100, 1),
                 ("src/b.rs", 100, 2),
                 ("src/c.rs", 500, 3),
+                ("static/logo.bin", 13, 4),
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn files_without_line_counts_are_weighted_by_size() -> Result<()> {
+        let parcels = build_review_parcels(
+            ReviewParcelInput {
+                package: package(),
+                files: vec![
+                    file_with_size("empty.bin", None, 0, "hash-empty"),
+                    file_with_size("payload.bin", None, 161, "hash-payload"),
+                ],
+                target_policy: crate::extension::ReviewTargetPolicy::default(),
+            },
+            ReviewParcelConfig {
+                max_lines: 1_000,
+                max_files: 5,
+                shuffle_seed: Some(1),
+            },
+        )?;
+
+        let mut files = parcels[0]
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.line_count))
+            .collect::<Vec<_>>();
+        files.sort();
+        assert_eq!(files, vec![("empty.bin", 1), ("payload.bin", 3)]);
         Ok(())
     }
 
@@ -374,10 +417,19 @@ mod tests {
     }
 
     fn file(path: &str, line_count: Option<usize>, hash: &str) -> ReviewableFile {
+        file_with_size(path, line_count, 1024, hash)
+    }
+
+    fn file_with_size(
+        path: &str,
+        line_count: Option<usize>,
+        size_bytes: u64,
+        hash: &str,
+    ) -> ReviewableFile {
         ReviewableFile {
             path: path.to_string(),
             file_hash: crate::schema::FileHash::blake3(hash),
-            size_bytes: 1024,
+            size_bytes,
             extension: path
                 .rsplit_once('.')
                 .map(|(_, extension)| extension.to_string()),

@@ -608,6 +608,9 @@ are used to execute hidden/encoded/remote/untrusted payloads or are unsafe-by-de
 Review ONLY the target file at the path below. You are in read-only mode.
 Inspect the target file from the current workspace before returning JSON.
 You may inspect other files in the package if your tool supports it, but only report issues in the target file.
+If the target file is binary, unreadable, or not meaningful as text, treat the review as a reachability review:
+inspect package metadata, install scripts, wrappers, source files, and manifests for references that execute,
+load, unpack, import, or otherwise pass control to the target file.
 
 Focus areas (security):
 - install-time execution (preinstall/postinstall), hidden subprocess execution
@@ -639,6 +642,8 @@ Rules:
   behavior + trigger + impact + why it is suspicious.
 - Comments may mention other files only as context for behavior in the target file.
 - Do not report a comment if the suspicious behavior is only present in another file.
+- For binary or unreadable target files, only report when another package file uses the target as an opaque executable,
+  loadable payload, unpacked artifact, or surprising runtime asset.
 - Each comment's file field and selection must point to the target file.
 - Bundled/minified code is in scope, but only report when behavior is clearly malicious or suspicious-by-default.
 - Do NOT flag common patterns (eval/new Function/dynamic require) unless tied to executing
@@ -921,6 +926,8 @@ mod tests {
         assert!(prompt.contains("Inspect the target file from the current workspace"));
         assert!(prompt.contains("The summary must be specific to the target file"));
         assert!(prompt.contains("briefly name the checked categories that were absent"));
+        assert!(prompt.contains("treat the review as a reachability review"));
+        assert!(prompt.contains("uses the target as an opaque executable"));
     }
 
     #[test]
