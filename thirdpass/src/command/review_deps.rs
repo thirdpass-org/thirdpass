@@ -10,9 +10,17 @@ use crate::review;
     name = "no_version",
     no_version,
     global_settings = &[structopt::clap::AppSettings::DisableVersion],
-    about = "Review a dependency discovered from the current project."
+    about = "Review dependencies from the current project or a package release."
 )]
 pub struct Arguments {
+    /// Package name whose dependency tree should be reviewed.
+    #[structopt(name = "package")]
+    pub package_name: Option<String>,
+
+    /// Package version whose dependency tree should be reviewed.
+    #[structopt(name = "version")]
+    pub package_version: Option<String>,
+
     /// Restrict dependency discovery to specific extension names (repeatable).
     /// Example values: py, js, rs.
     #[structopt(long = "extension", short = "e", name = "name")]
@@ -46,13 +54,33 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;
     let working_directory = std::env::current_dir()?;
-    let discovery =
-        discover_review_dependencies(&extensions, extension_args, &working_directory, &config)?;
+    let discovery = match &args.package_name {
+        Some(package_name) => discover_package_review_dependencies(
+            package_name,
+            &args.package_version,
+            &extensions,
+            extension_args,
+            &config,
+        )?,
+        None => discover_local_review_dependencies(
+            &extensions,
+            extension_args,
+            &working_directory,
+            &config,
+        )?,
+    };
 
     if discovery.candidates.is_empty() {
-        return Err(format_err!(
-            "No reviewable dependencies found in the current directory."
-        ));
+        let message = match &args.package_name {
+            Some(package_name) => {
+                format!(
+                    "No reviewable dependencies found for package {}.",
+                    package_name
+                )
+            }
+            None => "No reviewable dependencies found in the current directory.".to_string(),
+        };
+        return Err(format_err!("{}", message));
     }
 
     let queue_packages = discovery
@@ -268,7 +296,7 @@ fn print_review_deps_progress(
     );
 }
 
-fn discover_review_dependencies(
+fn discover_local_review_dependencies(
     extensions: &[Box<dyn thirdpass_core::extension::Extension>],
     extension_args: &[String],
     working_directory: &std::path::Path,
@@ -297,35 +325,14 @@ fn discover_review_dependencies(
         for dependency_file in extension_dependencies {
             dependency_files.insert(dependency_file.path.clone());
             for dependency in dependency_file.dependencies {
-                let package_version = match dependency.version {
-                    Ok(package_version) => package_version,
-                    Err(error) => {
-                        log::debug!(
-                            "Skipping dependency {} because version is not reviewable: {}",
-                            dependency.name,
-                            error
-                        );
-                        continue;
-                    }
-                };
-                let key = DependencyReviewKey {
-                    extension_name: extension.name(),
-                    registry_host_name: dependency_file.registry_host_name.clone(),
-                    package_name: dependency.name,
-                    package_version,
-                };
-                let (current_reviewer_review_count, total_review_count) =
-                    count_matching_reviews(&key, &stored_reviews, &config.core.public_user_id);
-                candidates
-                    .entry(key.clone())
-                    .or_insert_with(|| DependencyReviewCandidate {
-                        extension_name: key.extension_name,
-                        registry_host_name: key.registry_host_name,
-                        package_name: key.package_name,
-                        package_version: key.package_version,
-                        current_reviewer_review_count,
-                        total_review_count,
-                    });
+                insert_dependency_candidate(
+                    &mut candidates,
+                    extension.name(),
+                    dependency_file.registry_host_name.clone(),
+                    dependency,
+                    &stored_reviews,
+                    &config.core.public_user_id,
+                );
             }
         }
     }
@@ -336,6 +343,106 @@ fn discover_review_dependencies(
         dependency_files: dependency_files.into_iter().collect(),
         candidates,
     })
+}
+
+fn discover_package_review_dependencies(
+    package_name: &str,
+    package_version: &Option<String>,
+    extensions: &[Box<dyn thirdpass_core::extension::Extension>],
+    extension_args: &[String],
+    config: &common::config::Config,
+) -> Result<DependencyReviewDiscovery> {
+    let package_version = package_version.as_deref();
+    let all_dependencies = extension::identify_package_dependencies(
+        package_name,
+        &package_version,
+        extensions,
+        extension_args,
+    )?;
+
+    let stored_reviews = review::fs::list()?;
+    let mut candidates =
+        std::collections::BTreeMap::<DependencyReviewKey, DependencyReviewCandidate>::new();
+
+    for (extension, extension_dependencies) in extensions.iter().zip(all_dependencies.into_iter()) {
+        let extension_dependencies = match extension_dependencies {
+            Ok(dependencies) => dependencies,
+            Err(error) => {
+                log::error!("Extension error: {}", error);
+                continue;
+            }
+        };
+
+        for package_dependencies in extension_dependencies {
+            insert_dependency_candidate(
+                &mut candidates,
+                extension.name(),
+                package_dependencies.registry_host_name.clone(),
+                thirdpass_core::extension::Dependency {
+                    name: package_name.to_string(),
+                    version: package_dependencies.package_version,
+                },
+                &stored_reviews,
+                &config.core.public_user_id,
+            );
+            for dependency in package_dependencies.dependencies {
+                insert_dependency_candidate(
+                    &mut candidates,
+                    extension.name(),
+                    package_dependencies.registry_host_name.clone(),
+                    dependency,
+                    &stored_reviews,
+                    &config.core.public_user_id,
+                );
+            }
+        }
+    }
+
+    let mut candidates = candidates.into_values().collect::<Vec<_>>();
+    sort_dependency_review_candidates(&mut candidates);
+    Ok(DependencyReviewDiscovery {
+        dependency_files: Vec::new(),
+        candidates,
+    })
+}
+
+fn insert_dependency_candidate(
+    candidates: &mut std::collections::BTreeMap<DependencyReviewKey, DependencyReviewCandidate>,
+    extension_name: String,
+    registry_host_name: String,
+    dependency: thirdpass_core::extension::Dependency,
+    stored_reviews: &[review::Review],
+    public_user_id: &str,
+) {
+    let package_version = match dependency.version {
+        Ok(package_version) => package_version,
+        Err(error) => {
+            log::debug!(
+                "Skipping dependency {} because version is not reviewable: {}",
+                dependency.name,
+                error
+            );
+            return;
+        }
+    };
+    let key = DependencyReviewKey {
+        extension_name,
+        registry_host_name,
+        package_name: dependency.name,
+        package_version,
+    };
+    let (current_reviewer_review_count, total_review_count) =
+        count_matching_reviews(&key, stored_reviews, public_user_id);
+    candidates
+        .entry(key.clone())
+        .or_insert_with(|| DependencyReviewCandidate {
+            extension_name: key.extension_name,
+            registry_host_name: key.registry_host_name,
+            package_name: key.package_name,
+            package_version: key.package_version,
+            current_reviewer_review_count,
+            total_review_count,
+        });
 }
 
 fn count_matching_reviews(
@@ -451,6 +558,59 @@ mod tests {
             }
             _ => panic!("Expected review-deps command."),
         }
+    }
+
+    #[test]
+    fn command_parses_review_deps_package_args() {
+        let parsed = std::panic::catch_unwind(|| {
+            crate::command::Opts::from_iter_safe(&[
+                "thirdpass",
+                "review-deps",
+                "axum",
+                "0.8.9",
+                "--extension",
+                "rs",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            crate::command::Command::ReviewDeps(args) => {
+                assert_eq!(args.package_name.as_deref(), Some("axum"));
+                assert_eq!(args.package_version.as_deref(), Some("0.8.9"));
+                assert_eq!(args.extension_names, Some(vec!["rs".to_string()]));
+            }
+            _ => panic!("Expected review-deps command."),
+        }
+    }
+
+    #[test]
+    fn insert_dependency_candidate_adds_review_counts() -> Result<()> {
+        let mut candidates = std::collections::BTreeMap::new();
+        let reviews = vec![
+            stored_review("user-a", "crates.io", "axum", "0.8.9")?,
+            stored_review("user-b", "crates.io", "axum", "0.8.9")?,
+        ];
+
+        insert_dependency_candidate(
+            &mut candidates,
+            "rs".to_string(),
+            "crates.io".to_string(),
+            thirdpass_core::extension::Dependency {
+                name: "axum".to_string(),
+                version: Ok("0.8.9".to_string()),
+            },
+            &reviews,
+            "user-a",
+        );
+
+        let candidate = candidates.values().next().expect("candidate was not added");
+        assert_eq!(candidate.package_name, "axum");
+        assert_eq!(candidate.package_version, "0.8.9");
+        assert_eq!(candidate.current_reviewer_review_count, 1);
+        assert_eq!(candidate.total_review_count, 2);
+        Ok(())
     }
 
     #[test]
