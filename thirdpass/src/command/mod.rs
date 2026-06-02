@@ -14,7 +14,7 @@ pub fn run_command(command: Command, extension_args: &[String]) -> Result<()> {
     match command {
         Command::Review(args) => {
             log::info!("Running command: review");
-            review::run_command(&args)?;
+            review::run_command(&args, extension_args)?;
         }
         Command::ReviewDeps(args) => {
             log::info!("Running command: review-deps");
@@ -182,6 +182,24 @@ mod tests {
         match parsed.command {
             Command::Review(args) => {
                 assert!(args.local_only);
+            }
+            _ => panic!("Expected review command."),
+        }
+    }
+
+    #[test]
+    fn cli_parses_review_deps_flag() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&["thirdpass", "review", "axum", "0.8.9", "--deps"])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Review(args) => {
+                assert_eq!(args.package_name, "axum");
+                assert_eq!(args.package_version.as_deref(), Some("0.8.9"));
+                assert!(args.deps);
             }
             _ => panic!("Expected review command."),
         }

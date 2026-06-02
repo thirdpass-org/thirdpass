@@ -10,17 +10,9 @@ use crate::review;
     name = "no_version",
     no_version,
     global_settings = &[structopt::clap::AppSettings::DisableVersion],
-    about = "Review dependencies from the current project or a package release."
+    about = "Review a dependency discovered from the current project."
 )]
 pub struct Arguments {
-    /// Package name whose dependency tree should be reviewed.
-    #[structopt(name = "package")]
-    pub package_name: Option<String>,
-
-    /// Package version whose dependency tree should be reviewed.
-    #[structopt(name = "version")]
-    pub package_version: Option<String>,
-
     /// Restrict dependency discovery to specific extension names (repeatable).
     /// Example values: py, js, rs.
     #[structopt(long = "extension", short = "e", name = "name")]
@@ -54,86 +46,69 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;
     let working_directory = std::env::current_dir()?;
-    let discovery = match &args.package_name {
-        Some(package_name) => discover_package_review_dependencies(
-            package_name,
-            &args.package_version,
-            &extensions,
-            extension_args,
-            &config,
-        )?,
-        None => discover_local_review_dependencies(
-            &extensions,
-            extension_args,
-            &working_directory,
-            &config,
-        )?,
-    };
+    let discovery = discover_local_review_dependencies(
+        &extensions,
+        extension_args,
+        &working_directory,
+        &config,
+    )?;
 
     if discovery.candidates.is_empty() {
-        let message = match &args.package_name {
-            Some(package_name) => {
-                format!(
-                    "No reviewable dependencies found for package {}.",
-                    package_name
-                )
-            }
-            None => "No reviewable dependencies found in the current directory.".to_string(),
-        };
-        return Err(format_err!("{}", message));
+        return Err(format_err!(
+            "No reviewable dependencies found in the current directory."
+        ));
     }
 
-    let queue_packages = discovery
-        .candidates
-        .iter()
-        .map(DependencyReviewCandidate::queue_package)
-        .collect::<Vec<_>>();
-    println!(
-        "Preparing dependency review queue for {} dependencies.",
-        queue_packages.len()
-    );
-    let mut queue = review::dependency_queue::ensure_for_project(
+    run_discovered_dependency_reviews(
+        args,
+        &extensions,
         &working_directory,
-        &discovery.dependency_files,
-        &queue_packages,
+        discovery,
+        &config.core.public_user_id,
+    )
+}
+
+pub(crate) fn run_package_command(
+    args: &crate::command::review::Arguments,
+    extension_args: &[String],
+) -> Result<()> {
+    let mut config = common::config::Config::load()?;
+    extension::manage::update_config(&mut config)?;
+    let extension_names =
+        extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
+    let extensions = extension::manage::get_enabled(&extension_names, &config)?;
+    let working_directory = std::env::current_dir()?;
+    let discovery = discover_package_review_dependencies(
+        &args.package_name,
+        &args.package_version,
+        &extensions,
+        extension_args,
+        &config,
     )?;
-    let mut session = DependencyReviewSession::default();
-    println!("Dependency review started. Press Ctrl-C to stop.");
-    print_queue_summary(&queue);
 
-    loop {
-        let selection = match queue.select_next_review(&config.core.public_user_id)? {
-            Some(selection) => selection,
-            None => {
-                if prepare_next_dependency(&mut queue, &extensions)? {
-                    continue;
-                }
-                println!("Dependency review queue complete.");
-                return Ok(());
-            }
-        };
-
-        let review_number = session.completed_reviews + 1;
-        print_selected_parcel(review_number, &selection);
-
-        let queue_rank = selection.queue_rank;
-        let outcome =
-            crate::command::review::run_command_with_outcome(&crate::command::review::Arguments {
-                package_name: selection.package_name,
-                package_version: Some(selection.package_version),
-                extension_names: Some(vec![selection.extension_name]),
-                target_files: selection.target_files,
-                manual: args.manual,
-                agent: args.agent.clone(),
-                agent_model: args.agent_model.clone(),
-                agent_reasoning_effort: args.agent_reasoning_effort.clone(),
-                submit_existing: false,
-                local_only: args.local_only,
-            })?;
-        queue.mark_parcel_reviewed(queue_rank)?;
-        session.record(&outcome);
-        print_review_deps_progress(&queue, &session);
+    if discovery.candidates.is_empty() {
+        return Err(format_err!(
+            "No reviewable dependencies found for package {}.",
+            args.package_name
+        ));
     }
+
+    let dependency_args = Arguments {
+        extension_names: args.extension_names.clone(),
+        manual: args.manual,
+        agent: args.agent.clone(),
+        agent_model: args.agent_model.clone(),
+        agent_reasoning_effort: args.agent_reasoning_effort.clone(),
+        local_only: args.local_only,
+    };
+
+    run_discovered_dependency_reviews(
+        &dependency_args,
+        &extensions,
+        &working_directory,
+        discovery,
+        &config.core.public_user_id,
+    )
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -186,6 +161,67 @@ struct DependencyReviewKey {
     registry_host_name: String,
     package_name: String,
     package_version: String,
+}
+
+fn run_discovered_dependency_reviews(
+    args: &Arguments,
+    extensions: &[Box<dyn thirdpass_core::extension::Extension>],
+    working_directory: &std::path::Path,
+    discovery: DependencyReviewDiscovery,
+    public_user_id: &str,
+) -> Result<()> {
+    let queue_packages = discovery
+        .candidates
+        .iter()
+        .map(DependencyReviewCandidate::queue_package)
+        .collect::<Vec<_>>();
+    println!(
+        "Preparing dependency review queue for {} dependencies.",
+        queue_packages.len()
+    );
+    let mut queue = review::dependency_queue::ensure_for_project(
+        working_directory,
+        &discovery.dependency_files,
+        &queue_packages,
+    )?;
+    let mut session = DependencyReviewSession::default();
+    println!("Dependency review started. Press Ctrl-C to stop.");
+    print_queue_summary(&queue);
+
+    loop {
+        let selection = match queue.select_next_review(public_user_id)? {
+            Some(selection) => selection,
+            None => {
+                if prepare_next_dependency(&mut queue, extensions)? {
+                    continue;
+                }
+                println!("Dependency review queue complete.");
+                return Ok(());
+            }
+        };
+
+        let review_number = session.completed_reviews + 1;
+        print_selected_parcel(review_number, &selection);
+
+        let queue_rank = selection.queue_rank;
+        let outcome =
+            crate::command::review::run_command_with_outcome(&crate::command::review::Arguments {
+                package_name: selection.package_name,
+                package_version: Some(selection.package_version),
+                extension_names: Some(vec![selection.extension_name]),
+                target_files: selection.target_files,
+                deps: false,
+                manual: args.manual,
+                agent: args.agent.clone(),
+                agent_model: args.agent_model.clone(),
+                agent_reasoning_effort: args.agent_reasoning_effort.clone(),
+                submit_existing: false,
+                local_only: args.local_only,
+            })?;
+        queue.mark_parcel_reviewed(queue_rank)?;
+        session.record(&outcome);
+        print_review_deps_progress(&queue, &session);
+    }
 }
 
 fn print_queue_summary(queue: &review::dependency_queue::StoredDependencyQueue) {
@@ -561,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn command_parses_review_deps_package_args() {
+    fn command_rejects_review_deps_package_args() {
         let parsed = std::panic::catch_unwind(|| {
             crate::command::Opts::from_iter_safe(&[
                 "thirdpass",
@@ -574,15 +610,10 @@ mod tests {
         });
 
         assert!(parsed.is_ok(), "CLI parsing panicked.");
-        let parsed = parsed.unwrap().expect("CLI parsing failed.");
-        match parsed.command {
-            crate::command::Command::ReviewDeps(args) => {
-                assert_eq!(args.package_name.as_deref(), Some("axum"));
-                assert_eq!(args.package_version.as_deref(), Some("0.8.9"));
-                assert_eq!(args.extension_names, Some(vec!["rs".to_string()]));
-            }
-            _ => panic!("Expected review-deps command."),
-        }
+        assert!(
+            parsed.unwrap().is_err(),
+            "review-deps should not accept package positionals"
+        );
     }
 
     #[test]

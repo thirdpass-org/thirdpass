@@ -11,13 +11,15 @@ use crate::peer;
 use crate::registry;
 use crate::review;
 
+use super::review_deps;
+
 #[derive(Debug, StructOpt, Clone)]
 #[structopt(
     name = "no_version",
     no_version,
     global_settings = &[structopt::clap::AppSettings::DisableVersion],
     about = "Review a package release and submit findings.",
-    after_help = "Examples:\n    thirdpass review d3 4.10.0\n    thirdpass review d3 --extension js\n    thirdpass review d3 4.10.0 --file src/index.js --file src/color.js\n    thirdpass review d3 4.10.0 --agent codex --agent-model gpt-5.4 --agent-reasoning-effort high\n    thirdpass review d3 4.10.0 --submit-existing\n    thirdpass review d3 4.10.0 --local-only"
+    after_help = "Examples:\n    thirdpass review d3 4.10.0\n    thirdpass review d3 --extension js\n    thirdpass review d3 4.10.0 --file src/index.js --file src/color.js\n    thirdpass review d3 4.10.0 --deps\n    thirdpass review d3 4.10.0 --agent codex --agent-model gpt-5.4 --agent-reasoning-effort high\n    thirdpass review d3 4.10.0 --submit-existing\n    thirdpass review d3 4.10.0 --local-only"
 )]
 pub struct Arguments {
     /// Package name to review.
@@ -37,6 +39,10 @@ pub struct Arguments {
     /// If omitted, targets are assigned automatically.
     #[structopt(long = "file", name = "path")]
     pub target_files: Vec<String>,
+
+    /// Review this package and its resolved dependency tree.
+    #[structopt(long = "deps")]
+    pub deps: bool,
 
     /// Run manual review in VS Code instead of an automated agent review.
     #[structopt(long = "manual", hidden = true)]
@@ -115,7 +121,19 @@ impl ReviewCommandOutcome {
     }
 }
 
-pub fn run_command(args: &Arguments) -> Result<()> {
+pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
+    if args.deps {
+        if !args.target_files.is_empty() {
+            return Err(format_err!("--deps cannot be combined with --file."));
+        }
+        if args.submit_existing {
+            return Err(format_err!(
+                "--deps cannot be combined with --submit-existing."
+            ));
+        }
+        return review_deps::run_package_command(args, extension_args);
+    }
+
     run_command_with_outcome(args).map(|_| ())
 }
 
@@ -125,6 +143,11 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
 
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
+    if args.deps {
+        return Err(format_err!(
+            "--deps can only be used through the review command entry point."
+        ));
+    }
     if args.submit_existing && args.local_only {
         return Err(format_err!(
             "--submit-existing cannot be combined with --local-only."
@@ -1114,6 +1137,32 @@ mod tests {
     }
 
     #[test]
+    fn deps_review_rejects_file_targets() {
+        let mut args = review_args("axum", Some("0.8.9"));
+        args.deps = true;
+        args.target_files = vec!["src/lib.rs".to_string()];
+
+        let error = run_command(&args, &[]).expect_err("expected --deps with --file to fail");
+
+        assert_eq!(error.to_string(), "--deps cannot be combined with --file.");
+    }
+
+    #[test]
+    fn deps_review_rejects_submit_existing() {
+        let mut args = review_args("axum", Some("0.8.9"));
+        args.deps = true;
+        args.submit_existing = true;
+
+        let error =
+            run_command(&args, &[]).expect_err("expected --deps with --submit-existing to fail");
+
+        assert_eq!(
+            error.to_string(),
+            "--deps cannot be combined with --submit-existing."
+        );
+    }
+
+    #[test]
     fn validate_agent_comments_accepts_target_relative_path() -> Result<()> {
         let comments = validate_agent_comments_for_target(
             [agent_comment("src/index.js")],
@@ -1224,5 +1273,21 @@ mod tests {
             overall_security_summary: review::SecuritySummary::default(),
             overall_security_confidence: None,
         })
+    }
+
+    fn review_args(package_name: &str, package_version: Option<&str>) -> Arguments {
+        Arguments {
+            package_name: package_name.to_string(),
+            package_version: package_version.map(ToOwned::to_owned),
+            extension_names: None,
+            target_files: Vec::new(),
+            deps: false,
+            manual: false,
+            agent: None,
+            agent_model: None,
+            agent_reasoning_effort: None,
+            submit_existing: false,
+            local_only: false,
+        }
     }
 }
