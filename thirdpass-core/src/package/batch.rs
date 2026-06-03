@@ -1,55 +1,51 @@
 use anyhow::{format_err, Result};
 use rand::{seq::SliceRandom, SeedableRng};
 
-/// Default maximum total line count for one review parcel.
-pub const DEFAULT_REVIEW_PARCEL_MAX_LINES: usize = 1_200;
+/// Default maximum total line count for one review batch.
+pub const DEFAULT_REVIEW_BATCH_MAX_LINES: usize = 1_200;
 
-/// Default maximum number of files for one review parcel.
-pub const DEFAULT_REVIEW_PARCEL_MAX_FILES: usize = 5;
+/// Default maximum number of files for one review batch.
+pub const DEFAULT_REVIEW_BATCH_MAX_FILES: usize = 5;
 
 /// Approximate bytes represented by one review-weight unit for binary files.
 pub const BINARY_REVIEW_WEIGHT_BYTES_PER_LINE: u64 = 80;
 
-/// Controls how package files are grouped into review parcels.
+/// Controls how package files are grouped into review batches.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReviewParcelConfig {
-    /// Maximum total line count to include in one parcel.
+pub struct ReviewBatchConfig {
+    /// Maximum total line count to include in one batch.
     pub max_lines: usize,
-    /// Maximum number of files to include in one parcel.
+    /// Maximum number of files to include in one batch.
     pub max_files: usize,
     /// Optional seed used to make file shuffling reproducible.
     pub shuffle_seed: Option<u64>,
 }
 
-impl Default for ReviewParcelConfig {
+impl Default for ReviewBatchConfig {
     fn default() -> Self {
         Self {
-            max_lines: DEFAULT_REVIEW_PARCEL_MAX_LINES,
-            max_files: DEFAULT_REVIEW_PARCEL_MAX_FILES,
+            max_lines: DEFAULT_REVIEW_BATCH_MAX_LINES,
+            max_files: DEFAULT_REVIEW_BATCH_MAX_FILES,
             shuffle_seed: None,
         }
     }
 }
 
-impl ReviewParcelConfig {
+impl ReviewBatchConfig {
     fn validate(&self) -> Result<()> {
         if self.max_lines == 0 {
-            return Err(format_err!(
-                "max lines per parcel must be greater than zero"
-            ));
+            return Err(format_err!("max lines per batch must be greater than zero"));
         }
         if self.max_files == 0 {
-            return Err(format_err!(
-                "max files per parcel must be greater than zero"
-            ));
+            return Err(format_err!("max files per batch must be greater than zero"));
         }
         Ok(())
     }
 }
 
-/// Package identity carried by generated review parcels.
+/// Package identity carried by generated review batches.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReviewParcelPackage {
+pub struct ReviewBatchPackage {
     /// Registry host name such as `crates.io` or `npmjs.com`.
     pub registry_host: String,
     /// Package name in the registry.
@@ -60,7 +56,7 @@ pub struct ReviewParcelPackage {
     pub package_hash: String,
 }
 
-/// One package file that can be considered for review parceling.
+/// One package file that can be considered for review batching.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ReviewableFile {
     /// Package-relative file path.
@@ -75,20 +71,20 @@ pub struct ReviewableFile {
     pub line_count: Option<usize>,
 }
 
-/// Input package and files for review parcel generation.
+/// Input package and files for review batch generation.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReviewParcelInput {
-    /// Package identity copied into each generated parcel.
-    pub package: ReviewParcelPackage,
+pub struct ReviewBatchInput {
+    /// Package identity copied into each generated batch.
+    pub package: ReviewBatchPackage,
     /// Package files to filter, shuffle, and group.
     pub files: Vec<ReviewableFile>,
     /// Registry-specific automatic review target policy.
     pub target_policy: crate::extension::ReviewTargetPolicy,
 }
 
-/// One file included in a generated review parcel.
+/// One file included in a generated review batch.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReviewParcelFile {
+pub struct ReviewBatchFile {
     /// Package-relative file path.
     pub path: String,
     /// Hash of the file contents.
@@ -97,7 +93,7 @@ pub struct ReviewParcelFile {
     pub size_bytes: u64,
     /// File extension without the leading dot, when known.
     pub extension: Option<String>,
-    /// Line count used for parcel sizing.
+    /// Line count used for batch sizing.
     pub line_count: usize,
     /// Stable rank among reviewable files before shuffling.
     pub file_rank: usize,
@@ -105,27 +101,27 @@ pub struct ReviewParcelFile {
 
 /// A bounded group of package files to review together.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ReviewParcel {
-    /// Package identity for this parcel.
-    pub package: ReviewParcelPackage,
-    /// One-based parcel rank within the package.
-    pub package_parcel_rank: usize,
-    /// Total lines across files in this parcel.
+pub struct ReviewBatch {
+    /// Package identity for this batch.
+    pub package: ReviewBatchPackage,
+    /// One-based batch rank within the package.
+    pub package_batch_rank: usize,
+    /// Total lines across files in this batch.
     pub total_lines: usize,
-    /// Files included in this parcel.
-    pub files: Vec<ReviewParcelFile>,
+    /// Files included in this batch.
+    pub files: Vec<ReviewBatchFile>,
 }
 
-/// Build bounded review parcels for one package.
+/// Build bounded review batches for one package.
 ///
 /// The builder filters files using the supplied target policy, weights files
 /// without line counts by byte size, assigns file ranks by package-relative
 /// path, shuffles the reviewable files, and groups them by configured line and
 /// file limits.
-pub fn build_review_parcels(
-    input: ReviewParcelInput,
-    config: ReviewParcelConfig,
-) -> Result<Vec<ReviewParcel>> {
+pub fn build_review_batches(
+    input: ReviewBatchInput,
+    config: ReviewBatchConfig,
+) -> Result<Vec<ReviewBatch>> {
     config.validate()?;
 
     let mut files = reviewable_files(input.files, &input.target_policy);
@@ -136,7 +132,7 @@ pub fn build_review_parcels(
 fn reviewable_files(
     mut files: Vec<ReviewableFile>,
     target_policy: &crate::extension::ReviewTargetPolicy,
-) -> Vec<ReviewParcelFile> {
+) -> Vec<ReviewBatchFile> {
     files.sort_by(|left, right| left.path.cmp(&right.path));
 
     let mut reviewable_files = Vec::new();
@@ -147,7 +143,7 @@ fn reviewable_files(
         let line_count = file
             .line_count
             .unwrap_or_else(|| byte_review_weight(file.size_bytes));
-        reviewable_files.push(ReviewParcelFile {
+        reviewable_files.push(ReviewBatchFile {
             path: file.path,
             file_hash: file.file_hash,
             size_bytes: file.size_bytes,
@@ -169,7 +165,7 @@ fn byte_review_weight(size_bytes: u64) -> usize {
     }
 }
 
-fn shuffle_reviewable_files(files: &mut [ReviewParcelFile], shuffle_seed: Option<u64>) {
+fn shuffle_reviewable_files(files: &mut [ReviewBatchFile], shuffle_seed: Option<u64>) {
     match shuffle_seed {
         Some(seed) => {
             let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
@@ -183,11 +179,11 @@ fn shuffle_reviewable_files(files: &mut [ReviewParcelFile], shuffle_seed: Option
 }
 
 fn group_reviewable_files(
-    package: ReviewParcelPackage,
-    files: Vec<ReviewParcelFile>,
-    config: &ReviewParcelConfig,
-) -> Vec<ReviewParcel> {
-    let mut parcels = Vec::new();
+    package: ReviewBatchPackage,
+    files: Vec<ReviewBatchFile>,
+    config: &ReviewBatchConfig,
+) -> Vec<ReviewBatch> {
+    let mut batches = Vec::new();
     let mut current_files = Vec::new();
     let mut current_lines = 0usize;
 
@@ -196,9 +192,9 @@ fn group_reviewable_files(
             && (current_files.len() >= config.max_files
                 || current_lines + file.line_count > config.max_lines)
         {
-            parcels.push(review_parcel_for_files(
+            batches.push(review_batch_for_files(
                 &package,
-                parcels.len() + 1,
+                batches.len() + 1,
                 &current_files,
                 current_lines,
             ));
@@ -210,9 +206,9 @@ fn group_reviewable_files(
         current_files.push(file);
 
         if current_files.len() >= config.max_files || current_lines >= config.max_lines {
-            parcels.push(review_parcel_for_files(
+            batches.push(review_batch_for_files(
                 &package,
-                parcels.len() + 1,
+                batches.len() + 1,
                 &current_files,
                 current_lines,
             ));
@@ -222,26 +218,26 @@ fn group_reviewable_files(
     }
 
     if !current_files.is_empty() {
-        parcels.push(review_parcel_for_files(
+        batches.push(review_batch_for_files(
             &package,
-            parcels.len() + 1,
+            batches.len() + 1,
             &current_files,
             current_lines,
         ));
     }
 
-    parcels
+    batches
 }
 
-fn review_parcel_for_files(
-    package: &ReviewParcelPackage,
-    package_parcel_rank: usize,
-    files: &[ReviewParcelFile],
+fn review_batch_for_files(
+    package: &ReviewBatchPackage,
+    package_batch_rank: usize,
+    files: &[ReviewBatchFile],
     total_lines: usize,
-) -> ReviewParcel {
-    ReviewParcel {
+) -> ReviewBatch {
+    ReviewBatch {
         package: package.clone(),
-        package_parcel_rank,
+        package_batch_rank,
         total_lines,
         files: files.to_vec(),
     }
@@ -252,8 +248,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn review_parcels_filter_shuffle_and_group_files() -> Result<()> {
-        let input = ReviewParcelInput {
+    fn review_batches_filter_shuffle_and_group_files() -> Result<()> {
+        let input = ReviewBatchInput {
             package: package(),
             files: vec![
                 file("src/c.rs", Some(500), "hash-c"),
@@ -267,33 +263,27 @@ mod tests {
             },
         };
 
-        let parcels = build_review_parcels(
+        let batches = build_review_batches(
             input,
-            ReviewParcelConfig {
+            ReviewBatchConfig {
                 max_lines: 1_000,
                 max_files: 2,
                 shuffle_seed: Some(7),
             },
         )?;
 
-        assert_eq!(parcels.len(), 2);
+        assert_eq!(batches.len(), 2);
         assert_eq!(
-            parcels
-                .iter()
-                .map(|parcel| parcel.total_lines)
-                .sum::<usize>(),
+            batches.iter().map(|batch| batch.total_lines).sum::<usize>(),
             713
         );
         assert_eq!(
-            parcels
-                .iter()
-                .map(|parcel| parcel.files.len())
-                .sum::<usize>(),
+            batches.iter().map(|batch| batch.files.len()).sum::<usize>(),
             4
         );
-        let mut files = parcels
+        let mut files = batches
             .iter()
-            .flat_map(|parcel| parcel.files.iter())
+            .flat_map(|batch| batch.files.iter())
             .map(|file| (file.path.as_str(), file.line_count, file.file_rank))
             .collect::<Vec<_>>();
         files.sort();
@@ -311,8 +301,8 @@ mod tests {
 
     #[test]
     fn files_without_line_counts_are_weighted_by_size() -> Result<()> {
-        let parcels = build_review_parcels(
-            ReviewParcelInput {
+        let batches = build_review_batches(
+            ReviewBatchInput {
                 package: package(),
                 files: vec![
                     file_with_size("empty.bin", None, 0, "hash-empty"),
@@ -320,14 +310,14 @@ mod tests {
                 ],
                 target_policy: crate::extension::ReviewTargetPolicy::default(),
             },
-            ReviewParcelConfig {
+            ReviewBatchConfig {
                 max_lines: 1_000,
                 max_files: 5,
                 shuffle_seed: Some(1),
             },
         )?;
 
-        let mut files = parcels[0]
+        let mut files = batches[0]
             .files
             .iter()
             .map(|file| (file.path.as_str(), file.line_count))
@@ -339,13 +329,13 @@ mod tests {
 
     #[test]
     fn seeded_shuffle_is_repeatable() -> Result<()> {
-        let config = ReviewParcelConfig {
+        let config = ReviewBatchConfig {
             max_lines: 1_000,
             max_files: 10,
             shuffle_seed: Some(42),
         };
-        let first = build_review_parcels(input_with_numbered_files(10), config.clone())?;
-        let second = build_review_parcels(input_with_numbered_files(10), config)?;
+        let first = build_review_batches(input_with_numbered_files(10), config.clone())?;
+        let second = build_review_batches(input_with_numbered_files(10), config)?;
 
         assert_eq!(first, second);
         assert_ne!(
@@ -362,31 +352,31 @@ mod tests {
     }
 
     #[test]
-    fn oversized_file_becomes_its_own_parcel() -> Result<()> {
-        let parcels = build_review_parcels(
-            ReviewParcelInput {
+    fn oversized_file_becomes_its_own_batch() -> Result<()> {
+        let batches = build_review_batches(
+            ReviewBatchInput {
                 package: package(),
                 files: vec![file("src/large.rs", Some(2_000), "hash-large")],
                 target_policy: crate::extension::ReviewTargetPolicy::default(),
             },
-            ReviewParcelConfig {
+            ReviewBatchConfig {
                 max_lines: 1_000,
                 max_files: 5,
                 shuffle_seed: Some(1),
             },
         )?;
 
-        assert_eq!(parcels.len(), 1);
-        assert_eq!(parcels[0].total_lines, 2_000);
-        assert_eq!(parcels[0].files[0].path, "src/large.rs");
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].total_lines, 2_000);
+        assert_eq!(batches[0].files[0].path, "src/large.rs");
         Ok(())
     }
 
     #[test]
     fn zero_limits_are_rejected() {
-        let err = build_review_parcels(
+        let err = build_review_batches(
             input_with_numbered_files(1),
-            ReviewParcelConfig {
+            ReviewBatchConfig {
                 max_lines: 0,
                 max_files: 1,
                 shuffle_seed: Some(1),
@@ -394,11 +384,11 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(err.to_string().contains("max lines per parcel"));
+        assert!(err.to_string().contains("max lines per batch"));
     }
 
-    fn input_with_numbered_files(file_count: usize) -> ReviewParcelInput {
-        ReviewParcelInput {
+    fn input_with_numbered_files(file_count: usize) -> ReviewBatchInput {
+        ReviewBatchInput {
             package: package(),
             files: (0..file_count)
                 .map(|index| file(&format!("src/file-{index}.rs"), Some(10), "hash"))
@@ -407,8 +397,8 @@ mod tests {
         }
     }
 
-    fn package() -> ReviewParcelPackage {
-        ReviewParcelPackage {
+    fn package() -> ReviewBatchPackage {
+        ReviewBatchPackage {
             registry_host: "crates.io".to_string(),
             package_name: "serde".to_string(),
             package_version: "1.0.0".to_string(),

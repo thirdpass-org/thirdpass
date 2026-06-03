@@ -201,7 +201,7 @@ fn run_discovered_dependency_reviews(
         };
 
         let review_number = session.completed_reviews + 1;
-        print_selected_parcel(review_number, &selection);
+        print_selected_batch(review_number, &selection);
 
         let queue_rank = selection.queue_rank;
         let outcome =
@@ -218,7 +218,7 @@ fn run_discovered_dependency_reviews(
                 submit_existing: false,
                 local_only: args.local_only,
             })?;
-        queue.mark_parcel_reviewed(queue_rank)?;
+        queue.mark_batch_reviewed(queue_rank)?;
         session.record(&outcome);
         print_review_deps_progress(&queue, &session);
     }
@@ -232,12 +232,12 @@ fn print_queue_summary(queue: &review::dependency_queue::StoredDependencyQueue) 
         queue.queue.pending_package_count(),
         queue.path.display()
     );
-    if queue.queue.parcel_count() > 0 {
+    if queue.queue.batch_count() > 0 {
         println!(
-            "Ready review parcels: {} total, {} reviewed, {} remaining.",
-            queue.queue.parcel_count(),
-            queue.queue.reviewed_parcel_count(),
-            queue.queue.remaining_parcel_count()
+            "Ready review batches: {} total, {} reviewed, {} remaining.",
+            queue.queue.batch_count(),
+            queue.queue.reviewed_batch_count(),
+            queue.queue.remaining_batch_count()
         );
     }
 }
@@ -268,13 +268,13 @@ fn prepare_next_dependency(
             package_name,
             package_version,
             registry_host,
-            parcel_count,
+            batch_count,
             file_count,
             ..
         }) => {
             println!(
-                "Prepared {}@{} ({}): {} parcels, {} files.",
-                package_name, package_version, registry_host, parcel_count, file_count
+                "Prepared {}@{} ({}): {} batches, {} files.",
+                package_name, package_version, registry_host, batch_count, file_count
             );
             Ok(true)
         }
@@ -295,7 +295,7 @@ fn prepare_next_dependency(
     }
 }
 
-fn print_selected_parcel(
+fn print_selected_batch(
     review_number: usize,
     selection: &review::dependency_queue::DependencyQueueSelection,
 ) {
@@ -306,12 +306,12 @@ fn print_selected_parcel(
         selection.package_name, selection.package_version, selection.registry_host
     );
     println!(
-        "Queue: parcel {}/{}; package parcel {}; {} of {} files remaining",
+        "Queue: batch {}/{}; package batch {}; {} of {} files remaining",
         selection.queue_rank,
-        selection.queue_parcel_count,
-        selection.package_parcel_rank,
+        selection.queue_batch_count,
+        selection.package_batch_rank,
         selection.target_files.len(),
-        selection.parcel_file_count
+        selection.batch_file_count
     );
     println!("Files: {}", selection.target_files.join(", "));
 }
@@ -322,8 +322,8 @@ fn print_review_deps_progress(
 ) {
     println!(
         "Dependency review progress: {} reviewed, {} ready remaining, {} dependencies pending.",
-        queue.queue.reviewed_parcel_count(),
-        queue.queue.remaining_parcel_count(),
+        queue.queue.reviewed_batch_count(),
+        queue.queue.remaining_batch_count(),
         queue.queue.pending_package_count()
     );
     println!(

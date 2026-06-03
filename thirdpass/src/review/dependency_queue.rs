@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-const DEPENDENCY_QUEUE_SCHEMA_VERSION: u32 = 3;
+const DEPENDENCY_QUEUE_SCHEMA_VERSION: u32 = 4;
 
 /// One dependency package that should be considered for the local queue.
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -29,7 +29,7 @@ pub(crate) struct StoredDependencyQueue {
 }
 
 impl StoredDependencyQueue {
-    /// Refresh parcel status from local review storage and select the next work item.
+    /// Refresh batch status from local review storage and select the next work item.
     pub(crate) fn select_next_review(
         &mut self,
         public_user_id: &str,
@@ -56,7 +56,7 @@ impl StoredDependencyQueue {
             return Ok(None);
         };
 
-        let first_queue_rank = self.queue.parcel_count() + 1;
+        let first_queue_rank = self.queue.batch_count() + 1;
         let preparation = match build_package_record(
             &package,
             extensions,
@@ -69,8 +69,8 @@ impl StoredDependencyQueue {
                     registry_host: record.registry_host.clone(),
                     package_name: record.package_name.clone(),
                     package_version: record.package_version.clone(),
-                    parcel_count: record.parcels.len(),
-                    file_count: record.parcels.iter().map(|parcel| parcel.files.len()).sum(),
+                    batch_count: record.batches.len(),
+                    file_count: record.batches.iter().map(|batch| batch.files.len()).sum(),
                 };
                 self.queue.packages.push(record);
                 preparation
@@ -94,12 +94,12 @@ impl StoredDependencyQueue {
         Ok(Some(preparation))
     }
 
-    /// Mark a queue parcel as reviewed and persist the queue.
-    pub(crate) fn mark_parcel_reviewed(&mut self, queue_rank: usize) -> Result<()> {
-        if set_parcel_status(
+    /// Mark a queue batch as reviewed and persist the queue.
+    pub(crate) fn mark_batch_reviewed(&mut self, queue_rank: usize) -> Result<()> {
+        if set_batch_status(
             &mut self.queue,
             queue_rank,
-            DependencyQueueParcelStatus::Reviewed,
+            DependencyQueueBatchStatus::Reviewed,
         ) {
             write_queue_atomically(&self.path, &self.queue)?;
         }
@@ -107,7 +107,7 @@ impl StoredDependencyQueue {
     }
 }
 
-/// A selected dependency parcel ready to hand to the review command.
+/// A selected dependency batch ready to hand to the review command.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct DependencyQueueSelection {
     /// Extension name that can retrieve this package.
@@ -118,14 +118,14 @@ pub(crate) struct DependencyQueueSelection {
     pub(crate) package_name: String,
     /// Package version in the registry.
     pub(crate) package_version: String,
-    /// One-based queue parcel rank.
+    /// One-based queue batch rank.
     pub(crate) queue_rank: usize,
-    /// Total parcel count in the queue.
-    pub(crate) queue_parcel_count: usize,
-    /// One-based parcel rank within this package.
-    pub(crate) package_parcel_rank: usize,
-    /// Number of files in the full parcel.
-    pub(crate) parcel_file_count: usize,
+    /// Total batch count in the queue.
+    pub(crate) queue_batch_count: usize,
+    /// One-based batch rank within this package.
+    pub(crate) package_batch_rank: usize,
+    /// Number of files in the full batch.
+    pub(crate) batch_file_count: usize,
     /// Package-relative files that still need local review coverage.
     pub(crate) target_files: Vec<String>,
 }
@@ -133,7 +133,7 @@ pub(crate) struct DependencyQueueSelection {
 /// Result of preparing one pending dependency package.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) enum DependencyQueuePreparation {
-    /// The package was analyzed into review parcels.
+    /// The package was analyzed into review batches.
     Prepared {
         /// Extension name that can retrieve this package.
         extension_name: String,
@@ -143,9 +143,9 @@ pub(crate) enum DependencyQueuePreparation {
         package_name: String,
         /// Package version in the registry.
         package_version: String,
-        /// Number of review parcels prepared for this package.
-        parcel_count: usize,
-        /// Number of files covered by the prepared parcels.
+        /// Number of review batches prepared for this package.
+        batch_count: usize,
+        /// Number of files covered by the prepared batches.
         file_count: usize,
     },
     /// The package could not be prepared and was skipped.
@@ -170,13 +170,13 @@ pub(crate) struct DependencyQueue {
     pub(crate) schema_version: u32,
     /// Queue creation timestamp in Unix seconds.
     pub(crate) generated_at_unix: u64,
-    /// Parcel sizing limits used to build this queue.
-    pub(crate) parcel_limits: DependencyQueueParcelLimits,
-    /// Stable queue identifier used for package parcel shuffling.
+    /// Batch sizing limits used to build this queue.
+    pub(crate) batch_limits: DependencyQueueBatchLimits,
+    /// Stable queue identifier used for package batch shuffling.
     pub(crate) queue_id: String,
     /// Project dependency snapshot used to derive this queue.
     pub(crate) source: DependencyQueueSource,
-    /// Packages successfully analyzed into review parcels.
+    /// Packages successfully analyzed into review batches.
     pub(crate) packages: Vec<DependencyQueuePackageRecord>,
     /// Packages discovered but not yet downloaded or analyzed.
     pub(crate) pending_packages: Vec<DependencyQueuePackage>,
@@ -185,27 +185,27 @@ pub(crate) struct DependencyQueue {
 }
 
 impl DependencyQueue {
-    /// Count all review parcels across queued packages.
-    pub(crate) fn parcel_count(&self) -> usize {
+    /// Count all review batches across queued packages.
+    pub(crate) fn batch_count(&self) -> usize {
         self.packages
             .iter()
-            .map(|package| package.parcels.len())
+            .map(|package| package.batches.len())
             .sum()
     }
 
-    /// Count parcels marked as reviewed in this queue.
-    pub(crate) fn reviewed_parcel_count(&self) -> usize {
+    /// Count batches marked as reviewed in this queue.
+    pub(crate) fn reviewed_batch_count(&self) -> usize {
         self.packages
             .iter()
-            .flat_map(|package| &package.parcels)
-            .filter(|parcel| parcel.status == DependencyQueueParcelStatus::Reviewed)
+            .flat_map(|package| &package.batches)
+            .filter(|batch| batch.status == DependencyQueueBatchStatus::Reviewed)
             .count()
     }
 
-    /// Count parcels that still need local review coverage.
-    pub(crate) fn remaining_parcel_count(&self) -> usize {
-        self.parcel_count()
-            .saturating_sub(self.reviewed_parcel_count())
+    /// Count batches that still need local review coverage.
+    pub(crate) fn remaining_batch_count(&self) -> usize {
+        self.batch_count()
+            .saturating_sub(self.reviewed_batch_count())
     }
 
     /// Count dependency packages already prepared or skipped.
@@ -219,13 +219,13 @@ impl DependencyQueue {
     }
 }
 
-/// Parcel sizing limits captured in a stored queue.
+/// Batch sizing limits captured in a stored queue.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DependencyQueueParcelLimits {
-    /// Maximum total line count to include in one parcel.
-    pub(crate) max_lines_per_parcel: usize,
-    /// Maximum number of files to include in one parcel.
-    pub(crate) max_files_per_parcel: usize,
+pub(crate) struct DependencyQueueBatchLimits {
+    /// Maximum total line count to include in one batch.
+    pub(crate) max_lines_per_batch: usize,
+    /// Maximum number of files to include in one batch.
+    pub(crate) max_files_per_batch: usize,
 }
 
 /// Project files and dependency count used to derive a queue.
@@ -265,36 +265,36 @@ pub(crate) struct DependencyQueuePackageRecord {
     pub(crate) human_url: String,
     /// Source artifact download URL.
     pub(crate) artifact_url: String,
-    /// Review parcels built for this package.
-    pub(crate) parcels: Vec<DependencyQueueParcel>,
+    /// Review batches built for this package.
+    pub(crate) batches: Vec<DependencyQueueBatch>,
 }
 
 /// One bounded group of files to review together.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DependencyQueueParcel {
+pub(crate) struct DependencyQueueBatch {
     /// One-based rank across the whole queue.
     pub(crate) queue_rank: usize,
     /// One-based rank within this package.
-    pub(crate) package_parcel_rank: usize,
-    /// Current local review status for this parcel.
-    pub(crate) status: DependencyQueueParcelStatus,
-    /// Total line count across parcel files.
+    pub(crate) package_batch_rank: usize,
+    /// Current local review status for this batch.
+    pub(crate) status: DependencyQueueBatchStatus,
+    /// Total line count across batch files.
     pub(crate) total_lines: usize,
-    /// Files included in this parcel.
+    /// Files included in this batch.
     pub(crate) files: Vec<DependencyQueueFile>,
 }
 
-/// Local review status for one dependency queue parcel.
+/// Local review status for one dependency queue batch.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum DependencyQueueParcelStatus {
-    /// The parcel still has files without local review coverage.
+pub(crate) enum DependencyQueueBatchStatus {
+    /// The batch still has files without local review coverage.
     Pending,
-    /// All parcel files have local review coverage.
+    /// All batch files have local review coverage.
     Reviewed,
 }
 
-/// One file included in a local dependency review parcel.
+/// One file included in a local dependency review batch.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DependencyQueueFile {
     /// Package-relative path.
@@ -305,7 +305,7 @@ pub(crate) struct DependencyQueueFile {
     pub(crate) size_bytes: u64,
     /// Lowercase extension without the leading dot, when known.
     pub(crate) extension: Option<String>,
-    /// Line count used for parcel sizing.
+    /// Line count used for batch sizing.
     pub(crate) line_count: usize,
     /// Stable rank among reviewable files before shuffling.
     pub(crate) file_rank: usize,
@@ -329,7 +329,7 @@ pub(crate) struct SkippedDependencyPackage {
 #[derive(Debug, Serialize)]
 struct DependencyQueueKey<'a> {
     schema_version: u32,
-    parcel_limits: DependencyQueueParcelLimits,
+    batch_limits: DependencyQueueBatchLimits,
     project_root: &'a str,
     dependency_files: &'a [DependencyQueueSourceFile],
     packages: &'a [DependencyQueuePackage],
@@ -373,7 +373,7 @@ fn new_queue(
     Ok(DependencyQueue {
         schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
         generated_at_unix: now_unix_seconds()?,
-        parcel_limits: dependency_queue_parcel_limits(),
+        batch_limits: dependency_queue_batch_limits(),
         queue_id: queue_id.to_string(),
         source: DependencyQueueSource {
             project_root: project_root.to_string(),
@@ -408,9 +408,9 @@ fn build_package_record(
     let result = (|| {
         let analysis = crate::review::workspace::analyse(&workspace_manifest.workspace_path)?;
         let files = collect_reviewable_files(&workspace_manifest.workspace_path, &analysis)?;
-        let parcels = thirdpass_core::package::build_review_parcels(
-            thirdpass_core::package::ReviewParcelInput {
-                package: thirdpass_core::package::ReviewParcelPackage {
+        let batches = thirdpass_core::package::build_review_batches(
+            thirdpass_core::package::ReviewBatchInput {
+                package: thirdpass_core::package::ReviewBatchPackage {
                     registry_host: metadata.registry_host_name.clone(),
                     package_name: package.package_name.clone(),
                     package_version: metadata.package_version.clone(),
@@ -419,7 +419,7 @@ fn build_package_record(
                 files,
                 target_policy: extension.review_target_policy(),
             },
-            review_parcel_config(queue_id, package),
+            review_batch_config(queue_id, package),
         )?;
 
         Ok(DependencyQueuePackageRecord {
@@ -430,7 +430,7 @@ fn build_package_record(
             package_hash: workspace_manifest.package_hash.clone(),
             human_url: metadata.human_url.clone(),
             artifact_url: metadata.artifact_url.clone(),
-            parcels: queue_parcels(first_queue_rank, &parcels),
+            batches: queue_batches(first_queue_rank, &batches),
         })
     })();
     let remove_result = crate::review::workspace::remove(&workspace_manifest);
@@ -563,19 +563,19 @@ fn reviewable_file_line_count(
     }
 }
 
-fn queue_parcels(
+fn queue_batches(
     first_queue_rank: usize,
-    parcels: &[thirdpass_core::package::ReviewParcel],
-) -> Vec<DependencyQueueParcel> {
-    parcels
+    batches: &[thirdpass_core::package::ReviewBatch],
+) -> Vec<DependencyQueueBatch> {
+    batches
         .iter()
         .enumerate()
-        .map(|(index, parcel)| DependencyQueueParcel {
+        .map(|(index, batch)| DependencyQueueBatch {
             queue_rank: first_queue_rank + index,
-            package_parcel_rank: parcel.package_parcel_rank,
-            status: DependencyQueueParcelStatus::Pending,
-            total_lines: parcel.total_lines,
-            files: parcel
+            package_batch_rank: batch.package_batch_rank,
+            status: DependencyQueueBatchStatus::Pending,
+            total_lines: batch.total_lines,
+            files: batch
                 .files
                 .iter()
                 .map(|file| DependencyQueueFile {
@@ -637,7 +637,7 @@ fn queue_id(
 ) -> Result<String> {
     let key = DependencyQueueKey {
         schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
-        parcel_limits: dependency_queue_parcel_limits(),
+        batch_limits: dependency_queue_batch_limits(),
         project_root,
         dependency_files,
         packages,
@@ -685,14 +685,14 @@ fn refresh_queue_progress(queue: &mut DependencyQueue, coverage: &PackageReviewC
     for package in &mut queue.packages {
         let package_key = package_review_key(package);
         let covered_files = coverage.get(&package_key);
-        for parcel in &mut package.parcels {
-            let new_status = if parcel_is_covered(parcel, covered_files) {
-                DependencyQueueParcelStatus::Reviewed
+        for batch in &mut package.batches {
+            let new_status = if batch_is_covered(batch, covered_files) {
+                DependencyQueueBatchStatus::Reviewed
             } else {
-                DependencyQueueParcelStatus::Pending
+                DependencyQueueBatchStatus::Pending
             };
-            if parcel.status != new_status {
-                parcel.status = new_status;
+            if batch.status != new_status {
+                batch.status = new_status;
                 changed = true;
             }
         }
@@ -704,16 +704,16 @@ fn select_next_review(
     queue: &DependencyQueue,
     coverage: &PackageReviewCoverage,
 ) -> Option<DependencyQueueSelection> {
-    let queue_parcel_count = queue.parcel_count();
+    let queue_batch_count = queue.batch_count();
     for package in &queue.packages {
         let package_key = package_review_key(package);
         let covered_files = coverage.get(&package_key);
-        for parcel in &package.parcels {
-            if parcel.status == DependencyQueueParcelStatus::Reviewed {
+        for batch in &package.batches {
+            if batch.status == DependencyQueueBatchStatus::Reviewed {
                 continue;
             }
 
-            let target_files = uncovered_parcel_files(parcel, covered_files);
+            let target_files = uncovered_batch_files(batch, covered_files);
             if target_files.is_empty() {
                 continue;
             }
@@ -723,10 +723,10 @@ fn select_next_review(
                 registry_host: package.registry_host.clone(),
                 package_name: package.package_name.clone(),
                 package_version: package.package_version.clone(),
-                queue_rank: parcel.queue_rank,
-                queue_parcel_count,
-                package_parcel_rank: parcel.package_parcel_rank,
-                parcel_file_count: parcel.files.len(),
+                queue_rank: batch.queue_rank,
+                queue_batch_count,
+                package_batch_rank: batch.package_batch_rank,
+                batch_file_count: batch.files.len(),
                 target_files,
             });
         }
@@ -734,21 +734,21 @@ fn select_next_review(
     None
 }
 
-fn set_parcel_status(
+fn set_batch_status(
     queue: &mut DependencyQueue,
     queue_rank: usize,
-    status: DependencyQueueParcelStatus,
+    status: DependencyQueueBatchStatus,
 ) -> bool {
-    for parcel in queue
+    for batch in queue
         .packages
         .iter_mut()
-        .flat_map(|package| &mut package.parcels)
+        .flat_map(|package| &mut package.batches)
     {
-        if parcel.queue_rank == queue_rank {
-            if parcel.status == status {
+        if batch.queue_rank == queue_rank {
+            if batch.status == status {
                 return false;
             }
-            parcel.status = status;
+            batch.status = status;
             return true;
         }
     }
@@ -764,24 +764,24 @@ fn package_review_key(package: &DependencyQueuePackageRecord) -> PackageReviewKe
     }
 }
 
-fn parcel_is_covered(
-    parcel: &DependencyQueueParcel,
+fn batch_is_covered(
+    batch: &DependencyQueueBatch,
     covered_files: Option<&BTreeSet<String>>,
 ) -> bool {
     let Some(covered_files) = covered_files else {
         return false;
     };
-    parcel
+    batch
         .files
         .iter()
         .all(|file| covered_files.contains(&file.path))
 }
 
-fn uncovered_parcel_files(
-    parcel: &DependencyQueueParcel,
+fn uncovered_batch_files(
+    batch: &DependencyQueueBatch,
     covered_files: Option<&BTreeSet<String>>,
 ) -> Vec<String> {
-    parcel
+    batch
         .files
         .iter()
         .filter(|file| {
@@ -793,21 +793,21 @@ fn uncovered_parcel_files(
         .collect()
 }
 
-fn dependency_queue_parcel_limits() -> DependencyQueueParcelLimits {
-    DependencyQueueParcelLimits {
-        max_lines_per_parcel: thirdpass_core::package::DEFAULT_REVIEW_PARCEL_MAX_LINES,
-        max_files_per_parcel: thirdpass_core::package::DEFAULT_REVIEW_PARCEL_MAX_FILES,
+fn dependency_queue_batch_limits() -> DependencyQueueBatchLimits {
+    DependencyQueueBatchLimits {
+        max_lines_per_batch: thirdpass_core::package::DEFAULT_REVIEW_BATCH_MAX_LINES,
+        max_files_per_batch: thirdpass_core::package::DEFAULT_REVIEW_BATCH_MAX_FILES,
     }
 }
 
-fn review_parcel_config(
+fn review_batch_config(
     queue_id: &str,
     package: &DependencyQueuePackage,
-) -> thirdpass_core::package::ReviewParcelConfig {
-    let limits = dependency_queue_parcel_limits();
-    thirdpass_core::package::ReviewParcelConfig {
-        max_lines: limits.max_lines_per_parcel,
-        max_files: limits.max_files_per_parcel,
+) -> thirdpass_core::package::ReviewBatchConfig {
+    let limits = dependency_queue_batch_limits();
+    thirdpass_core::package::ReviewBatchConfig {
+        max_lines: limits.max_lines_per_batch,
+        max_files: limits.max_files_per_batch,
         shuffle_seed: Some(package_shuffle_seed(queue_id, package)),
     }
 }
@@ -1072,7 +1072,7 @@ mod tests {
 
     #[test]
     fn select_next_review_skips_covered_files() {
-        let mut queue = queue_with_parcels();
+        let mut queue = queue_with_batches();
         let mut coverage = PackageReviewCoverage::new();
         coverage.insert(
             package_review_key(&queue.packages[0]),
@@ -1086,18 +1086,18 @@ mod tests {
         let selection = select_next_review(&queue, &coverage)
             .expect("partially covered queue should still select work");
 
-        assert_eq!(queue.reviewed_parcel_count(), 1);
-        assert_eq!(queue.remaining_parcel_count(), 1);
+        assert_eq!(queue.reviewed_batch_count(), 1);
+        assert_eq!(queue.remaining_batch_count(), 1);
         assert_eq!(selection.queue_rank, 2);
-        assert_eq!(selection.queue_parcel_count, 2);
-        assert_eq!(selection.package_parcel_rank, 2);
-        assert_eq!(selection.parcel_file_count, 2);
+        assert_eq!(selection.queue_batch_count, 2);
+        assert_eq!(selection.package_batch_rank, 2);
+        assert_eq!(selection.batch_file_count, 2);
         assert_eq!(selection.target_files, vec!["src/d.rs".to_string()]);
     }
 
     #[test]
     fn select_next_review_returns_none_when_queue_is_covered() {
-        let mut queue = queue_with_parcels();
+        let mut queue = queue_with_batches();
         let mut coverage = PackageReviewCoverage::new();
         coverage.insert(
             package_review_key(&queue.packages[0]),
@@ -1109,8 +1109,8 @@ mod tests {
 
         assert!(refresh_queue_progress(&mut queue, &coverage));
 
-        assert_eq!(queue.reviewed_parcel_count(), 2);
-        assert_eq!(queue.remaining_parcel_count(), 0);
+        assert_eq!(queue.reviewed_batch_count(), 2);
+        assert_eq!(queue.remaining_batch_count(), 0);
         assert_eq!(select_next_review(&queue, &coverage), None);
     }
 
@@ -1139,7 +1139,7 @@ mod tests {
         DependencyQueue {
             schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
             generated_at_unix: 1,
-            parcel_limits: dependency_queue_parcel_limits(),
+            batch_limits: dependency_queue_batch_limits(),
             queue_id: "queue-id".to_string(),
             source: DependencyQueueSource {
                 project_root: "/project".to_string(),
@@ -1152,7 +1152,7 @@ mod tests {
         }
     }
 
-    fn queue_with_parcels() -> DependencyQueue {
+    fn queue_with_batches() -> DependencyQueue {
         let mut queue = sample_queue();
         queue.packages = vec![DependencyQueuePackageRecord {
             extension_name: "rs".to_string(),
@@ -1162,23 +1162,19 @@ mod tests {
             package_hash: "package-hash".to_string(),
             human_url: "https://crates.io/crates/demo/1.0.0".to_string(),
             artifact_url: "https://static.crates.io/crates/demo/demo-1.0.0.crate".to_string(),
-            parcels: vec![
-                parcel(1, 1, &["src/a.rs", "src/b.rs"]),
-                parcel(2, 2, &["src/c.rs", "src/d.rs"]),
+            batches: vec![
+                batch(1, 1, &["src/a.rs", "src/b.rs"]),
+                batch(2, 2, &["src/c.rs", "src/d.rs"]),
             ],
         }];
         queue
     }
 
-    fn parcel(
-        queue_rank: usize,
-        package_parcel_rank: usize,
-        paths: &[&str],
-    ) -> DependencyQueueParcel {
-        DependencyQueueParcel {
+    fn batch(queue_rank: usize, package_batch_rank: usize, paths: &[&str]) -> DependencyQueueBatch {
+        DependencyQueueBatch {
             queue_rank,
-            package_parcel_rank,
-            status: DependencyQueueParcelStatus::Pending,
+            package_batch_rank,
+            status: DependencyQueueBatchStatus::Pending,
             total_lines: paths.len(),
             files: paths
                 .iter()
