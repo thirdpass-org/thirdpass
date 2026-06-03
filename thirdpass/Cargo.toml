@@ -1,6 +1,6 @@
 [package]
 name = "thirdpass"
-version = "0.4.3"
+version = "0.5.0"
 authors = ["rndhouse <rndhouse@protonmail.com>"]
 edition = "2018"
 repository = "https://github.com/thirdpass-org/thirdpass"
@@ -9,10 +9,10 @@ default-run = "thirdpass"
 description = "A multi-ecosystem package code review system."
 
 [dependencies]
-thirdpass-core = { path = "../thirdpass-core", version = "0.4.1", features = ["package", "registry"] }
-thirdpass-py = { path = "../../extensions/thirdpass-py", version = "0.4.0" }
-thirdpass-js = { path = "../../extensions/thirdpass-js", version = "0.4.0" }
-thirdpass-rs = { path = "../../extensions/thirdpass-rs", version = "0.2.0" }
+thirdpass-core = { path = "../thirdpass-core", version = "0.5.0", features = ["package", "registry"] }
+thirdpass-py = { path = "../../extensions/thirdpass-py", version = "0.5.0" }
+thirdpass-js = { path = "../../extensions/thirdpass-js", version = "0.5.0" }
+thirdpass-rs = { path = "../../extensions/thirdpass-rs", version = "0.3.0" }
 
 anyhow = "1.0.31"
 structopt = "0.3.21"

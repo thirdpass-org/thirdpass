@@ -2559,7 +2559,7 @@ dependencies = [
 
 [[package]]
 name = "thirdpass"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "atty",
@@ -2592,7 +2592,7 @@ dependencies = [
 
 [[package]]
 name = "thirdpass-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2616,7 +2616,7 @@ dependencies = [
 
 [[package]]
 name = "thirdpass-js"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "handlebars",
@@ -2634,7 +2634,7 @@ dependencies = [
 
 [[package]]
 name = "thirdpass-py"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "handlebars",
@@ -2652,7 +2652,7 @@ dependencies = [
 
 [[package]]
 name = "thirdpass-rs"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "reqwest 0.10.10",
