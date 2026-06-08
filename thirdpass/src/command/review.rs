@@ -320,14 +320,8 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
         let submit_result = match submit_result {
             Ok(submit_result) => submit_result,
             Err(err) => {
-                if is_network_error(&err) {
-                    log::warn!(
-                        "Failed to submit review due to network error: {}. Use --local-only to save locally without submitting.",
-                        err
-                    );
-                    return Ok(ReviewCommandOutcome::from_review(&existing.review, false));
-                }
-                return Err(err);
+                report_submission_failure(&err);
+                return Ok(ReviewCommandOutcome::from_review(&existing.review, false));
             }
         };
 
@@ -499,14 +493,8 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
     let submit_result = match submit_result {
         Ok(submit_result) => submit_result,
         Err(err) => {
-            if is_network_error(&err) {
-                log::warn!(
-                    "Failed to submit review due to network error: {}. Use --local-only to save locally without submitting.",
-                    err
-                );
-                return Ok(ReviewCommandOutcome::from_review(&review, false));
-            }
-            return Err(err);
+            report_submission_failure(&err);
+            None
         }
     };
 
@@ -891,11 +879,9 @@ fn finish_submitted_review(
     Ok(())
 }
 
-fn is_network_error(err: &anyhow::Error) -> bool {
-    if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
-        return reqwest_err.is_connect() || reqwest_err.is_timeout();
-    }
-    false
+fn report_submission_failure(err: &anyhow::Error) {
+    eprintln!("Review submission failed; review remains saved locally for retry: {err}");
+    log::warn!("Failed to submit review; review remains saved locally for retry: {err}");
 }
 
 fn package_target_label(review: &review::Review) -> String {
