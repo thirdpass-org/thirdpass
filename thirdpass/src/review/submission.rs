@@ -80,7 +80,11 @@ impl Worker {
     }
 
     fn scan_pending_reviews(&mut self) {
-        let paths = match pending_review_paths_older_than(PENDING_REVIEW_SCAN_MIN_AGE) {
+        self.scan_pending_reviews_older_than(PENDING_REVIEW_SCAN_MIN_AGE);
+    }
+
+    fn scan_pending_reviews_older_than(&mut self, min_age: Duration) {
+        let paths = match pending_review_paths_older_than(min_age) {
             Ok(paths) => paths,
             Err(error) => {
                 log::warn!("Failed to scan pending reviews for retry: {error}");
@@ -439,6 +443,9 @@ fn package_target_label(review: &Review) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "itest")]
+    static ITEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn is_review_json_path_accepts_only_review_json_files() {
         assert!(is_review_json_path(Path::new("review-abc.json")));
@@ -504,6 +511,7 @@ mod tests {
     #[cfg(feature = "itest")]
     #[test]
     fn queued_review_submission_saves_server_result_locally() -> Result<()> {
+        let _lock = ITEST_ENV_LOCK.lock().expect("itest env lock poisoned");
         let harness = RealServerHarness::new()?;
         let _env = harness.enter_client_environment()?;
         let config = harness.client_config();
@@ -538,6 +546,41 @@ mod tests {
             public_user_id
         );
         harness.assert_server_has_pending_review(&review.package.name, &public_user_id)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "itest")]
+    #[test]
+    fn disk_pending_review_is_submitted_by_worker_scan() -> Result<()> {
+        let _lock = ITEST_ENV_LOCK.lock().expect("itest env lock poisoned");
+        let harness = RealServerHarness::new()?;
+        let _env = harness.enter_client_environment()?;
+        harness.client_config().dump()?;
+
+        let review = harness.fixture_review()?;
+        let pending_path = review::store_pending(&review)?;
+        let (_sender, receiver) = mpsc::channel();
+        let mut worker = Worker {
+            receiver,
+            next_retry_at: BTreeMap::new(),
+        };
+
+        worker.scan_pending_reviews_older_than(Duration::from_secs(0));
+
+        assert!(!pending_path.exists());
+        let stored = review::fs::list_with_status()?;
+        let submitted = stored
+            .iter()
+            .find(|stored| {
+                stored.status == review::fs::ReviewStorageStatus::Submitted
+                    && stored.review.package.name == review.package.name
+            })
+            .expect("expected scanned review to be submitted locally");
+        let server_review = harness.server_pending_review(&review.package.name)?;
+        assert_eq!(
+            submitted.review.reviewer_details.public_user_id,
+            server_review.reviewer_details.public_user_id
+        );
         Ok(())
     }
 
@@ -638,11 +681,10 @@ mod tests {
             })
         }
 
-        fn assert_server_has_pending_review(
+        fn server_pending_review(
             &self,
             package_name: &str,
-            public_user_id: &str,
-        ) -> Result<()> {
+        ) -> Result<thirdpass_core::schema::ReviewRecord> {
             let client = reqwest::blocking::Client::builder()
                 .timeout(Duration::from_secs(2))
                 .build()
@@ -660,11 +702,19 @@ mod tests {
             let reviews = response
                 .json::<Vec<thirdpass_core::schema::ReviewRecord>>()
                 .context("failed to parse pending review response")?;
-            let found = reviews.iter().any(|review| {
-                review.target.package_name == package_name
-                    && review.reviewer_details.public_user_id == public_user_id
-            });
-            assert!(found, "expected server pending reviews to include fixture");
+            reviews
+                .into_iter()
+                .find(|review| review.target.package_name == package_name)
+                .context("expected server pending reviews to include fixture")
+        }
+
+        fn assert_server_has_pending_review(
+            &self,
+            package_name: &str,
+            public_user_id: &str,
+        ) -> Result<()> {
+            let review = self.server_pending_review(package_name)?;
+            assert_eq!(review.reviewer_details.public_user_id, public_user_id);
             Ok(())
         }
     }
