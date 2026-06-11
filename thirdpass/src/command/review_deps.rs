@@ -42,6 +42,9 @@ pub struct Arguments {
 pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
+    if !args.local_only {
+        crate::command::review::retry_pending_submissions(&mut config)?;
+    }
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;
@@ -74,6 +77,9 @@ pub(crate) fn run_package_command(
 ) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
+    if !args.local_only {
+        crate::command::review::retry_pending_submissions(&mut config)?;
+    }
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;

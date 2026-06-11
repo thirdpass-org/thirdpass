@@ -43,6 +43,7 @@ pub struct Arguments {
 pub fn run_command(args: &Arguments) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
+    crate::command::review::retry_pending_submissions(&mut config)?;
     let supported_registry_hosts =
         review::remote::supported_registry_hosts_for_filter(&config, &args.registry_hosts)?;
 

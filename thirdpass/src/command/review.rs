@@ -134,6 +134,12 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         return review_deps::run_package_command(args, extension_args);
     }
 
+    if !args.local_only && !args.submit_existing {
+        let mut config = common::config::Config::load()?;
+        extension::manage::update_config(&mut config)?;
+        retry_pending_submissions(&mut config)?;
+    }
+
     run_command_with_outcome(args).map(|_| ())
 }
 
@@ -515,6 +521,133 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
     Ok(ReviewCommandOutcome::from_review(&review, submitted))
 }
 
+/// Summary of a best-effort pending review submission retry pass.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub(crate) struct PendingSubmissionRetrySummary {
+    /// Number of pending reviews found before retrying.
+    pub(crate) pending: usize,
+    /// Number of pending reviews submitted during this pass.
+    pub(crate) submitted: usize,
+    /// Number of pending reviews that could not be submitted.
+    pub(crate) failed: usize,
+}
+
+/// Retry locally pending review submissions without making failures fatal.
+pub(crate) fn retry_pending_submissions(
+    config: &mut common::config::Config,
+) -> Result<PendingSubmissionRetrySummary> {
+    let pending_reviews = review::fs::list_with_status()?
+        .into_iter()
+        .filter(|stored| stored.status == review::fs::ReviewStorageStatus::Pending)
+        .collect::<Vec<_>>();
+
+    let mut summary = PendingSubmissionRetrySummary {
+        pending: pending_reviews.len(),
+        ..PendingSubmissionRetrySummary::default()
+    };
+
+    if pending_reviews.is_empty() {
+        return Ok(summary);
+    }
+
+    eprintln!(
+        "Retrying {} pending review submission{}.",
+        pending_reviews.len(),
+        plural_suffix(pending_reviews.len())
+    );
+
+    for stored in pending_reviews {
+        match retry_pending_submission(&stored, config) {
+            Ok(()) => summary.submitted += 1,
+            Err(err) => {
+                summary.failed += 1;
+                report_submission_failure(&err);
+            }
+        }
+    }
+
+    if summary.submitted > 0 || summary.failed > 0 {
+        eprintln!(
+            "Pending review retry complete: {} submitted, {} still pending.",
+            summary.submitted, summary.failed
+        );
+    }
+
+    Ok(summary)
+}
+
+fn retry_pending_submission(
+    stored: &review::fs::StoredReview,
+    config: &mut common::config::Config,
+) -> Result<()> {
+    let registry = single_review_registry(&stored.review)?;
+    let workspace_manifest = review::workspace::ensure(
+        &stored.review.package.name,
+        &stored.review.package.version,
+        &registry.host_name,
+        &registry.artifact_url,
+    )?;
+
+    let submit_result = (|| {
+        ensure_workspace_matches_review(&workspace_manifest, &stored.review)?;
+        let package_manifest =
+            review::workspace::package_manifest(&workspace_manifest.workspace_path)?;
+        review::remote::submit(&stored.review, &package_manifest, config)
+    })();
+    remove_retry_workspace(&workspace_manifest);
+    let submit_result = submit_result?;
+
+    let mut submitted_review = stored.review.clone();
+    let public_user_id_changed =
+        apply_server_public_user_id(config, &mut submitted_review, &submit_result.public_user_id)?;
+    finish_submitted_review(&submitted_review, &stored.path, public_user_id_changed)?;
+    Ok(())
+}
+
+fn single_review_registry(review: &review::Review) -> Result<&registry::Registry> {
+    let mut registries = review.package.registries.iter();
+    match (registries.next(), registries.next()) {
+        (Some(registry), None) => Ok(registry),
+        (None, _) => Err(format_err!(
+            "Pending review for {}@{} cannot be submitted because it has no registry.",
+            review.package.name,
+            review.package.version
+        )),
+        (Some(_), Some(_)) => Err(format_err!(
+            "Pending review for {}@{} cannot be submitted because it has {} registries.",
+            review.package.name,
+            review.package.version,
+            review.package.registries.len()
+        )),
+    }
+}
+
+fn ensure_workspace_matches_review(
+    workspace_manifest: &thirdpass_core::package::Manifest,
+    review: &review::Review,
+) -> Result<()> {
+    if workspace_manifest.package_hash != review.package.package_hash {
+        return Err(format_err!(
+            "Pending review for {}@{} references package hash {}, but the current cached archive has {}.",
+            review.package.name,
+            review.package.version,
+            review.package.package_hash,
+            workspace_manifest.package_hash
+        ));
+    }
+    Ok(())
+}
+
+fn remove_retry_workspace(workspace_manifest: &thirdpass_core::package::Manifest) {
+    if let Err(err) = review::workspace::remove(workspace_manifest) {
+        log::warn!(
+            "Failed to remove retry workspace {}: {}",
+            workspace_manifest.workspace_path.display(),
+            err
+        );
+    }
+}
+
 /// Parse user comments from active review file and insert into index.
 fn get_comments(
     active_review_file: &std::path::PathBuf,
@@ -882,6 +1015,14 @@ fn finish_submitted_review(
 fn report_submission_failure(err: &anyhow::Error) {
     eprintln!("Review submission failed; review remains saved locally for retry: {err}");
     log::warn!("Failed to submit review; review remains saved locally for retry: {err}");
+}
+
+fn plural_suffix(count: usize) -> &'static str {
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
 }
 
 fn package_target_label(review: &review::Review) -> String {
