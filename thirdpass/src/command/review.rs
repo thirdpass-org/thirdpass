@@ -2,6 +2,7 @@ use anyhow::{format_err, Context, Result};
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::{Component, Path, PathBuf};
+use std::sync::mpsc;
 use structopt::{self, StructOpt};
 
 use crate::common;
@@ -121,6 +122,205 @@ impl ReviewCommandOutcome {
     }
 }
 
+/// Result of a review command, including any asynchronous submission work.
+pub(crate) struct ReviewCommandResult {
+    /// User-facing review outcome.
+    pub(crate) outcome: ReviewCommandOutcome,
+    /// Background submission ticket for the saved review.
+    pub(crate) submission: Option<ReviewSubmissionTicket>,
+}
+
+/// Worker handle used to submit saved reviews without blocking review work.
+#[derive(Clone)]
+pub(crate) struct ReviewSubmissionSubmitter {
+    sender: mpsc::Sender<ReviewSubmissionJob>,
+}
+
+/// Completion ticket for one queued review submission.
+pub(crate) struct ReviewSubmissionTicket {
+    package_label: String,
+    receiver: mpsc::Receiver<ReviewSubmissionStatus>,
+}
+
+struct ReviewSubmissionJob {
+    pending_path: PathBuf,
+    review: review::Review,
+    package_manifest: thirdpass_core::schema::PackageManifest,
+    config: common::config::Config,
+    result_tx: mpsc::Sender<ReviewSubmissionStatus>,
+}
+
+enum ReviewSubmissionStatus {
+    Submitted {
+        package_label: String,
+        public_user_id: String,
+    },
+    Failed {
+        package_label: String,
+        error: String,
+    },
+}
+
+/// Summary from waiting for queued review submissions.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub(crate) struct ReviewSubmissionWaitSummary {
+    /// Number of queued submissions accepted by the API.
+    pub(crate) submitted: usize,
+    /// Number of queued submissions that failed and remain pending.
+    pub(crate) failed: usize,
+}
+
+impl ReviewSubmissionSubmitter {
+    /// Start a background submission worker for this command invocation.
+    pub(crate) fn start() -> Result<Self> {
+        let (sender, receiver) = mpsc::channel::<ReviewSubmissionJob>();
+        std::thread::Builder::new()
+            .name("thirdpass-review-submitter".to_string())
+            .spawn(move || {
+                while let Ok(job) = receiver.recv() {
+                    run_submission_job(job);
+                }
+            })
+            .context("Failed to start review submission worker.")?;
+        Ok(Self { sender })
+    }
+
+    fn submit(
+        &self,
+        pending_path: PathBuf,
+        review: review::Review,
+        package_manifest: thirdpass_core::schema::PackageManifest,
+        config: common::config::Config,
+    ) -> ReviewSubmissionTicket {
+        let package_label = package_target_label(&review);
+        let (result_tx, receiver) = mpsc::channel();
+        let job = ReviewSubmissionJob {
+            pending_path,
+            review,
+            package_manifest,
+            config,
+            result_tx: result_tx.clone(),
+        };
+
+        if let Err(error) = self.sender.send(job) {
+            let _ = result_tx.send(ReviewSubmissionStatus::Failed {
+                package_label: package_label.clone(),
+                error: format!("submission worker is unavailable: {error}"),
+            });
+        }
+
+        ReviewSubmissionTicket {
+            package_label,
+            receiver,
+        }
+    }
+}
+
+impl ReviewSubmissionTicket {
+    fn wait(self) -> ReviewSubmissionStatus {
+        match self.receiver.recv() {
+            Ok(status) => status,
+            Err(error) => ReviewSubmissionStatus::Failed {
+                package_label: self.package_label,
+                error: format!("submission worker stopped before reporting a result: {error}"),
+            },
+        }
+    }
+}
+
+fn run_submission_job(job: ReviewSubmissionJob) {
+    let package_label = package_target_label(&job.review);
+    let result_tx = job.result_tx.clone();
+    let result = submit_review_job(job);
+    let _ = match result {
+        Ok(public_user_id) => result_tx.send(ReviewSubmissionStatus::Submitted {
+            package_label,
+            public_user_id,
+        }),
+        Err(error) => result_tx.send(ReviewSubmissionStatus::Failed {
+            package_label,
+            error: error.to_string(),
+        }),
+    };
+}
+
+fn submit_review_job(job: ReviewSubmissionJob) -> Result<String> {
+    let submit_result = review::remote::submit(&job.review, &job.package_manifest, &job.config)?;
+
+    let mut submitted_review = job.review;
+    let public_user_id_changed = apply_public_user_id_to_review(
+        &mut submitted_review,
+        &submit_result.public_user_id,
+        &job.config.core.api_base,
+    )?;
+    finish_submitted_review(&submitted_review, &job.pending_path, public_user_id_changed)?;
+
+    Ok(submit_result.public_user_id)
+}
+
+/// Wait for one queued submission and persist server identity updates.
+pub(crate) fn wait_for_submission(ticket: ReviewSubmissionTicket) -> Result<bool> {
+    let summary = wait_for_submissions(vec![ticket])?;
+    Ok(summary.submitted == 1)
+}
+
+/// Wait for queued submissions and persist server identity updates.
+pub(crate) fn wait_for_submissions(
+    tickets: Vec<ReviewSubmissionTicket>,
+) -> Result<ReviewSubmissionWaitSummary> {
+    let mut summary = ReviewSubmissionWaitSummary::default();
+    if tickets.len() > 1 {
+        println!(
+            "Waiting for {} review submission{}.",
+            tickets.len(),
+            plural_suffix(tickets.len())
+        );
+    }
+
+    for ticket in tickets {
+        match ticket.wait() {
+            ReviewSubmissionStatus::Submitted {
+                package_label,
+                public_user_id,
+            } => {
+                persist_public_user_id(&public_user_id)?;
+                println!("Review submitted: {}.", package_label);
+                summary.submitted += 1;
+            }
+            ReviewSubmissionStatus::Failed {
+                package_label,
+                error,
+            } => {
+                report_submission_failure_message(&package_label, &error);
+                summary.failed += 1;
+            }
+        }
+    }
+
+    if summary.submitted + summary.failed > 1 {
+        println!(
+            "Review submission summary: {} submitted, {} pending.",
+            summary.submitted, summary.failed
+        );
+    }
+
+    Ok(summary)
+}
+
+fn persist_public_user_id(public_user_id: &str) -> Result<()> {
+    let public_user_id = public_user_id.trim();
+    if public_user_id.is_empty() {
+        return Ok(());
+    }
+
+    let mut config = common::config::Config::load()?;
+    if config.core.public_user_id != public_user_id {
+        config.core.public_user_id = public_user_id.to_string();
+        config.dump()?;
+    }
+    Ok(())
+}
+
 pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
     if args.deps {
         if !args.target_files.is_empty() {
@@ -134,17 +334,19 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         return review_deps::run_package_command(args, extension_args);
     }
 
-    if !args.local_only && !args.submit_existing {
-        let mut config = common::config::Config::load()?;
-        extension::manage::update_config(&mut config)?;
-        retry_pending_submissions(&mut config)?;
+    let submitter = ReviewSubmissionSubmitter::start()?;
+    let mut result = run_command_with_result(args, Some(&submitter))?;
+    if let Some(ticket) = result.submission.take() {
+        result.outcome.submitted = wait_for_submission(ticket)?;
     }
-
-    run_command_with_outcome(args).map(|_| ())
+    Ok(())
 }
 
-/// Run a review command and return structured details about the result.
-pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommandOutcome> {
+/// Run a review command and return the review plus any queued submission.
+pub(crate) fn run_command_with_result(
+    args: &Arguments,
+    submitter: Option<&ReviewSubmissionSubmitter>,
+) -> Result<ReviewCommandResult> {
     // TODO: Add gpg signing.
 
     let mut config = common::config::Config::load()?;
@@ -307,39 +509,46 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
             );
             let outcome = ReviewCommandOutcome::from_review(&existing.review, true);
             review::workspace::remove(&workspace_manifest)?;
-            return Ok(outcome);
+            return Ok(ReviewCommandResult {
+                outcome,
+                submission: None,
+            });
         }
 
         let package_label = package_target_label(&existing.review);
-        let api_base = submission_api_base(&config)?;
-        println!(
-            "Submitting existing review for {} to {}.",
-            package_label, api_base
-        );
-        let submit_result = (|| {
-            let package_manifest =
-                review::workspace::package_manifest(&workspace_manifest.workspace_path)?;
-            review::remote::submit(&existing.review, &package_manifest, &config)
-        })();
+        if let Ok(api_base) = submission_api_base(&config) {
+            println!(
+                "Queueing existing review submission for {} to {}.",
+                package_label, api_base
+            );
+        }
+        let package_manifest =
+            review::workspace::package_manifest(&workspace_manifest.workspace_path);
         review::workspace::remove(&workspace_manifest)?;
 
-        let submit_result = match submit_result {
-            Ok(submit_result) => submit_result,
+        let package_manifest = match package_manifest {
+            Ok(package_manifest) => package_manifest,
             Err(err) => {
                 report_submission_failure(&err);
-                return Ok(ReviewCommandOutcome::from_review(&existing.review, false));
+                return Ok(ReviewCommandResult {
+                    outcome: ReviewCommandOutcome::from_review(&existing.review, false),
+                    submission: None,
+                });
             }
         };
 
-        let mut submitted_review = existing.review.clone();
-        let public_user_id_changed = apply_server_public_user_id(
-            &mut config,
-            &mut submitted_review,
-            &submit_result.public_user_id,
-        )?;
-        finish_submitted_review(&submitted_review, &existing.path, public_user_id_changed)?;
-        println!("Review submitted.");
-        return Ok(ReviewCommandOutcome::from_review(&submitted_review, true));
+        let submission = submitter.map(|submitter| {
+            submitter.submit(
+                existing.path.clone(),
+                existing.review.clone(),
+                package_manifest,
+                config.clone(),
+            )
+        });
+        return Ok(ReviewCommandResult {
+            outcome: ReviewCommandOutcome::from_review(&existing.review, false),
+            submission,
+        });
     }
 
     let config_agent_model = config.review_tool.agent_model.clone();
@@ -480,172 +689,36 @@ pub(crate) fn run_command_with_outcome(args: &Arguments) -> Result<ReviewCommand
     let pending_review_path = review::store_pending(&review)?;
     println!("Review saved.");
 
-    let submit_result = if args.local_only {
-        Ok(None)
-    } else {
+    let mut submission = None;
+    if !args.local_only {
         let package_label = package_target_label(&review);
-        let api_base = submission_api_base(&config)?;
-        println!("Submitting review for {} to {}.", package_label, api_base);
-        (|| {
-            let package_manifest =
-                review::workspace::package_manifest(&workspace_manifest.workspace_path)?;
-            review::remote::submit(&review, &package_manifest, &config)
-        })()
-        .map(Some)
-    };
+        if let Ok(api_base) = submission_api_base(&config) {
+            println!(
+                "Queueing review submission for {} to {}.",
+                package_label, api_base
+            );
+        }
+        match review::workspace::package_manifest(&workspace_manifest.workspace_path) {
+            Ok(package_manifest) => {
+                submission = submitter.map(|submitter| {
+                    submitter.submit(
+                        pending_review_path.clone(),
+                        review.clone(),
+                        package_manifest,
+                        config.clone(),
+                    )
+                });
+            }
+            Err(err) => report_submission_failure(&err),
+        }
+    }
 
     review::workspace::remove(&workspace_manifest)?;
 
-    let submit_result = match submit_result {
-        Ok(submit_result) => submit_result,
-        Err(err) => {
-            report_submission_failure(&err);
-            None
-        }
-    };
-
-    let mut submitted = false;
-    if !args.local_only {
-        if let Some(submit_result) = submit_result {
-            let public_user_id_changed = apply_server_public_user_id(
-                &mut config,
-                &mut review,
-                &submit_result.public_user_id,
-            )?;
-            finish_submitted_review(&review, &pending_review_path, public_user_id_changed)?;
-            println!("Review submitted.");
-            submitted = true;
-        }
-    }
-
-    Ok(ReviewCommandOutcome::from_review(&review, submitted))
-}
-
-/// Summary of a best-effort pending review submission retry pass.
-#[derive(Debug, Clone, Default, Eq, PartialEq)]
-pub(crate) struct PendingSubmissionRetrySummary {
-    /// Number of pending reviews found before retrying.
-    pub(crate) pending: usize,
-    /// Number of pending reviews submitted during this pass.
-    pub(crate) submitted: usize,
-    /// Number of pending reviews that could not be submitted.
-    pub(crate) failed: usize,
-}
-
-/// Retry locally pending review submissions without making failures fatal.
-pub(crate) fn retry_pending_submissions(
-    config: &mut common::config::Config,
-) -> Result<PendingSubmissionRetrySummary> {
-    let pending_reviews = review::fs::list_with_status()?
-        .into_iter()
-        .filter(|stored| stored.status == review::fs::ReviewStorageStatus::Pending)
-        .collect::<Vec<_>>();
-
-    let mut summary = PendingSubmissionRetrySummary {
-        pending: pending_reviews.len(),
-        ..PendingSubmissionRetrySummary::default()
-    };
-
-    if pending_reviews.is_empty() {
-        return Ok(summary);
-    }
-
-    eprintln!(
-        "Retrying {} pending review submission{}.",
-        pending_reviews.len(),
-        plural_suffix(pending_reviews.len())
-    );
-
-    for stored in pending_reviews {
-        match retry_pending_submission(&stored, config) {
-            Ok(()) => summary.submitted += 1,
-            Err(err) => {
-                summary.failed += 1;
-                report_submission_failure(&err);
-            }
-        }
-    }
-
-    if summary.submitted > 0 || summary.failed > 0 {
-        eprintln!(
-            "Pending review retry complete: {} submitted, {} still pending.",
-            summary.submitted, summary.failed
-        );
-    }
-
-    Ok(summary)
-}
-
-fn retry_pending_submission(
-    stored: &review::fs::StoredReview,
-    config: &mut common::config::Config,
-) -> Result<()> {
-    let registry = single_review_registry(&stored.review)?;
-    let workspace_manifest = review::workspace::ensure(
-        &stored.review.package.name,
-        &stored.review.package.version,
-        &registry.host_name,
-        &registry.artifact_url,
-    )?;
-
-    let submit_result = (|| {
-        ensure_workspace_matches_review(&workspace_manifest, &stored.review)?;
-        let package_manifest =
-            review::workspace::package_manifest(&workspace_manifest.workspace_path)?;
-        review::remote::submit(&stored.review, &package_manifest, config)
-    })();
-    remove_retry_workspace(&workspace_manifest);
-    let submit_result = submit_result?;
-
-    let mut submitted_review = stored.review.clone();
-    let public_user_id_changed =
-        apply_server_public_user_id(config, &mut submitted_review, &submit_result.public_user_id)?;
-    finish_submitted_review(&submitted_review, &stored.path, public_user_id_changed)?;
-    Ok(())
-}
-
-fn single_review_registry(review: &review::Review) -> Result<&registry::Registry> {
-    let mut registries = review.package.registries.iter();
-    match (registries.next(), registries.next()) {
-        (Some(registry), None) => Ok(registry),
-        (None, _) => Err(format_err!(
-            "Pending review for {}@{} cannot be submitted because it has no registry.",
-            review.package.name,
-            review.package.version
-        )),
-        (Some(_), Some(_)) => Err(format_err!(
-            "Pending review for {}@{} cannot be submitted because it has {} registries.",
-            review.package.name,
-            review.package.version,
-            review.package.registries.len()
-        )),
-    }
-}
-
-fn ensure_workspace_matches_review(
-    workspace_manifest: &thirdpass_core::package::Manifest,
-    review: &review::Review,
-) -> Result<()> {
-    if workspace_manifest.package_hash != review.package.package_hash {
-        return Err(format_err!(
-            "Pending review for {}@{} references package hash {}, but the current cached archive has {}.",
-            review.package.name,
-            review.package.version,
-            review.package.package_hash,
-            workspace_manifest.package_hash
-        ));
-    }
-    Ok(())
-}
-
-fn remove_retry_workspace(workspace_manifest: &thirdpass_core::package::Manifest) {
-    if let Err(err) = review::workspace::remove(workspace_manifest) {
-        log::warn!(
-            "Failed to remove retry workspace {}: {}",
-            workspace_manifest.workspace_path.display(),
-            err
-        );
-    }
+    Ok(ReviewCommandResult {
+        outcome: ReviewCommandOutcome::from_review(&review, false),
+        submission,
+    })
 }
 
 /// Parse user comments from active review file and insert into index.
@@ -976,10 +1049,10 @@ fn now_epoch_seconds() -> Result<String> {
     Ok(now.as_secs().to_string())
 }
 
-fn apply_server_public_user_id(
-    config: &mut common::config::Config,
+fn apply_public_user_id_to_review(
     review: &mut review::Review,
     public_user_id: &str,
+    api_base: &str,
 ) -> Result<bool> {
     let public_user_id = public_user_id.trim();
     if public_user_id.is_empty() {
@@ -988,13 +1061,7 @@ fn apply_server_public_user_id(
 
     let changed = review.reviewer_details.public_user_id != public_user_id;
     review.reviewer_details.public_user_id = public_user_id.to_string();
-    review.peer = peer::public_user_peer(public_user_id, &config.core.api_base)?;
-
-    if config.core.public_user_id != public_user_id {
-        config.core.public_user_id = public_user_id.to_string();
-        config.dump()?;
-    }
-
+    review.peer = peer::public_user_peer(public_user_id, api_base)?;
     Ok(changed)
 }
 
@@ -1015,6 +1082,18 @@ fn finish_submitted_review(
 fn report_submission_failure(err: &anyhow::Error) {
     eprintln!("Review submission failed; review remains saved locally for retry: {err}");
     log::warn!("Failed to submit review; review remains saved locally for retry: {err}");
+}
+
+fn report_submission_failure_message(package_label: &str, message: &str) {
+    eprintln!(
+        "Review submission failed for {}; review remains saved locally for retry: {}",
+        package_label, message
+    );
+    log::warn!(
+        "Failed to submit review for {}; review remains saved locally for retry: {}",
+        package_label,
+        message
+    );
 }
 
 fn plural_suffix(count: usize) -> &'static str {

@@ -42,9 +42,11 @@ pub struct Arguments {
 pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
-    if !args.local_only {
-        crate::command::review::retry_pending_submissions(&mut config)?;
-    }
+    let submitter = if args.local_only {
+        None
+    } else {
+        Some(crate::command::review::ReviewSubmissionSubmitter::start()?)
+    };
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;
@@ -68,6 +70,7 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         &working_directory,
         discovery,
         &config.core.public_user_id,
+        submitter.as_ref(),
     )
 }
 
@@ -77,9 +80,11 @@ pub(crate) fn run_package_command(
 ) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
-    if !args.local_only {
-        crate::command::review::retry_pending_submissions(&mut config)?;
-    }
+    let submitter = if args.local_only {
+        None
+    } else {
+        Some(crate::command::review::ReviewSubmissionSubmitter::start()?)
+    };
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;
@@ -114,6 +119,7 @@ pub(crate) fn run_package_command(
         &working_directory,
         discovery,
         &config.core.public_user_id,
+        submitter.as_ref(),
     )
 }
 
@@ -144,11 +150,12 @@ struct DependencyReviewDiscovery {
     candidates: Vec<DependencyReviewCandidate>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct DependencyReviewSession {
     completed_reviews: usize,
     reviewed_files: usize,
     submitted_reviews: usize,
+    submission_tickets: Vec<crate::command::review::ReviewSubmissionTicket>,
 }
 
 impl DependencyReviewSession {
@@ -158,6 +165,19 @@ impl DependencyReviewSession {
         if outcome.submitted {
             self.submitted_reviews += 1;
         }
+    }
+
+    fn track_submission(&mut self, ticket: Option<crate::command::review::ReviewSubmissionTicket>) {
+        if let Some(ticket) = ticket {
+            self.submission_tickets.push(ticket);
+        }
+    }
+
+    fn wait_for_submissions(&mut self) -> Result<()> {
+        let tickets = std::mem::take(&mut self.submission_tickets);
+        let summary = crate::command::review::wait_for_submissions(tickets)?;
+        self.submitted_reviews += summary.submitted;
+        Ok(())
     }
 }
 
@@ -175,6 +195,7 @@ fn run_discovered_dependency_reviews(
     working_directory: &std::path::Path,
     discovery: DependencyReviewDiscovery,
     public_user_id: &str,
+    submitter: Option<&crate::command::review::ReviewSubmissionSubmitter>,
 ) -> Result<()> {
     let queue_packages = discovery
         .candidates
@@ -201,6 +222,7 @@ fn run_discovered_dependency_reviews(
                 if prepare_next_dependency(&mut queue, extensions)? {
                     continue;
                 }
+                session.wait_for_submissions()?;
                 println!("Dependency review queue complete.");
                 return Ok(());
             }
@@ -210,8 +232,8 @@ fn run_discovered_dependency_reviews(
         print_selected_batch(review_number, &selection);
 
         let queue_rank = selection.queue_rank;
-        let outcome =
-            crate::command::review::run_command_with_outcome(&crate::command::review::Arguments {
+        let result = crate::command::review::run_command_with_result(
+            &crate::command::review::Arguments {
                 package_name: selection.package_name,
                 package_version: Some(selection.package_version),
                 extension_names: Some(vec![selection.extension_name]),
@@ -223,9 +245,12 @@ fn run_discovered_dependency_reviews(
                 agent_reasoning_effort: args.agent_reasoning_effort.clone(),
                 submit_existing: false,
                 local_only: args.local_only,
-            })?;
+            },
+            submitter,
+        )?;
         queue.mark_batch_reviewed(queue_rank)?;
-        session.record(&outcome);
+        session.record(&result.outcome);
+        session.track_submission(result.submission);
         print_review_deps_progress(&queue, &session);
     }
 }

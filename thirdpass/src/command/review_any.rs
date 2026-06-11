@@ -43,23 +43,28 @@ pub struct Arguments {
 pub fn run_command(args: &Arguments) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
-    crate::command::review::retry_pending_submissions(&mut config)?;
+    let submitter = crate::command::review::ReviewSubmissionSubmitter::start()?;
     let supported_registry_hosts =
         review::remote::supported_registry_hosts_for_filter(&config, &args.registry_hosts)?;
 
     if args.nightshift {
-        return run_nightshift(args, &config, &supported_registry_hosts);
+        return run_nightshift(args, &config, &supported_registry_hosts, &submitter);
     }
 
     let target = review::remote::request_global_target(&config, &supported_registry_hosts)?
         .ok_or(format_err!("No review target is currently available."))?;
-    run_assigned_target(args, &config, target, None).map(|_| ())
+    let mut result = run_assigned_target(args, &config, target, None, &submitter)?;
+    if let Some(ticket) = result.submission.take() {
+        result.outcome.submitted = crate::command::review::wait_for_submission(ticket)?;
+    }
+    Ok(())
 }
 
 fn run_nightshift(
     args: &Arguments,
     config: &common::config::Config,
     supported_registry_hosts: &[String],
+    submitter: &crate::command::review::ReviewSubmissionSubmitter,
 ) -> Result<()> {
     let mut session = NightshiftSession::default();
     println!("Nightshift started. Press Ctrl-C to stop.");
@@ -69,9 +74,13 @@ fn run_nightshift(
         match review::remote::request_global_target(config, supported_registry_hosts) {
             Ok(Some(target)) => {
                 let review_number = session.completed_reviews + 1;
-                let outcome = run_assigned_target(args, config, target, Some(review_number))?;
-                session.record(&outcome);
-                print_nightshift_progress(&session, &outcome);
+                let mut result =
+                    run_assigned_target(args, config, target, Some(review_number), submitter)?;
+                if let Some(ticket) = result.submission.take() {
+                    result.outcome.submitted = crate::command::review::wait_for_submission(ticket)?;
+                }
+                session.record(&result.outcome);
+                print_nightshift_progress(&session, &result.outcome);
                 println!("Looking for next target.");
             }
             Ok(None) => sleep_after_idle("No review target is currently available."),
@@ -90,7 +99,8 @@ fn run_assigned_target(
     config: &common::config::Config,
     target: review::remote::ReviewCandidate,
     nightshift_review_number: Option<usize>,
-) -> Result<crate::command::review::ReviewCommandOutcome> {
+    submitter: &crate::command::review::ReviewSubmissionSubmitter,
+) -> Result<crate::command::review::ReviewCommandResult> {
     let extension_name = config
         .extensions
         .registries
@@ -105,19 +115,22 @@ fn run_assigned_target(
     let display_files = target_files.join(", ");
     print_assigned_target(&target, &display_files, nightshift_review_number);
 
-    crate::command::review::run_command_with_outcome(&crate::command::review::Arguments {
-        package_name: target.package_name,
-        package_version: Some(target.package_version),
-        extension_names: Some(vec![extension_name]),
-        target_files,
-        deps: false,
-        manual: args.manual,
-        agent: args.agent.clone(),
-        agent_model: args.agent_model.clone(),
-        agent_reasoning_effort: args.agent_reasoning_effort.clone(),
-        submit_existing: false,
-        local_only: false,
-    })
+    crate::command::review::run_command_with_result(
+        &crate::command::review::Arguments {
+            package_name: target.package_name,
+            package_version: Some(target.package_version),
+            extension_names: Some(vec![extension_name]),
+            target_files,
+            deps: false,
+            manual: args.manual,
+            agent: args.agent.clone(),
+            agent_model: args.agent_model.clone(),
+            agent_reasoning_effort: args.agent_reasoning_effort.clone(),
+            submit_existing: false,
+            local_only: false,
+        },
+        Some(submitter),
+    )
 }
 
 fn print_assigned_target(
