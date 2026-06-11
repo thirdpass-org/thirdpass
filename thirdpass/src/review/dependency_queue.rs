@@ -1,12 +1,11 @@
 use anyhow::{format_err, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
-const DEPENDENCY_QUEUE_SCHEMA_VERSION: u32 = 4;
+const DEPENDENCY_REVIEW_PLAN_VERSION: u32 = 1;
 
-/// One dependency package that should be considered for the local queue.
+/// One dependency package that should be considered for local review.
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub(crate) struct DependencyQueuePackage {
     /// Extension name that discovered this dependency.
@@ -19,26 +18,21 @@ pub(crate) struct DependencyQueuePackage {
     pub(crate) package_version: String,
 }
 
-/// A stored local dependency review queue and its filesystem path.
+/// Runtime dependency review plan for one project dependency snapshot.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct StoredDependencyQueue {
-    /// Path of the queue JSON file.
-    pub(crate) path: PathBuf,
-    /// Queue contents.
+pub(crate) struct DependencyReviewPlan {
+    /// Plan contents built from the current project dependency files.
     pub(crate) queue: DependencyQueue,
 }
 
-impl StoredDependencyQueue {
+impl DependencyReviewPlan {
     /// Refresh batch status from local review storage and select the next work item.
     pub(crate) fn select_next_review(
         &mut self,
         public_user_id: &str,
     ) -> Result<Option<DependencyQueueSelection>> {
         let coverage = local_review_coverage(public_user_id)?;
-        let changed = refresh_queue_progress(&mut self.queue, &coverage);
-        if changed {
-            write_queue_atomically(&self.path, &self.queue)?;
-        }
+        refresh_queue_progress(&mut self.queue, &coverage);
         Ok(select_next_review(&self.queue, &coverage))
     }
 
@@ -47,7 +41,7 @@ impl StoredDependencyQueue {
         self.queue.pending_packages.first()
     }
 
-    /// Download, analyze, and persist the next pending dependency package.
+    /// Download and analyze the next pending dependency package.
     pub(crate) fn prepare_next_package(
         &mut self,
         extensions: &[Box<dyn thirdpass_core::extension::Extension>],
@@ -60,7 +54,7 @@ impl StoredDependencyQueue {
         let preparation = match build_package_record(
             &package,
             extensions,
-            &self.queue.queue_id,
+            &self.queue.snapshot_id,
             first_queue_rank,
         ) {
             Ok(record) => {
@@ -90,19 +84,16 @@ impl StoredDependencyQueue {
         };
 
         self.queue.pending_packages.remove(0);
-        write_queue_atomically(&self.path, &self.queue)?;
         Ok(Some(preparation))
     }
 
-    /// Mark a queue batch as reviewed and persist the queue.
+    /// Mark a dependency batch as reviewed for this command run.
     pub(crate) fn mark_batch_reviewed(&mut self, queue_rank: usize) -> Result<()> {
-        if set_batch_status(
+        let _ = set_batch_status(
             &mut self.queue,
             queue_rank,
             DependencyQueueBatchStatus::Reviewed,
-        ) {
-            write_queue_atomically(&self.path, &self.queue)?;
-        }
+        );
         Ok(())
     }
 }
@@ -163,18 +154,18 @@ pub(crate) enum DependencyQueuePreparation {
     },
 }
 
-/// Local review queue built from a project's dependency files.
+/// Local review plan built from a project's dependency files.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DependencyQueue {
-    /// Queue schema version.
+    /// Plan schema version.
     pub(crate) schema_version: u32,
-    /// Queue creation timestamp in Unix seconds.
+    /// Plan creation timestamp in Unix seconds.
     pub(crate) generated_at_unix: u64,
-    /// Batch sizing limits used to build this queue.
+    /// Batch sizing limits used to build this plan.
     pub(crate) batch_limits: DependencyQueueBatchLimits,
-    /// Stable queue identifier used for package batch shuffling.
-    pub(crate) queue_id: String,
-    /// Project dependency snapshot used to derive this queue.
+    /// Stable dependency snapshot identifier used for package batch shuffling.
+    pub(crate) snapshot_id: String,
+    /// Project dependency snapshot used to derive this plan.
     pub(crate) source: DependencyQueueSource,
     /// Packages successfully analyzed into review batches.
     pub(crate) packages: Vec<DependencyQueuePackageRecord>,
@@ -185,7 +176,7 @@ pub(crate) struct DependencyQueue {
 }
 
 impl DependencyQueue {
-    /// Count all review batches across queued packages.
+    /// Count all review batches across planned packages.
     pub(crate) fn batch_count(&self) -> usize {
         self.packages
             .iter()
@@ -193,7 +184,7 @@ impl DependencyQueue {
             .sum()
     }
 
-    /// Count batches marked as reviewed in this queue.
+    /// Count batches marked as reviewed in this plan.
     pub(crate) fn reviewed_batch_count(&self) -> usize {
         self.packages
             .iter()
@@ -219,7 +210,7 @@ impl DependencyQueue {
     }
 }
 
-/// Batch sizing limits captured in a stored queue.
+/// Batch sizing limits captured in a dependency review plan.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DependencyQueueBatchLimits {
     /// Maximum total line count to include in one batch.
@@ -228,9 +219,11 @@ pub(crate) struct DependencyQueueBatchLimits {
     pub(crate) max_files_per_batch: usize,
 }
 
-/// Project files and dependency count used to derive a queue.
+/// Project files and dependency count used to derive a dependency review plan.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DependencyQueueSource {
+    /// Stable identifier for this dependency snapshot.
+    pub(crate) snapshot_id: String,
     /// Absolute project root used for dependency discovery.
     pub(crate) project_root: String,
     /// Dependency files that contributed dependency candidates.
@@ -248,7 +241,7 @@ pub(crate) struct DependencyQueueSourceFile {
     pub(crate) blake3: String,
 }
 
-/// One analyzed dependency package in a queue.
+/// One analyzed dependency package in a review plan.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DependencyQueuePackageRecord {
     /// Extension name that discovered this package.
@@ -311,7 +304,7 @@ pub(crate) struct DependencyQueueFile {
     pub(crate) file_rank: usize,
 }
 
-/// Dependency package skipped while building a local queue.
+/// Dependency package skipped while building a local review plan.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SkippedDependencyPackage {
     /// Extension name that discovered this package.
@@ -327,7 +320,7 @@ pub(crate) struct SkippedDependencyPackage {
 }
 
 #[derive(Debug, Serialize)]
-struct DependencyQueueKey<'a> {
+struct DependencySnapshotKey<'a> {
     schema_version: u32,
     batch_limits: DependencyQueueBatchLimits,
     project_root: &'a str,
@@ -335,47 +328,34 @@ struct DependencyQueueKey<'a> {
     packages: &'a [DependencyQueuePackage],
 }
 
-/// Ensure a dependency review queue exists for a project dependency snapshot.
-pub(crate) fn ensure_for_project(
+/// Build a dependency review plan for the current project dependency snapshot.
+pub(crate) fn plan_for_project(
     project_root: &Path,
     dependency_files: &[PathBuf],
     packages: &[DependencyQueuePackage],
-) -> Result<StoredDependencyQueue> {
+) -> Result<DependencyReviewPlan> {
     let project_root = canonical_path(project_root)?;
     let source_files = dependency_source_files(dependency_files)?;
     let packages = sorted_packages(packages);
     let project_root_string = project_root.display().to_string();
-    let queue_id = queue_id(&project_root_string, &source_files, &packages)?;
-    let queue_path = queue_path(&queue_id)?;
-
-    if queue_path.is_file() {
-        let queue = read_queue(&queue_path)?;
-        return Ok(StoredDependencyQueue {
-            path: queue_path,
-            queue,
-        });
-    }
-
-    let queue = new_queue(&project_root_string, source_files, packages, &queue_id)?;
-    write_queue_atomically(&queue_path, &queue)?;
-    Ok(StoredDependencyQueue {
-        path: queue_path,
-        queue,
-    })
+    let snapshot_id = dependency_snapshot_id(&project_root_string, &source_files, &packages)?;
+    let queue = new_queue(&project_root_string, source_files, packages, &snapshot_id)?;
+    Ok(DependencyReviewPlan { queue })
 }
 
 fn new_queue(
     project_root: &str,
     dependency_files: Vec<DependencyQueueSourceFile>,
     packages: Vec<DependencyQueuePackage>,
-    queue_id: &str,
+    snapshot_id: &str,
 ) -> Result<DependencyQueue> {
     Ok(DependencyQueue {
-        schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
+        schema_version: DEPENDENCY_REVIEW_PLAN_VERSION,
         generated_at_unix: now_unix_seconds()?,
         batch_limits: dependency_queue_batch_limits(),
-        queue_id: queue_id.to_string(),
+        snapshot_id: snapshot_id.to_string(),
         source: DependencyQueueSource {
+            snapshot_id: snapshot_id.to_string(),
             project_root: project_root.to_string(),
             dependency_files,
             dependency_count: packages.len(),
@@ -389,7 +369,7 @@ fn new_queue(
 fn build_package_record(
     package: &DependencyQueuePackage,
     extensions: &[Box<dyn thirdpass_core::extension::Extension>],
-    queue_id: &str,
+    snapshot_id: &str,
     first_queue_rank: usize,
 ) -> Result<DependencyQueuePackageRecord> {
     let extension = extension_for_package(package, extensions)?;
@@ -419,7 +399,7 @@ fn build_package_record(
                 files,
                 target_policy: extension.review_target_policy(),
             },
-            review_batch_config(queue_id, package),
+            review_batch_config(snapshot_id, package),
         )?;
 
         Ok(DependencyQueuePackageRecord {
@@ -621,22 +601,13 @@ fn sorted_packages(packages: &[DependencyQueuePackage]) -> Vec<DependencyQueuePa
         .collect()
 }
 
-fn queue_path(queue_id: &str) -> Result<PathBuf> {
-    let data_paths = crate::common::fs::DataPaths::new()?;
-    Ok(data_paths
-        .dependency_queues_directory
-        .join("projects")
-        .join(queue_id)
-        .join("queue.json"))
-}
-
-fn queue_id(
+fn dependency_snapshot_id(
     project_root: &str,
     dependency_files: &[DependencyQueueSourceFile],
     packages: &[DependencyQueuePackage],
 ) -> Result<String> {
-    let key = DependencyQueueKey {
-        schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
+    let key = DependencySnapshotKey {
+        schema_version: DEPENDENCY_REVIEW_PLAN_VERSION,
         batch_limits: dependency_queue_batch_limits(),
         project_root,
         dependency_files,
@@ -654,7 +625,13 @@ struct PackageReviewKey {
     package_hash: String,
 }
 
-type PackageReviewCoverage = BTreeMap<PackageReviewKey, BTreeSet<String>>;
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+struct ReviewedFileKey {
+    path: String,
+    file_hash: thirdpass_core::schema::FileHash,
+}
+
+type PackageReviewCoverage = BTreeMap<PackageReviewKey, BTreeSet<ReviewedFileKey>>;
 
 fn local_review_coverage(public_user_id: &str) -> Result<PackageReviewCoverage> {
     let mut coverage = PackageReviewCoverage::new();
@@ -673,7 +650,13 @@ fn local_review_coverage(public_user_id: &str) -> Result<PackageReviewCoverage> 
             };
             let package_coverage = coverage.entry(key).or_default();
             for target in &review.targets {
-                package_coverage.insert(package_relative_path_string(&target.file_path));
+                let Some(file_hash) = &target.file_hash else {
+                    continue;
+                };
+                package_coverage.insert(ReviewedFileKey {
+                    path: package_relative_path_string(&target.file_path),
+                    file_hash: file_hash.clone(),
+                });
             }
         }
     }
@@ -766,7 +749,7 @@ fn package_review_key(package: &DependencyQueuePackageRecord) -> PackageReviewKe
 
 fn batch_is_covered(
     batch: &DependencyQueueBatch,
-    covered_files: Option<&BTreeSet<String>>,
+    covered_files: Option<&BTreeSet<ReviewedFileKey>>,
 ) -> bool {
     let Some(covered_files) = covered_files else {
         return false;
@@ -774,23 +757,30 @@ fn batch_is_covered(
     batch
         .files
         .iter()
-        .all(|file| covered_files.contains(&file.path))
+        .all(|file| covered_files.contains(&reviewed_file_key(file)))
 }
 
 fn uncovered_batch_files(
     batch: &DependencyQueueBatch,
-    covered_files: Option<&BTreeSet<String>>,
+    covered_files: Option<&BTreeSet<ReviewedFileKey>>,
 ) -> Vec<String> {
     batch
         .files
         .iter()
         .filter(|file| {
             covered_files
-                .map(|covered_files| !covered_files.contains(&file.path))
+                .map(|covered_files| !covered_files.contains(&reviewed_file_key(file)))
                 .unwrap_or(true)
         })
         .map(|file| file.path.clone())
         .collect()
+}
+
+fn reviewed_file_key(file: &DependencyQueueFile) -> ReviewedFileKey {
+    ReviewedFileKey {
+        path: file.path.clone(),
+        file_hash: file.file_hash.clone(),
+    }
 }
 
 fn dependency_queue_batch_limits() -> DependencyQueueBatchLimits {
@@ -801,21 +791,21 @@ fn dependency_queue_batch_limits() -> DependencyQueueBatchLimits {
 }
 
 fn review_batch_config(
-    queue_id: &str,
+    snapshot_id: &str,
     package: &DependencyQueuePackage,
 ) -> thirdpass_core::package::ReviewBatchConfig {
     let limits = dependency_queue_batch_limits();
     thirdpass_core::package::ReviewBatchConfig {
         max_lines: limits.max_lines_per_batch,
         max_files: limits.max_files_per_batch,
-        shuffle_seed: Some(package_shuffle_seed(queue_id, package)),
+        shuffle_seed: Some(package_shuffle_seed(snapshot_id, package)),
     }
 }
 
-fn package_shuffle_seed(queue_id: &str, package: &DependencyQueuePackage) -> u64 {
+fn package_shuffle_seed(snapshot_id: &str, package: &DependencyQueuePackage) -> u64 {
     let material = format!(
         "{}\0{}\0{}\0{}\0{}",
-        queue_id,
+        snapshot_id,
         package.extension_name,
         package.registry_host_name,
         package.package_name,
@@ -838,73 +828,6 @@ fn skipped_dependency_package(
         package_version: package.package_version.clone(),
         reason: error.to_string(),
     }
-}
-
-fn read_queue(path: &Path) -> Result<DependencyQueue> {
-    let file = std::fs::File::open(path).context(format!(
-        "can't open dependency review queue: {}",
-        path.display()
-    ))?;
-    serde_json::from_reader(std::io::BufReader::new(file)).context(format!(
-        "can't parse dependency review queue: {}",
-        path.display()
-    ))
-}
-
-fn write_queue_atomically(path: &Path, queue: &DependencyQueue) -> Result<()> {
-    let parent = path.parent().ok_or(format_err!(
-        "can't find parent directory for dependency review queue: {}",
-        path.display()
-    ))?;
-    std::fs::create_dir_all(parent).context(format!(
-        "can't create dependency review queue directory: {}",
-        parent.display()
-    ))?;
-
-    let mut temp_file = tempfile::NamedTempFile::new_in(parent).context(format!(
-        "can't create temporary dependency review queue in: {}",
-        parent.display()
-    ))?;
-    {
-        let mut writer = std::io::BufWriter::new(temp_file.as_file_mut());
-        serde_json::to_writer_pretty(&mut writer, queue).context(format!(
-            "can't serialize dependency review queue: {}",
-            path.display()
-        ))?;
-        writer.write_all(b"\n")?;
-        writer.flush().context(format!(
-            "can't flush temporary dependency review queue: {}",
-            path.display()
-        ))?;
-    }
-    temp_file.as_file().sync_all().context(format!(
-        "can't sync temporary dependency review queue: {}",
-        path.display()
-    ))?;
-    temp_file
-        .persist(path)
-        .map_err(|error| error.error)
-        .context(format!(
-            "can't replace dependency review queue atomically: {}",
-            path.display()
-        ))?;
-    sync_parent_directory(parent)?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent_directory(directory: &Path) -> Result<()> {
-    std::fs::File::open(directory)
-        .and_then(|file| file.sync_all())
-        .context(format!(
-            "can't sync dependency review queue directory: {}",
-            directory.display()
-        ))
-}
-
-#[cfg(not(unix))]
-fn sync_parent_directory(_directory: &Path) -> Result<()> {
-    Ok(())
 }
 
 fn canonical_path(path: &Path) -> Result<PathBuf> {
@@ -934,7 +857,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn queue_id_is_stable_when_packages_are_sorted() -> Result<()> {
+    fn dependency_snapshot_id_is_stable_when_packages_are_sorted() -> Result<()> {
         let files = vec![source_file("/project/Cargo.toml", "source-hash")];
         let mut left_packages = vec![
             package("rs", "crates.io", "serde", "1.0.0"),
@@ -947,22 +870,22 @@ mod tests {
         right_packages = sorted_packages(&right_packages);
 
         assert_eq!(
-            queue_id("/project", &files, &left_packages)?,
-            queue_id("/project", &files, &right_packages)?
+            dependency_snapshot_id("/project", &files, &left_packages)?,
+            dependency_snapshot_id("/project", &files, &right_packages)?
         );
         Ok(())
     }
 
     #[test]
-    fn queue_id_changes_when_dependency_snapshot_changes() -> Result<()> {
+    fn dependency_snapshot_id_changes_when_dependency_snapshot_changes() -> Result<()> {
         let packages = vec![package("rs", "crates.io", "serde", "1.0.0")];
 
-        let first = queue_id(
+        let first = dependency_snapshot_id(
             "/project",
             &[source_file("/project/Cargo.toml", "first-hash")],
             &packages,
         )?;
-        let second = queue_id(
+        let second = dependency_snapshot_id(
             "/project",
             &[source_file("/project/Cargo.toml", "second-hash")],
             &packages,
@@ -973,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    fn new_queue_keeps_packages_pending() -> Result<()> {
+    fn new_plan_keeps_packages_pending() -> Result<()> {
         let packages = vec![
             package("rs", "crates.io", "serde", "1.0.0"),
             package("js", "npmjs.com", "left-pad", "1.3.0"),
@@ -986,7 +909,8 @@ mod tests {
             "queue-id",
         )?;
 
-        assert_eq!(queue.queue_id, "queue-id");
+        assert_eq!(queue.snapshot_id, "queue-id");
+        assert_eq!(queue.source.snapshot_id, "queue-id");
         assert_eq!(queue.source.dependency_count, 2);
         assert_eq!(queue.packages, Vec::new());
         assert_eq!(queue.pending_packages, packages);
@@ -996,17 +920,13 @@ mod tests {
 
     #[test]
     fn prepare_next_package_skips_missing_extension_without_other_packages() -> Result<()> {
-        let tmp = tempfile::tempdir()?;
         let mut queue = sample_queue();
         queue.pending_packages = vec![package("rs", "crates.io", "serde", "1.0.0")];
         queue.source.dependency_count = 1;
-        let mut stored = StoredDependencyQueue {
-            path: tmp.path().join("queue.json"),
-            queue,
-        };
+        let mut plan = DependencyReviewPlan { queue };
         let extensions: Vec<Box<dyn thirdpass_core::extension::Extension>> = Vec::new();
 
-        let preparation = stored
+        let preparation = plan
             .prepare_next_package(&extensions)?
             .expect("package should be skipped");
 
@@ -1020,10 +940,9 @@ mod tests {
                 reason: "extension 'rs' is not enabled".to_string(),
             }
         );
-        assert_eq!(stored.queue.pending_package_count(), 0);
-        assert_eq!(stored.queue.skipped_packages.len(), 1);
-        assert_eq!(stored.queue.packages.len(), 0);
-        assert_eq!(read_queue(&stored.path)?, stored.queue);
+        assert_eq!(plan.queue.pending_package_count(), 0);
+        assert_eq!(plan.queue.skipped_packages.len(), 1);
+        assert_eq!(plan.queue.packages.len(), 0);
         Ok(())
     }
 
@@ -1054,32 +973,12 @@ mod tests {
     }
 
     #[test]
-    fn write_queue_replaces_queue_atomically() -> Result<()> {
-        let tmp = tempfile::tempdir()?;
-        let path = tmp.path().join("queue.json");
-        let mut queue = sample_queue();
-
-        write_queue_atomically(&path, &queue)?;
-        let stored = read_queue(&path)?;
-        assert_eq!(stored, queue);
-
-        queue.source.dependency_count = 2;
-        write_queue_atomically(&path, &queue)?;
-        let stored = read_queue(&path)?;
-        assert_eq!(stored.source.dependency_count, 2);
-        Ok(())
-    }
-
-    #[test]
     fn select_next_review_skips_covered_files() {
         let mut queue = queue_with_batches();
         let mut coverage = PackageReviewCoverage::new();
         coverage.insert(
             package_review_key(&queue.packages[0]),
-            ["src/a.rs", "src/b.rs", "src/c.rs"]
-                .iter()
-                .map(|path| path.to_string())
-                .collect(),
+            reviewed_files(&queue, &["src/a.rs", "src/b.rs", "src/c.rs"]),
         );
 
         assert!(refresh_queue_progress(&mut queue, &coverage));
@@ -1101,10 +1000,7 @@ mod tests {
         let mut coverage = PackageReviewCoverage::new();
         coverage.insert(
             package_review_key(&queue.packages[0]),
-            ["src/a.rs", "src/b.rs", "src/c.rs", "src/d.rs"]
-                .iter()
-                .map(|path| path.to_string())
-                .collect(),
+            reviewed_files(&queue, &["src/a.rs", "src/b.rs", "src/c.rs", "src/d.rs"]),
         );
 
         assert!(refresh_queue_progress(&mut queue, &coverage));
@@ -1112,6 +1008,31 @@ mod tests {
         assert_eq!(queue.reviewed_batch_count(), 2);
         assert_eq!(queue.remaining_batch_count(), 0);
         assert_eq!(select_next_review(&queue, &coverage), None);
+    }
+
+    #[test]
+    fn select_next_review_requires_matching_file_hash() {
+        let mut queue = queue_with_batches();
+        let mut coverage = PackageReviewCoverage::new();
+        coverage.insert(
+            package_review_key(&queue.packages[0]),
+            vec![ReviewedFileKey {
+                path: "src/a.rs".to_string(),
+                file_hash: thirdpass_core::schema::FileHash::blake3("different-hash"),
+            }]
+            .into_iter()
+            .collect(),
+        );
+
+        assert!(!refresh_queue_progress(&mut queue, &coverage));
+        let selection = select_next_review(&queue, &coverage)
+            .expect("hash mismatch should leave the file uncovered");
+
+        assert_eq!(selection.queue_rank, 1);
+        assert_eq!(
+            selection.target_files,
+            vec!["src/a.rs".to_string(), "src/b.rs".to_string()]
+        );
     }
 
     fn source_file(path: &str, blake3: &str) -> DependencyQueueSourceFile {
@@ -1137,11 +1058,12 @@ mod tests {
 
     fn sample_queue() -> DependencyQueue {
         DependencyQueue {
-            schema_version: DEPENDENCY_QUEUE_SCHEMA_VERSION,
+            schema_version: DEPENDENCY_REVIEW_PLAN_VERSION,
             generated_at_unix: 1,
             batch_limits: dependency_queue_batch_limits(),
-            queue_id: "queue-id".to_string(),
+            snapshot_id: "snapshot-id".to_string(),
             source: DependencyQueueSource {
+                snapshot_id: "snapshot-id".to_string(),
                 project_root: "/project".to_string(),
                 dependency_files: vec![source_file("/project/Cargo.toml", "hash")],
                 dependency_count: 1,
@@ -1150,6 +1072,17 @@ mod tests {
             pending_packages: Vec::new(),
             skipped_packages: Vec::new(),
         }
+    }
+
+    fn reviewed_files(queue: &DependencyQueue, paths: &[&str]) -> BTreeSet<ReviewedFileKey> {
+        queue
+            .packages
+            .iter()
+            .flat_map(|package| &package.batches)
+            .flat_map(|batch| &batch.files)
+            .filter(|file| paths.contains(&file.path.as_str()))
+            .map(reviewed_file_key)
+            .collect()
     }
 
     fn queue_with_batches() -> DependencyQueue {

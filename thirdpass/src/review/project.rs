@@ -10,10 +10,10 @@ const PROJECT_REVIEW_SCHEMA_VERSION: u32 = 1;
 /// Store a dependency review artifact inside the project checkout.
 pub(crate) fn store_dependency_review(
     project_root: &Path,
-    queue: &review::dependency_queue::DependencyQueue,
+    source: &review::dependency_queue::DependencyQueueSource,
     review: &review::Review,
 ) -> Result<PathBuf> {
-    let artifact = ProjectReviewArtifact::from_queue(project_root, queue, review);
+    let artifact = ProjectReviewArtifact::from_source(project_root, source, review);
     let bytes = serde_json::to_vec_pretty(&artifact)?;
     let path = project_review_path(project_root, review, &bytes)?;
     write_json_atomically(&path, &bytes)?;
@@ -28,18 +28,17 @@ struct ProjectReviewArtifact {
 }
 
 impl ProjectReviewArtifact {
-    fn from_queue(
+    fn from_source(
         project_root: &Path,
-        queue: &review::dependency_queue::DependencyQueue,
+        source: &review::dependency_queue::DependencyQueueSource,
         review: &review::Review,
     ) -> Self {
-        let queue_project_root = PathBuf::from(&queue.source.project_root);
-        let dependency_files = queue
-            .source
+        let source_project_root = PathBuf::from(&source.project_root);
+        let dependency_files = source
             .dependency_files
             .iter()
             .map(|file| ProjectReviewSourceFile {
-                path: project_relative_path(&queue_project_root, Path::new(&file.path)),
+                path: project_relative_path(&source_project_root, Path::new(&file.path)),
                 blake3: file.blake3.clone(),
             })
             .collect();
@@ -47,10 +46,10 @@ impl ProjectReviewArtifact {
         Self {
             schema_version: PROJECT_REVIEW_SCHEMA_VERSION,
             source: ProjectReviewSource {
-                queue_id: queue.queue_id.clone(),
+                snapshot_id: source.snapshot_id.clone(),
                 project_root: project_relative_path(project_root, project_root),
                 dependency_files,
-                dependency_count: queue.source.dependency_count,
+                dependency_count: source.dependency_count,
             },
             review: review.clone(),
         }
@@ -59,7 +58,7 @@ impl ProjectReviewArtifact {
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 struct ProjectReviewSource {
-    queue_id: String,
+    snapshot_id: String,
     project_root: String,
     dependency_files: Vec<ProjectReviewSourceFile>,
     dependency_count: usize,
@@ -173,10 +172,10 @@ mod tests {
         let project = tempfile::tempdir()?;
         let dependency_file = project.path().join("package-lock.json");
         std::fs::write(&dependency_file, "{}")?;
-        let queue = dependency_queue(project.path(), &dependency_file)?;
+        let source = dependency_source(project.path(), &dependency_file);
         let review = stored_review()?;
 
-        let path = store_dependency_review(project.path(), &queue, &review)?;
+        let path = store_dependency_review(project.path(), &source, &review)?;
         let contents = std::fs::read_to_string(&path)?;
         let artifact: ProjectReviewArtifact = serde_json::from_str(&contents)?;
 
@@ -191,35 +190,25 @@ mod tests {
             artifact.source.dependency_files[0].blake3,
             "dependency-hash"
         );
+        assert_eq!(artifact.source.snapshot_id, "snapshot-id");
         assert_eq!(artifact.review.package.name, "left-pad");
         assert!(!contents.contains(&project.path().display().to_string()));
         Ok(())
     }
 
-    fn dependency_queue(
+    fn dependency_source(
         project_root: &Path,
         dependency_file: &Path,
-    ) -> Result<review::dependency_queue::DependencyQueue> {
-        Ok(review::dependency_queue::DependencyQueue {
-            schema_version: 4,
-            generated_at_unix: 1,
-            batch_limits: review::dependency_queue::DependencyQueueBatchLimits {
-                max_lines_per_batch: 1,
-                max_files_per_batch: 1,
-            },
-            queue_id: "queue-id".to_string(),
-            source: review::dependency_queue::DependencyQueueSource {
-                project_root: project_root.display().to_string(),
-                dependency_files: vec![review::dependency_queue::DependencyQueueSourceFile {
-                    path: dependency_file.display().to_string(),
-                    blake3: "dependency-hash".to_string(),
-                }],
-                dependency_count: 1,
-            },
-            packages: Vec::new(),
-            pending_packages: Vec::new(),
-            skipped_packages: Vec::new(),
-        })
+    ) -> review::dependency_queue::DependencyQueueSource {
+        review::dependency_queue::DependencyQueueSource {
+            snapshot_id: "snapshot-id".to_string(),
+            project_root: project_root.display().to_string(),
+            dependency_files: vec![review::dependency_queue::DependencyQueueSourceFile {
+                path: dependency_file.display().to_string(),
+                blake3: "dependency-hash".to_string(),
+            }],
+            dependency_count: 1,
+        }
     }
 
     fn stored_review() -> Result<review::Review> {

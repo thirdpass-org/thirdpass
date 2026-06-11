@@ -134,7 +134,7 @@ struct DependencyReviewCandidate {
 }
 
 impl DependencyReviewCandidate {
-    fn queue_package(&self) -> review::dependency_queue::DependencyQueuePackage {
+    fn review_package(&self) -> review::dependency_queue::DependencyQueuePackage {
         review::dependency_queue::DependencyQueuePackage {
             extension_name: self.extension_name.clone(),
             registry_host_name: self.registry_host_name.clone(),
@@ -201,33 +201,33 @@ fn run_discovered_dependency_reviews(
     public_user_id: &str,
     submitter: Option<&review::submission::Submitter>,
 ) -> Result<()> {
-    let queue_packages = discovery
+    let review_packages = discovery
         .candidates
         .iter()
-        .map(DependencyReviewCandidate::queue_package)
+        .map(DependencyReviewCandidate::review_package)
         .collect::<Vec<_>>();
     println!(
-        "Preparing dependency review queue for {} dependencies.",
-        queue_packages.len()
+        "Preparing dependency review plan for {} dependencies.",
+        review_packages.len()
     );
-    let mut queue = review::dependency_queue::ensure_for_project(
+    let mut plan = review::dependency_queue::plan_for_project(
         working_directory,
         &discovery.dependency_files,
-        &queue_packages,
+        &review_packages,
     )?;
     let mut session = DependencyReviewSession::default();
     println!("Dependency review started. Press Ctrl-C to stop.");
-    print_queue_summary(&queue);
+    print_plan_summary(&plan);
 
     loop {
-        let selection = match queue.select_next_review(public_user_id)? {
+        let selection = match plan.select_next_review(public_user_id)? {
             Some(selection) => selection,
             None => {
-                if prepare_next_dependency(&mut queue, extensions)? {
+                if prepare_next_dependency(&mut plan, extensions)? {
                     continue;
                 }
                 session.wait_for_submissions()?;
-                println!("Dependency review queue complete.");
+                println!("Dependency review plan complete.");
                 return Ok(());
             }
         };
@@ -254,44 +254,43 @@ fn run_discovered_dependency_reviews(
         )?;
         let project_review_path = review::project::store_dependency_review(
             working_directory,
-            &queue.queue,
+            &plan.queue.source,
             &result.review,
         )?;
         println!("Project review saved: {}.", project_review_path.display());
-        queue.mark_batch_reviewed(queue_rank)?;
+        plan.mark_batch_reviewed(queue_rank)?;
         session.record(&result.outcome);
         session.track_submission(result.submission);
-        print_review_deps_progress(&queue, &session);
+        print_review_deps_progress(&plan, &session);
     }
 }
 
-fn print_queue_summary(queue: &review::dependency_queue::StoredDependencyQueue) {
+fn print_plan_summary(plan: &review::dependency_queue::DependencyReviewPlan) {
     println!(
-        "Dependency review queue: {} dependencies, {} prepared, {} pending at {}.",
-        queue.queue.source.dependency_count,
-        queue.queue.prepared_package_count(),
-        queue.queue.pending_package_count(),
-        queue.path.display()
+        "Dependency review plan: {} dependencies, {} prepared, {} pending.",
+        plan.queue.source.dependency_count,
+        plan.queue.prepared_package_count(),
+        plan.queue.pending_package_count()
     );
-    if queue.queue.batch_count() > 0 {
+    if plan.queue.batch_count() > 0 {
         println!(
             "Ready review batches: {} total, {} reviewed, {} remaining.",
-            queue.queue.batch_count(),
-            queue.queue.reviewed_batch_count(),
-            queue.queue.remaining_batch_count()
+            plan.queue.batch_count(),
+            plan.queue.reviewed_batch_count(),
+            plan.queue.remaining_batch_count()
         );
     }
 }
 
 fn prepare_next_dependency(
-    queue: &mut review::dependency_queue::StoredDependencyQueue,
+    plan: &mut review::dependency_queue::DependencyReviewPlan,
     extensions: &[Box<dyn thirdpass_core::extension::Extension>],
 ) -> Result<bool> {
-    let Some(package) = queue.next_pending_package().cloned() else {
+    let Some(package) = plan.next_pending_package().cloned() else {
         return Ok(false);
     };
-    let dependency_number = queue.queue.prepared_package_count() + 1;
-    let dependency_total = queue.queue.source.dependency_count;
+    let dependency_number = plan.queue.prepared_package_count() + 1;
+    let dependency_total = plan.queue.source.dependency_count;
 
     println!();
     println!(
@@ -304,7 +303,7 @@ fn prepare_next_dependency(
     );
     println!("Fetching metadata, source archive, and file inventory.");
 
-    match queue.prepare_next_package(extensions)? {
+    match plan.prepare_next_package(extensions)? {
         Some(review::dependency_queue::DependencyQueuePreparation::Prepared {
             package_name,
             package_version,
@@ -347,7 +346,7 @@ fn print_selected_batch(
         selection.package_name, selection.package_version, selection.registry_host
     );
     println!(
-        "Queue: batch {}/{}; package batch {}; {} of {} files remaining",
+        "Plan: batch {}/{}; package batch {}; {} of {} files remaining",
         selection.queue_rank,
         selection.queue_batch_count,
         selection.package_batch_rank,
@@ -358,14 +357,14 @@ fn print_selected_batch(
 }
 
 fn print_review_deps_progress(
-    queue: &review::dependency_queue::StoredDependencyQueue,
+    plan: &review::dependency_queue::DependencyReviewPlan,
     session: &DependencyReviewSession,
 ) {
     println!(
         "Dependency review progress: {} reviewed, {} ready remaining, {} dependencies pending.",
-        queue.queue.reviewed_batch_count(),
-        queue.queue.remaining_batch_count(),
-        queue.queue.pending_package_count()
+        plan.queue.reviewed_batch_count(),
+        plan.queue.remaining_batch_count(),
+        plan.queue.pending_package_count()
     );
     println!(
         "Session total: {} reviews completed, {} uploads accepted, {} uploads queued, {} files reviewed.",
