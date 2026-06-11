@@ -5,6 +5,7 @@ pub mod comment;
 mod common;
 pub(crate) mod dependency_queue;
 pub mod fs;
+pub(crate) mod project;
 pub mod remote;
 pub(crate) mod submission;
 pub mod tool;

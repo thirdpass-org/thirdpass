@@ -123,6 +123,8 @@ impl ReviewCommandOutcome {
 
 /// Result of a review command, including any asynchronous submission work.
 pub(crate) struct ReviewCommandResult {
+    /// Completed review saved by this command.
+    pub(crate) review: review::Review,
     /// User-facing review outcome.
     pub(crate) outcome: ReviewCommandOutcome,
     /// Background submission ticket for the saved review.
@@ -318,6 +320,7 @@ pub(crate) fn run_command_with_result(
             let outcome = ReviewCommandOutcome::from_review(&existing.review, true);
             review::workspace::remove(&workspace_manifest)?;
             return Ok(ReviewCommandResult {
+                review: existing.review,
                 outcome,
                 submission: None,
             });
@@ -338,13 +341,16 @@ pub(crate) fn run_command_with_result(
             Ok(package_manifest) => package_manifest,
             Err(err) => {
                 report_submission_failure(&err);
+                let outcome = ReviewCommandOutcome::from_review(&existing.review, false);
                 return Ok(ReviewCommandResult {
-                    outcome: ReviewCommandOutcome::from_review(&existing.review, false),
+                    review: existing.review,
+                    outcome,
                     submission: None,
                 });
             }
         };
 
+        let outcome = ReviewCommandOutcome::from_review(&existing.review, false);
         let submission = submitter.map(|submitter| {
             submitter.submit(
                 existing.path.clone(),
@@ -354,7 +360,8 @@ pub(crate) fn run_command_with_result(
             )
         });
         return Ok(ReviewCommandResult {
-            outcome: ReviewCommandOutcome::from_review(&existing.review, false),
+            review: existing.review,
+            outcome,
             submission,
         });
     }
@@ -523,8 +530,10 @@ pub(crate) fn run_command_with_result(
 
     review::workspace::remove(&workspace_manifest)?;
 
+    let outcome = ReviewCommandOutcome::from_review(&review, false);
     Ok(ReviewCommandResult {
-        outcome: ReviewCommandOutcome::from_review(&review, false),
+        review,
+        outcome,
         submission,
     })
 }

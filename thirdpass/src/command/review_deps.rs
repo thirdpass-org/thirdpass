@@ -252,6 +252,12 @@ fn run_discovered_dependency_reviews(
             },
             submitter,
         )?;
+        let project_review_path = review::project::store_dependency_review(
+            working_directory,
+            &queue.queue,
+            &result.review,
+        )?;
+        println!("Project review saved: {}.", project_review_path.display());
         queue.mark_batch_reviewed(queue_rank)?;
         session.record(&result.outcome);
         session.track_submission(result.submission);
