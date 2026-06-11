@@ -503,7 +503,7 @@ mod tests {
 
     #[cfg(feature = "itest")]
     #[test]
-    fn primary_submission_path_reaches_real_server() -> Result<()> {
+    fn queued_review_submission_saves_server_result_locally() -> Result<()> {
         let harness = RealServerHarness::new()?;
         let _env = harness.enter_client_environment()?;
         let config = harness.client_config();
