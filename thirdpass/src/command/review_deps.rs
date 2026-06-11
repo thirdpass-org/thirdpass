@@ -45,7 +45,7 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
     let submitter = if args.local_only {
         None
     } else {
-        Some(crate::command::review::ReviewSubmissionSubmitter::start()?)
+        Some(review::submission::Submitter::start()?)
     };
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
@@ -83,7 +83,7 @@ pub(crate) fn run_package_command(
     let submitter = if args.local_only {
         None
     } else {
-        Some(crate::command::review::ReviewSubmissionSubmitter::start()?)
+        Some(review::submission::Submitter::start()?)
     };
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
@@ -154,8 +154,8 @@ struct DependencyReviewDiscovery {
 struct DependencyReviewSession {
     completed_reviews: usize,
     reviewed_files: usize,
-    submitted_reviews: usize,
-    submission_tickets: Vec<crate::command::review::ReviewSubmissionTicket>,
+    accepted_submissions: usize,
+    submission_tickets: Vec<review::submission::Ticket>,
 }
 
 impl DependencyReviewSession {
@@ -163,20 +163,24 @@ impl DependencyReviewSession {
         self.completed_reviews += 1;
         self.reviewed_files += outcome.target_file_count;
         if outcome.submitted {
-            self.submitted_reviews += 1;
+            self.accepted_submissions += 1;
         }
     }
 
-    fn track_submission(&mut self, ticket: Option<crate::command::review::ReviewSubmissionTicket>) {
+    fn track_submission(&mut self, ticket: Option<review::submission::Ticket>) {
         if let Some(ticket) = ticket {
             self.submission_tickets.push(ticket);
         }
     }
 
+    fn queued_submission_count(&self) -> usize {
+        self.submission_tickets.len()
+    }
+
     fn wait_for_submissions(&mut self) -> Result<()> {
         let tickets = std::mem::take(&mut self.submission_tickets);
-        let summary = crate::command::review::wait_for_submissions(tickets)?;
-        self.submitted_reviews += summary.submitted;
+        let summary = review::submission::wait_for_submissions(tickets)?;
+        self.accepted_submissions += summary.submitted;
         Ok(())
     }
 }
@@ -195,7 +199,7 @@ fn run_discovered_dependency_reviews(
     working_directory: &std::path::Path,
     discovery: DependencyReviewDiscovery,
     public_user_id: &str,
-    submitter: Option<&crate::command::review::ReviewSubmissionSubmitter>,
+    submitter: Option<&review::submission::Submitter>,
 ) -> Result<()> {
     let queue_packages = discovery
         .candidates
@@ -358,8 +362,11 @@ fn print_review_deps_progress(
         queue.queue.pending_package_count()
     );
     println!(
-        "Session total: {} reviews completed, {} submitted, {} files reviewed.",
-        session.completed_reviews, session.submitted_reviews, session.reviewed_files
+        "Session total: {} reviews completed, {} uploads accepted, {} uploads queued, {} files reviewed.",
+        session.completed_reviews,
+        session.accepted_submissions,
+        session.queued_submission_count(),
+        session.reviewed_files
     );
 }
 

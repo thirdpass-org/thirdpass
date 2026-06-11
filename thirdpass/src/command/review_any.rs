@@ -43,7 +43,7 @@ pub struct Arguments {
 pub fn run_command(args: &Arguments) -> Result<()> {
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
-    let submitter = crate::command::review::ReviewSubmissionSubmitter::start()?;
+    let submitter = review::submission::Submitter::start()?;
     let supported_registry_hosts =
         review::remote::supported_registry_hosts_for_filter(&config, &args.registry_hosts)?;
 
@@ -55,7 +55,7 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         .ok_or(format_err!("No review target is currently available."))?;
     let mut result = run_assigned_target(args, &config, target, None, &submitter)?;
     if let Some(ticket) = result.submission.take() {
-        result.outcome.submitted = crate::command::review::wait_for_submission(ticket)?;
+        result.outcome.submitted = review::submission::wait_for_submission(ticket)?;
     }
     Ok(())
 }
@@ -64,7 +64,7 @@ fn run_nightshift(
     args: &Arguments,
     config: &common::config::Config,
     supported_registry_hosts: &[String],
-    submitter: &crate::command::review::ReviewSubmissionSubmitter,
+    submitter: &review::submission::Submitter,
 ) -> Result<()> {
     let mut session = NightshiftSession::default();
     println!("Nightshift started. Press Ctrl-C to stop.");
@@ -77,7 +77,7 @@ fn run_nightshift(
                 let mut result =
                     run_assigned_target(args, config, target, Some(review_number), submitter)?;
                 if let Some(ticket) = result.submission.take() {
-                    result.outcome.submitted = crate::command::review::wait_for_submission(ticket)?;
+                    result.outcome.submitted = review::submission::wait_for_submission(ticket)?;
                 }
                 session.record(&result.outcome);
                 print_nightshift_progress(&session, &result.outcome);
@@ -99,7 +99,7 @@ fn run_assigned_target(
     config: &common::config::Config,
     target: review::remote::ReviewCandidate,
     nightshift_review_number: Option<usize>,
-    submitter: &crate::command::review::ReviewSubmissionSubmitter,
+    submitter: &review::submission::Submitter,
 ) -> Result<crate::command::review::ReviewCommandResult> {
     let extension_name = config
         .extensions

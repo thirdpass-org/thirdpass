@@ -1,10 +1,7 @@
 use anyhow::{format_err, Context, Result};
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
-use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
 use structopt::{self, StructOpt};
 
 use crate::common;
@@ -15,10 +12,6 @@ use crate::registry;
 use crate::review;
 
 use super::review_deps;
-
-const PENDING_REVIEW_SCAN_INTERVAL: Duration = Duration::from_secs(30);
-const PENDING_REVIEW_SCAN_MIN_AGE: Duration = Duration::from_secs(30);
-const PENDING_REVIEW_RETRY_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, StructOpt, Clone)]
 #[structopt(
@@ -133,341 +126,7 @@ pub(crate) struct ReviewCommandResult {
     /// User-facing review outcome.
     pub(crate) outcome: ReviewCommandOutcome,
     /// Background submission ticket for the saved review.
-    pub(crate) submission: Option<ReviewSubmissionTicket>,
-}
-
-/// Worker handle used to submit saved reviews without blocking review work.
-#[derive(Clone)]
-pub(crate) struct ReviewSubmissionSubmitter {
-    sender: mpsc::Sender<ReviewSubmissionJob>,
-}
-
-/// Completion ticket for one queued review submission.
-pub(crate) struct ReviewSubmissionTicket {
-    package_label: String,
-    receiver: mpsc::Receiver<ReviewSubmissionStatus>,
-}
-
-struct ReviewSubmissionJob {
-    pending_path: PathBuf,
-    review: review::Review,
-    package_manifest: thirdpass_core::schema::PackageManifest,
-    config: common::config::Config,
-    result_tx: Option<mpsc::Sender<ReviewSubmissionStatus>>,
-}
-
-enum ReviewSubmissionStatus {
-    Submitted {
-        package_label: String,
-        public_user_id: String,
-    },
-    Failed {
-        package_label: String,
-        error: String,
-    },
-}
-
-/// Summary from waiting for queued review submissions.
-#[derive(Debug, Clone, Default, Eq, PartialEq)]
-pub(crate) struct ReviewSubmissionWaitSummary {
-    /// Number of queued submissions accepted by the API.
-    pub(crate) submitted: usize,
-    /// Number of queued submissions that failed and remain pending.
-    pub(crate) failed: usize,
-}
-
-struct ReviewSubmissionWorker {
-    receiver: mpsc::Receiver<ReviewSubmissionJob>,
-    next_retry_at: BTreeMap<PathBuf, Instant>,
-}
-
-impl ReviewSubmissionWorker {
-    fn run(mut self) {
-        loop {
-            match self.receiver.recv_timeout(PENDING_REVIEW_SCAN_INTERVAL) {
-                Ok(job) => self.run_job(job),
-                Err(mpsc::RecvTimeoutError::Timeout) => self.scan_pending_reviews(),
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            }
-        }
-    }
-
-    fn run_job(&mut self, job: ReviewSubmissionJob) {
-        let path = job.pending_path.clone();
-        let success = run_submission_job(job);
-        if success {
-            self.next_retry_at.remove(&path);
-        } else {
-            self.next_retry_at
-                .insert(path, Instant::now() + PENDING_REVIEW_RETRY_COOLDOWN);
-        }
-    }
-
-    fn scan_pending_reviews(&mut self) {
-        let paths = match pending_review_paths_older_than(PENDING_REVIEW_SCAN_MIN_AGE) {
-            Ok(paths) => paths,
-            Err(error) => {
-                log::warn!("Failed to scan pending reviews for retry: {error}");
-                return;
-            }
-        };
-        let now = Instant::now();
-
-        for path in paths {
-            if self
-                .next_retry_at
-                .get(&path)
-                .map(|retry_at| *retry_at > now)
-                .unwrap_or(false)
-            {
-                continue;
-            }
-
-            match build_scanned_submission_job(&path) {
-                Ok(job) => self.run_job(job),
-                Err(error) => {
-                    log::debug!(
-                        "Skipping pending review retry for {}: {}",
-                        path.display(),
-                        error
-                    );
-                }
-            }
-        }
-    }
-}
-
-impl ReviewSubmissionSubmitter {
-    /// Start a background submission worker for this command invocation.
-    pub(crate) fn start() -> Result<Self> {
-        let (sender, receiver) = mpsc::channel::<ReviewSubmissionJob>();
-        std::thread::Builder::new()
-            .name("thirdpass-review-submitter".to_string())
-            .spawn(move || {
-                ReviewSubmissionWorker {
-                    receiver,
-                    next_retry_at: BTreeMap::new(),
-                }
-                .run();
-            })
-            .context("Failed to start review submission worker.")?;
-        Ok(Self { sender })
-    }
-
-    fn submit(
-        &self,
-        pending_path: PathBuf,
-        review: review::Review,
-        package_manifest: thirdpass_core::schema::PackageManifest,
-        config: common::config::Config,
-    ) -> ReviewSubmissionTicket {
-        let package_label = package_target_label(&review);
-        let (result_tx, receiver) = mpsc::channel();
-        let job = ReviewSubmissionJob {
-            pending_path,
-            review,
-            package_manifest,
-            config,
-            result_tx: Some(result_tx.clone()),
-        };
-
-        if let Err(error) = self.sender.send(job) {
-            let _ = result_tx.send(ReviewSubmissionStatus::Failed {
-                package_label: package_label.clone(),
-                error: format!("submission worker is unavailable: {error}"),
-            });
-        }
-
-        ReviewSubmissionTicket {
-            package_label,
-            receiver,
-        }
-    }
-}
-
-impl ReviewSubmissionTicket {
-    fn wait(self) -> ReviewSubmissionStatus {
-        match self.receiver.recv() {
-            Ok(status) => status,
-            Err(error) => ReviewSubmissionStatus::Failed {
-                package_label: self.package_label,
-                error: format!("submission worker stopped before reporting a result: {error}"),
-            },
-        }
-    }
-}
-
-fn run_submission_job(job: ReviewSubmissionJob) -> bool {
-    let package_label = package_target_label(&job.review);
-    let result_tx = job.result_tx.clone();
-    let result = submit_review_job(job);
-    match (result, result_tx) {
-        (Ok(public_user_id), Some(result_tx)) => {
-            let _ = result_tx.send(ReviewSubmissionStatus::Submitted {
-                package_label,
-                public_user_id,
-            });
-            true
-        }
-        (Ok(_public_user_id), None) => {
-            log::info!("Submitted pending review for {package_label}.");
-            true
-        }
-        (Err(error), Some(result_tx)) => {
-            let _ = result_tx.send(ReviewSubmissionStatus::Failed {
-                package_label,
-                error: error.to_string(),
-            });
-            false
-        }
-        (Err(error), None) => {
-            log::warn!("Failed to submit pending review for {package_label}: {error}");
-            false
-        }
-    }
-}
-
-fn submit_review_job(job: ReviewSubmissionJob) -> Result<String> {
-    let submit_result = review::remote::submit(&job.review, &job.package_manifest, &job.config)?;
-
-    let mut submitted_review = job.review;
-    let public_user_id_changed = apply_public_user_id_to_review(
-        &mut submitted_review,
-        &submit_result.public_user_id,
-        &job.config.core.api_base,
-    )?;
-    finish_submitted_review(&submitted_review, &job.pending_path, public_user_id_changed)?;
-
-    Ok(submit_result.public_user_id)
-}
-
-fn build_scanned_submission_job(path: &Path) -> Result<ReviewSubmissionJob> {
-    let mut review = read_pending_review(path)?;
-    review.overall_security_summary = review::overall_security_summary(&review)?;
-    Ok(ReviewSubmissionJob {
-        pending_path: path.to_path_buf(),
-        review,
-        package_manifest: thirdpass_core::schema::PackageManifest { files: Vec::new() },
-        config: common::config::Config::load()?,
-        result_tx: None,
-    })
-}
-
-fn read_pending_review(path: &Path) -> Result<review::Review> {
-    let reader = std::io::BufReader::new(std::fs::File::open(path)?);
-    Ok(serde_json::from_reader(reader)?)
-}
-
-fn pending_review_paths_older_than(min_age: Duration) -> Result<Vec<PathBuf>> {
-    let paths = common::fs::DataPaths::new()?;
-    let mut pending = Vec::new();
-    collect_old_pending_review_paths(&paths.pending_reviews_directory, min_age, &mut pending)?;
-    pending.sort();
-    Ok(pending)
-}
-
-fn collect_old_pending_review_paths(
-    directory: &Path,
-    min_age: Duration,
-    pending: &mut Vec<PathBuf>,
-) -> Result<()> {
-    if !directory.is_dir() {
-        return Ok(());
-    }
-
-    for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_old_pending_review_paths(&path, min_age, pending)?;
-            continue;
-        }
-        if !is_review_json_path(&path) {
-            continue;
-        }
-        if file_age(&path).map(|age| age >= min_age).unwrap_or(false) {
-            pending.push(path);
-        }
-    }
-    Ok(())
-}
-
-fn is_review_json_path(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| name.starts_with("review-"))
-        .unwrap_or(false)
-        && path.extension().and_then(|extension| extension.to_str()) == Some("json")
-}
-
-fn file_age(path: &Path) -> Option<Duration> {
-    std::fs::metadata(path)
-        .and_then(|metadata| metadata.modified())
-        .ok()
-        .and_then(|modified| modified.elapsed().ok())
-}
-
-/// Wait for one queued submission and persist server identity updates.
-pub(crate) fn wait_for_submission(ticket: ReviewSubmissionTicket) -> Result<bool> {
-    let summary = wait_for_submissions(vec![ticket])?;
-    Ok(summary.submitted == 1)
-}
-
-/// Wait for queued submissions and persist server identity updates.
-pub(crate) fn wait_for_submissions(
-    tickets: Vec<ReviewSubmissionTicket>,
-) -> Result<ReviewSubmissionWaitSummary> {
-    let mut summary = ReviewSubmissionWaitSummary::default();
-    if tickets.len() > 1 {
-        println!(
-            "Waiting for {} review submission{}.",
-            tickets.len(),
-            plural_suffix(tickets.len())
-        );
-    }
-
-    for ticket in tickets {
-        match ticket.wait() {
-            ReviewSubmissionStatus::Submitted {
-                package_label,
-                public_user_id,
-            } => {
-                persist_public_user_id(&public_user_id)?;
-                println!("Review submitted: {}.", package_label);
-                summary.submitted += 1;
-            }
-            ReviewSubmissionStatus::Failed {
-                package_label,
-                error,
-            } => {
-                report_submission_failure_message(&package_label, &error);
-                summary.failed += 1;
-            }
-        }
-    }
-
-    if summary.submitted + summary.failed > 1 {
-        println!(
-            "Review submission summary: {} submitted, {} pending.",
-            summary.submitted, summary.failed
-        );
-    }
-
-    Ok(summary)
-}
-
-fn persist_public_user_id(public_user_id: &str) -> Result<()> {
-    let public_user_id = public_user_id.trim();
-    if public_user_id.is_empty() {
-        return Ok(());
-    }
-
-    let mut config = common::config::Config::load()?;
-    if config.core.public_user_id != public_user_id {
-        config.core.public_user_id = public_user_id.to_string();
-        config.dump()?;
-    }
-    Ok(())
+    pub(crate) submission: Option<review::submission::Ticket>,
 }
 
 pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
@@ -483,10 +142,10 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
         return review_deps::run_package_command(args, extension_args);
     }
 
-    let submitter = ReviewSubmissionSubmitter::start()?;
+    let submitter = review::submission::Submitter::start()?;
     let mut result = run_command_with_result(args, Some(&submitter))?;
     if let Some(ticket) = result.submission.take() {
-        result.outcome.submitted = wait_for_submission(ticket)?;
+        result.outcome.submitted = review::submission::wait_for_submission(ticket)?;
     }
     Ok(())
 }
@@ -494,7 +153,7 @@ pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
 /// Run a review command and return the review plus any queued submission.
 pub(crate) fn run_command_with_result(
     args: &Arguments,
-    submitter: Option<&ReviewSubmissionSubmitter>,
+    submitter: Option<&review::submission::Submitter>,
 ) -> Result<ReviewCommandResult> {
     // TODO: Add gpg signing.
 
@@ -1198,85 +857,9 @@ fn now_epoch_seconds() -> Result<String> {
     Ok(now.as_secs().to_string())
 }
 
-fn apply_public_user_id_to_review(
-    review: &mut review::Review,
-    public_user_id: &str,
-    api_base: &str,
-) -> Result<bool> {
-    let public_user_id = public_user_id.trim();
-    if public_user_id.is_empty() {
-        return Ok(false);
-    }
-
-    let changed = review.reviewer_details.public_user_id != public_user_id;
-    review.reviewer_details.public_user_id = public_user_id.to_string();
-    review.peer = peer::public_user_peer(public_user_id, api_base)?;
-    Ok(changed)
-}
-
-fn finish_submitted_review(
-    review: &review::Review,
-    pending_path: &std::path::PathBuf,
-    rewrite_contents: bool,
-) -> Result<()> {
-    if rewrite_contents {
-        review::store_submitted(review)?;
-        remove_pending_review_if_present(pending_path)?;
-    } else {
-        promote_pending_review_if_present(review, pending_path)?;
-    }
-    Ok(())
-}
-
-fn remove_pending_review_if_present(pending_path: &Path) -> Result<()> {
-    match std::fs::remove_file(pending_path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn promote_pending_review_if_present(
-    review: &review::Review,
-    pending_path: &PathBuf,
-) -> Result<()> {
-    match review::promote_pending(review, pending_path) {
-        Ok(_) => Ok(()),
-        Err(error) if is_not_found_error(&error) => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
-fn is_not_found_error(error: &anyhow::Error) -> bool {
-    error
-        .downcast_ref::<std::io::Error>()
-        .map(|error| error.kind() == std::io::ErrorKind::NotFound)
-        .unwrap_or(false)
-}
-
 fn report_submission_failure(err: &anyhow::Error) {
     eprintln!("Review submission failed; review remains saved locally for retry: {err}");
     log::warn!("Failed to submit review; review remains saved locally for retry: {err}");
-}
-
-fn report_submission_failure_message(package_label: &str, message: &str) {
-    eprintln!(
-        "Review submission failed for {}; review remains saved locally for retry: {}",
-        package_label, message
-    );
-    log::warn!(
-        "Failed to submit review for {}; review remains saved locally for retry: {}",
-        package_label,
-        message
-    );
-}
-
-fn plural_suffix(count: usize) -> &'static str {
-    if count == 1 {
-        ""
-    } else {
-        "s"
-    }
 }
 
 fn package_target_label(review: &review::Review) -> String {

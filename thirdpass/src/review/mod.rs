@@ -6,6 +6,7 @@ mod common;
 pub(crate) mod dependency_queue;
 pub mod fs;
 pub mod remote;
+pub(crate) mod submission;
 pub mod tool;
 pub mod workspace;
 
