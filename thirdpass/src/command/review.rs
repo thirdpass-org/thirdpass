@@ -1,8 +1,10 @@
 use anyhow::{format_err, Context, Result};
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 use structopt::{self, StructOpt};
 
 use crate::common;
@@ -13,6 +15,10 @@ use crate::registry;
 use crate::review;
 
 use super::review_deps;
+
+const PENDING_REVIEW_SCAN_INTERVAL: Duration = Duration::from_secs(30);
+const PENDING_REVIEW_SCAN_MIN_AGE: Duration = Duration::from_secs(30);
+const PENDING_REVIEW_RETRY_COOLDOWN: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, StructOpt, Clone)]
 #[structopt(
@@ -147,7 +153,7 @@ struct ReviewSubmissionJob {
     review: review::Review,
     package_manifest: thirdpass_core::schema::PackageManifest,
     config: common::config::Config,
-    result_tx: mpsc::Sender<ReviewSubmissionStatus>,
+    result_tx: Option<mpsc::Sender<ReviewSubmissionStatus>>,
 }
 
 enum ReviewSubmissionStatus {
@@ -170,6 +176,67 @@ pub(crate) struct ReviewSubmissionWaitSummary {
     pub(crate) failed: usize,
 }
 
+struct ReviewSubmissionWorker {
+    receiver: mpsc::Receiver<ReviewSubmissionJob>,
+    next_retry_at: BTreeMap<PathBuf, Instant>,
+}
+
+impl ReviewSubmissionWorker {
+    fn run(mut self) {
+        loop {
+            match self.receiver.recv_timeout(PENDING_REVIEW_SCAN_INTERVAL) {
+                Ok(job) => self.run_job(job),
+                Err(mpsc::RecvTimeoutError::Timeout) => self.scan_pending_reviews(),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    }
+
+    fn run_job(&mut self, job: ReviewSubmissionJob) {
+        let path = job.pending_path.clone();
+        let success = run_submission_job(job);
+        if success {
+            self.next_retry_at.remove(&path);
+        } else {
+            self.next_retry_at
+                .insert(path, Instant::now() + PENDING_REVIEW_RETRY_COOLDOWN);
+        }
+    }
+
+    fn scan_pending_reviews(&mut self) {
+        let paths = match pending_review_paths_older_than(PENDING_REVIEW_SCAN_MIN_AGE) {
+            Ok(paths) => paths,
+            Err(error) => {
+                log::warn!("Failed to scan pending reviews for retry: {error}");
+                return;
+            }
+        };
+        let now = Instant::now();
+
+        for path in paths {
+            if self
+                .next_retry_at
+                .get(&path)
+                .map(|retry_at| *retry_at > now)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
+            match build_scanned_submission_job(&path) {
+                Ok(job) => self.run_job(job),
+                Err(error) => {
+                    log::debug!(
+                        "Skipping pending review retry for {}: {}",
+                        path.display(),
+                        error
+                    );
+                }
+            }
+        }
+    }
+}
+
 impl ReviewSubmissionSubmitter {
     /// Start a background submission worker for this command invocation.
     pub(crate) fn start() -> Result<Self> {
@@ -177,9 +244,11 @@ impl ReviewSubmissionSubmitter {
         std::thread::Builder::new()
             .name("thirdpass-review-submitter".to_string())
             .spawn(move || {
-                while let Ok(job) = receiver.recv() {
-                    run_submission_job(job);
+                ReviewSubmissionWorker {
+                    receiver,
+                    next_retry_at: BTreeMap::new(),
                 }
+                .run();
             })
             .context("Failed to start review submission worker.")?;
         Ok(Self { sender })
@@ -199,7 +268,7 @@ impl ReviewSubmissionSubmitter {
             review,
             package_manifest,
             config,
-            result_tx: result_tx.clone(),
+            result_tx: Some(result_tx.clone()),
         };
 
         if let Err(error) = self.sender.send(job) {
@@ -228,20 +297,34 @@ impl ReviewSubmissionTicket {
     }
 }
 
-fn run_submission_job(job: ReviewSubmissionJob) {
+fn run_submission_job(job: ReviewSubmissionJob) -> bool {
     let package_label = package_target_label(&job.review);
     let result_tx = job.result_tx.clone();
     let result = submit_review_job(job);
-    let _ = match result {
-        Ok(public_user_id) => result_tx.send(ReviewSubmissionStatus::Submitted {
-            package_label,
-            public_user_id,
-        }),
-        Err(error) => result_tx.send(ReviewSubmissionStatus::Failed {
-            package_label,
-            error: error.to_string(),
-        }),
-    };
+    match (result, result_tx) {
+        (Ok(public_user_id), Some(result_tx)) => {
+            let _ = result_tx.send(ReviewSubmissionStatus::Submitted {
+                package_label,
+                public_user_id,
+            });
+            true
+        }
+        (Ok(_public_user_id), None) => {
+            log::info!("Submitted pending review for {package_label}.");
+            true
+        }
+        (Err(error), Some(result_tx)) => {
+            let _ = result_tx.send(ReviewSubmissionStatus::Failed {
+                package_label,
+                error: error.to_string(),
+            });
+            false
+        }
+        (Err(error), None) => {
+            log::warn!("Failed to submit pending review for {package_label}: {error}");
+            false
+        }
+    }
 }
 
 fn submit_review_job(job: ReviewSubmissionJob) -> Result<String> {
@@ -256,6 +339,72 @@ fn submit_review_job(job: ReviewSubmissionJob) -> Result<String> {
     finish_submitted_review(&submitted_review, &job.pending_path, public_user_id_changed)?;
 
     Ok(submit_result.public_user_id)
+}
+
+fn build_scanned_submission_job(path: &Path) -> Result<ReviewSubmissionJob> {
+    let mut review = read_pending_review(path)?;
+    review.overall_security_summary = review::overall_security_summary(&review)?;
+    Ok(ReviewSubmissionJob {
+        pending_path: path.to_path_buf(),
+        review,
+        package_manifest: thirdpass_core::schema::PackageManifest { files: Vec::new() },
+        config: common::config::Config::load()?,
+        result_tx: None,
+    })
+}
+
+fn read_pending_review(path: &Path) -> Result<review::Review> {
+    let reader = std::io::BufReader::new(std::fs::File::open(path)?);
+    Ok(serde_json::from_reader(reader)?)
+}
+
+fn pending_review_paths_older_than(min_age: Duration) -> Result<Vec<PathBuf>> {
+    let paths = common::fs::DataPaths::new()?;
+    let mut pending = Vec::new();
+    collect_old_pending_review_paths(&paths.pending_reviews_directory, min_age, &mut pending)?;
+    pending.sort();
+    Ok(pending)
+}
+
+fn collect_old_pending_review_paths(
+    directory: &Path,
+    min_age: Duration,
+    pending: &mut Vec<PathBuf>,
+) -> Result<()> {
+    if !directory.is_dir() {
+        return Ok(());
+    }
+
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_old_pending_review_paths(&path, min_age, pending)?;
+            continue;
+        }
+        if !is_review_json_path(&path) {
+            continue;
+        }
+        if file_age(&path).map(|age| age >= min_age).unwrap_or(false) {
+            pending.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn is_review_json_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.starts_with("review-"))
+        .unwrap_or(false)
+        && path.extension().and_then(|extension| extension.to_str()) == Some("json")
+}
+
+fn file_age(path: &Path) -> Option<Duration> {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
 }
 
 /// Wait for one queued submission and persist server identity updates.
@@ -1072,11 +1221,37 @@ fn finish_submitted_review(
 ) -> Result<()> {
     if rewrite_contents {
         review::store_submitted(review)?;
-        std::fs::remove_file(pending_path)?;
+        remove_pending_review_if_present(pending_path)?;
     } else {
-        review::promote_pending(review, pending_path)?;
+        promote_pending_review_if_present(review, pending_path)?;
     }
     Ok(())
+}
+
+fn remove_pending_review_if_present(pending_path: &Path) -> Result<()> {
+    match std::fs::remove_file(pending_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn promote_pending_review_if_present(
+    review: &review::Review,
+    pending_path: &PathBuf,
+) -> Result<()> {
+    match review::promote_pending(review, pending_path) {
+        Ok(_) => Ok(()),
+        Err(error) if is_not_found_error(&error) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn is_not_found_error(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<std::io::Error>()
+        .map(|error| error.kind() == std::io::ErrorKind::NotFound)
+        .unwrap_or(false)
 }
 
 fn report_submission_failure(err: &anyhow::Error) {
