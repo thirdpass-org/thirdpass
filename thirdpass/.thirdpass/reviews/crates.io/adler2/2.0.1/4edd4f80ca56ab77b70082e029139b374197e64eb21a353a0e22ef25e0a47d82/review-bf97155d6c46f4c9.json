@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "source": {
+    "snapshot_id": "9305f7c2122d4f397289069dfbfc242078207cff8fa1db398ba21781f5d97f06",
+    "project_root": ".",
+    "dependency_files": [
+      {
+        "path": "Cargo.lock",
+        "blake3": "4cd15bce3be2dd2807fda997b2943f079cb74249b622dd4514609ea70dece75e"
+      }
+    ],
+    "dependency_count": 374
+  },
+  "review": {
+    "package": {
+      "name": "adler2",
+      "version": "2.0.1",
+      "registries": [
+        {
+          "host_name": "crates.io",
+          "human_url": "https://crates.io/crates/adler2/2.0.1",
+          "artifact_url": "https://static.crates.io/crates/adler2/adler2-2.0.1.crate"
+        }
+      ],
+      "package_hash": "4edd4f80ca56ab77b70082e029139b374197e64eb21a353a0e22ef25e0a47d82"
+    },
+    "targets": [
+      {
+        "file_path": "Cargo.lock",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "2ef10cb07bfe1965635408db953711dff30094c666bff6a25430167ffbd2c91c"
+        },
+        "agent_summary": "Reviewed `Cargo.lock`, which contains only the `adler2` package entry and a normal registry dependency on `rustc-std-workspace-core` with a checksum. I found no concrete indicators of install-time execution, network or exfiltration behavior, credential access, dynamic code loading, obfuscation, or persistence in the lockfile.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "LICENSE-MIT",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "e236a4d5f14aab8594aa14bb1c7e535f9531925b1fc21d4ab21d322da13cd108"
+        },
+        "agent_summary": "Reviewed `LICENSE-MIT`, which contains only standard MIT license grant and warranty disclaimer text. I checked it for install-time execution, network or exfiltration behavior, credential access, dynamic code loading, obfuscation, and persistence mechanisms, and found no concrete malicious or supply-chain indicators.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/algo.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "521f28b3cdd625a26ab27ec50bd093a6566063394756666bf9bd9b6c24c11563"
+        },
+        "agent_summary": "`src/algo.rs` appears to be a pure Adler-32 checksum implementation with chunked 4-byte processing and a small helper type for arithmetic; I checked for install-time execution, network/exfiltration, credential access, dynamic code loading, obfuscation, and persistence behavior and found no concrete malicious or supply-chain indicators in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": ".cargo_vcs_info.json",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "dcfea8d8a9dcd0c4aa241c094b78ef37f40ee4193ac808587e952eefc00e597f"
+        },
+        "agent_summary": "Reviewed `.cargo_vcs_info.json`, which only contains a Git SHA1 and an empty `path_in_vcs` field. No concrete indicators of install hooks, network or exfiltration, credential access, dynamic code loading, obfuscation, persistence, or other hidden execution were present in this target file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      }
+    ],
+    "reviewer_details": {
+      "public_user_id": "d7d85a95-49ea-818b-aa46-7dff97fe9263",
+      "agent_name": "codex",
+      "agent_model": "gpt-5.4-mini",
+      "agent_reasoning_effort": "medium",
+      "review_strategy": "package-release/v1",
+      "review_scope": "target_file_full",
+      "created_at": "1781179804",
+      "thirdpass_version": "0.5.0"
+    },
+    "agent_summary": "Reviewed `Cargo.lock`, which contains only the `adler2` package entry and a normal registry dependency on `rustc-std-workspace-core` with a checksum. I found no concrete indicators of install-time execution, network or exfiltration behavior, credential access, dynamic code loading, obfuscation, or persistence in the lockfile.\nReviewed `LICENSE-MIT`, which contains only standard MIT license grant and warranty disclaimer text. I checked it for install-time execution, network or exfiltration behavior, credential access, dynamic code loading, obfuscation, and persistence mechanisms, and found no concrete malicious or supply-chain indicators.\n`src/algo.rs` appears to be a pure Adler-32 checksum implementation with chunked 4-byte processing and a small helper type for arithmetic; I checked for install-time execution, network/exfiltration, credential access, dynamic code loading, obfuscation, and persistence behavior and found no concrete malicious or supply-chain indicators in this file.\nReviewed `.cargo_vcs_info.json`, which only contains a Git SHA1 and an empty `path_in_vcs` field. No concrete indicators of install hooks, network or exfiltration, credential access, dynamic code loading, obfuscation, persistence, or other hidden execution were present in this target file.",
+    "overall_security_summary": "none"
+  }
+}
