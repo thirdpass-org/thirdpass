@@ -134,8 +134,8 @@ struct DependencyReviewCandidate {
 }
 
 impl DependencyReviewCandidate {
-    fn review_package(&self) -> review::dependency_queue::DependencyQueuePackage {
-        review::dependency_queue::DependencyQueuePackage {
+    fn review_package(&self) -> review::dependency_plan::DependencyReviewPackage {
+        review::dependency_plan::DependencyReviewPackage {
             extension_name: self.extension_name.clone(),
             registry_host_name: self.registry_host_name.clone(),
             package_name: self.package_name.clone(),
@@ -210,7 +210,7 @@ fn run_discovered_dependency_reviews(
         "Preparing dependency review plan for {} dependencies.",
         review_packages.len()
     );
-    let mut plan = review::dependency_queue::plan_for_project(
+    let mut plan = review::dependency_plan::plan_for_project(
         working_directory,
         &discovery.dependency_files,
         &review_packages,
@@ -235,7 +235,7 @@ fn run_discovered_dependency_reviews(
         let review_number = session.completed_reviews + 1;
         print_selected_batch(review_number, &selection);
 
-        let queue_rank = selection.queue_rank;
+        let plan_rank = selection.plan_rank;
         let result = crate::command::review::run_command_with_result(
             &crate::command::review::Arguments {
                 package_name: selection.package_name,
@@ -254,43 +254,43 @@ fn run_discovered_dependency_reviews(
         )?;
         let project_review_path = review::project::store_dependency_review(
             working_directory,
-            &plan.queue.source,
+            &plan.source,
             &result.review,
         )?;
         println!("Project review saved: {}.", project_review_path.display());
-        plan.mark_batch_reviewed(queue_rank)?;
+        plan.mark_batch_reviewed(plan_rank)?;
         session.record(&result.outcome);
         session.track_submission(result.submission);
         print_review_deps_progress(&plan, &session);
     }
 }
 
-fn print_plan_summary(plan: &review::dependency_queue::DependencyReviewPlan) {
+fn print_plan_summary(plan: &review::dependency_plan::DependencyReviewPlan) {
     println!(
         "Dependency review plan: {} dependencies, {} prepared, {} pending.",
-        plan.queue.source.dependency_count,
-        plan.queue.prepared_package_count(),
-        plan.queue.pending_package_count()
+        plan.source.dependency_count,
+        plan.prepared_package_count(),
+        plan.pending_package_count()
     );
-    if plan.queue.batch_count() > 0 {
+    if plan.batch_count() > 0 {
         println!(
             "Ready review batches: {} total, {} reviewed, {} remaining.",
-            plan.queue.batch_count(),
-            plan.queue.reviewed_batch_count(),
-            plan.queue.remaining_batch_count()
+            plan.batch_count(),
+            plan.reviewed_batch_count(),
+            plan.remaining_batch_count()
         );
     }
 }
 
 fn prepare_next_dependency(
-    plan: &mut review::dependency_queue::DependencyReviewPlan,
+    plan: &mut review::dependency_plan::DependencyReviewPlan,
     extensions: &[Box<dyn thirdpass_core::extension::Extension>],
 ) -> Result<bool> {
     let Some(package) = plan.next_pending_package().cloned() else {
         return Ok(false);
     };
-    let dependency_number = plan.queue.prepared_package_count() + 1;
-    let dependency_total = plan.queue.source.dependency_count;
+    let dependency_number = plan.prepared_package_count() + 1;
+    let dependency_total = plan.source.dependency_count;
 
     println!();
     println!(
@@ -304,7 +304,7 @@ fn prepare_next_dependency(
     println!("Fetching metadata, source archive, and file inventory.");
 
     match plan.prepare_next_package(extensions)? {
-        Some(review::dependency_queue::DependencyQueuePreparation::Prepared {
+        Some(review::dependency_plan::DependencyReviewPreparation::Prepared {
             package_name,
             package_version,
             registry_host,
@@ -318,7 +318,7 @@ fn prepare_next_dependency(
             );
             Ok(true)
         }
-        Some(review::dependency_queue::DependencyQueuePreparation::Skipped {
+        Some(review::dependency_plan::DependencyReviewPreparation::Skipped {
             package_name,
             package_version,
             registry_host,
@@ -337,7 +337,7 @@ fn prepare_next_dependency(
 
 fn print_selected_batch(
     review_number: usize,
-    selection: &review::dependency_queue::DependencyQueueSelection,
+    selection: &review::dependency_plan::DependencyReviewSelection,
 ) {
     println!();
     println!("Review #{}", review_number);
@@ -347,8 +347,8 @@ fn print_selected_batch(
     );
     println!(
         "Plan: batch {}/{}; package batch {}; {} of {} files remaining",
-        selection.queue_rank,
-        selection.queue_batch_count,
+        selection.plan_rank,
+        selection.plan_batch_count,
         selection.package_batch_rank,
         selection.target_files.len(),
         selection.batch_file_count
@@ -357,14 +357,14 @@ fn print_selected_batch(
 }
 
 fn print_review_deps_progress(
-    plan: &review::dependency_queue::DependencyReviewPlan,
+    plan: &review::dependency_plan::DependencyReviewPlan,
     session: &DependencyReviewSession,
 ) {
     println!(
         "Dependency review progress: {} reviewed, {} ready remaining, {} dependencies pending.",
-        plan.queue.reviewed_batch_count(),
-        plan.queue.remaining_batch_count(),
-        plan.queue.pending_package_count()
+        plan.reviewed_batch_count(),
+        plan.remaining_batch_count(),
+        plan.pending_package_count()
     );
     println!(
         "Session total: {} reviews completed, {} uploads accepted, {} uploads queued, {} files reviewed.",

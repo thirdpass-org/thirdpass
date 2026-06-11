@@ -1,13 +1,13 @@
 use anyhow::{format_err, Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 const DEPENDENCY_REVIEW_PLAN_VERSION: u32 = 1;
 
 /// One dependency package that should be considered for local review.
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub(crate) struct DependencyQueuePackage {
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct DependencyReviewPackage {
     /// Extension name that discovered this dependency.
     pub(crate) extension_name: String,
     /// Registry host that owns this dependency.
@@ -18,89 +18,74 @@ pub(crate) struct DependencyQueuePackage {
     pub(crate) package_version: String,
 }
 
-/// Runtime dependency review plan for one project dependency snapshot.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct DependencyReviewPlan {
-    /// Plan contents built from the current project dependency files.
-    pub(crate) queue: DependencyQueue,
-}
-
 impl DependencyReviewPlan {
     /// Refresh batch status from local review storage and select the next work item.
     pub(crate) fn select_next_review(
         &mut self,
         public_user_id: &str,
-    ) -> Result<Option<DependencyQueueSelection>> {
+    ) -> Result<Option<DependencyReviewSelection>> {
         let coverage = local_review_coverage(public_user_id)?;
-        refresh_queue_progress(&mut self.queue, &coverage);
-        Ok(select_next_review(&self.queue, &coverage))
+        refresh_plan_progress(self, &coverage);
+        Ok(select_next_review(self, &coverage))
     }
 
     /// Return the next dependency package waiting to be prepared.
-    pub(crate) fn next_pending_package(&self) -> Option<&DependencyQueuePackage> {
-        self.queue.pending_packages.first()
+    pub(crate) fn next_pending_package(&self) -> Option<&DependencyReviewPackage> {
+        self.pending_packages.first()
     }
 
     /// Download and analyze the next pending dependency package.
     pub(crate) fn prepare_next_package(
         &mut self,
         extensions: &[Box<dyn thirdpass_core::extension::Extension>],
-    ) -> Result<Option<DependencyQueuePreparation>> {
-        let Some(package) = self.queue.pending_packages.first().cloned() else {
+    ) -> Result<Option<DependencyReviewPreparation>> {
+        let Some(package) = self.pending_packages.first().cloned() else {
             return Ok(None);
         };
 
-        let first_queue_rank = self.queue.batch_count() + 1;
-        let preparation = match build_package_record(
-            &package,
-            extensions,
-            &self.queue.snapshot_id,
-            first_queue_rank,
-        ) {
-            Ok(record) => {
-                let preparation = DependencyQueuePreparation::Prepared {
-                    extension_name: record.extension_name.clone(),
-                    registry_host: record.registry_host.clone(),
-                    package_name: record.package_name.clone(),
-                    package_version: record.package_version.clone(),
-                    batch_count: record.batches.len(),
-                    file_count: record.batches.iter().map(|batch| batch.files.len()).sum(),
-                };
-                self.queue.packages.push(record);
-                preparation
-            }
-            Err(error) => {
-                let skipped = skipped_dependency_package(&package, error);
-                let preparation = DependencyQueuePreparation::Skipped {
-                    extension_name: skipped.extension_name.clone(),
-                    registry_host: skipped.registry_host.clone(),
-                    package_name: skipped.package_name.clone(),
-                    package_version: skipped.package_version.clone(),
-                    reason: skipped.reason.clone(),
-                };
-                self.queue.skipped_packages.push(skipped);
-                preparation
-            }
-        };
+        let first_plan_rank = self.batch_count() + 1;
+        let preparation =
+            match build_package_record(&package, extensions, &self.snapshot_id, first_plan_rank) {
+                Ok(record) => {
+                    let preparation = DependencyReviewPreparation::Prepared {
+                        extension_name: record.extension_name.clone(),
+                        registry_host: record.registry_host.clone(),
+                        package_name: record.package_name.clone(),
+                        package_version: record.package_version.clone(),
+                        batch_count: record.batches.len(),
+                        file_count: record.batches.iter().map(|batch| batch.files.len()).sum(),
+                    };
+                    self.packages.push(record);
+                    preparation
+                }
+                Err(error) => {
+                    let skipped = skipped_dependency_package(&package, error);
+                    let preparation = DependencyReviewPreparation::Skipped {
+                        extension_name: skipped.extension_name.clone(),
+                        registry_host: skipped.registry_host.clone(),
+                        package_name: skipped.package_name.clone(),
+                        package_version: skipped.package_version.clone(),
+                        reason: skipped.reason.clone(),
+                    };
+                    self.skipped_packages.push(skipped);
+                    preparation
+                }
+            };
 
-        self.queue.pending_packages.remove(0);
+        self.pending_packages.remove(0);
         Ok(Some(preparation))
     }
 
     /// Mark a dependency batch as reviewed for this command run.
-    pub(crate) fn mark_batch_reviewed(&mut self, queue_rank: usize) -> Result<()> {
-        let _ = set_batch_status(
-            &mut self.queue,
-            queue_rank,
-            DependencyQueueBatchStatus::Reviewed,
-        );
+    pub(crate) fn mark_batch_reviewed(&mut self, plan_rank: usize) -> Result<()> {
+        let _ = set_batch_status(self, plan_rank, DependencyReviewBatchStatus::Reviewed);
         Ok(())
     }
 }
 
 /// A selected dependency batch ready to hand to the review command.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) struct DependencyQueueSelection {
+pub(crate) struct DependencyReviewSelection {
     /// Extension name that can retrieve this package.
     pub(crate) extension_name: String,
     /// Registry host that owns this package.
@@ -109,10 +94,10 @@ pub(crate) struct DependencyQueueSelection {
     pub(crate) package_name: String,
     /// Package version in the registry.
     pub(crate) package_version: String,
-    /// One-based queue batch rank.
-    pub(crate) queue_rank: usize,
-    /// Total batch count in the queue.
-    pub(crate) queue_batch_count: usize,
+    /// One-based plan batch rank.
+    pub(crate) plan_rank: usize,
+    /// Total batch count in the plan.
+    pub(crate) plan_batch_count: usize,
     /// One-based batch rank within this package.
     pub(crate) package_batch_rank: usize,
     /// Number of files in the full batch.
@@ -123,7 +108,7 @@ pub(crate) struct DependencyQueueSelection {
 
 /// Result of preparing one pending dependency package.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum DependencyQueuePreparation {
+pub(crate) enum DependencyReviewPreparation {
     /// The package was analyzed into review batches.
     Prepared {
         /// Extension name that can retrieve this package.
@@ -155,27 +140,27 @@ pub(crate) enum DependencyQueuePreparation {
 }
 
 /// Local review plan built from a project's dependency files.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DependencyQueue {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct DependencyReviewPlan {
     /// Plan schema version.
     pub(crate) schema_version: u32,
     /// Plan creation timestamp in Unix seconds.
     pub(crate) generated_at_unix: u64,
     /// Batch sizing limits used to build this plan.
-    pub(crate) batch_limits: DependencyQueueBatchLimits,
+    pub(crate) batch_limits: DependencyReviewBatchLimits,
     /// Stable dependency snapshot identifier used for package batch shuffling.
     pub(crate) snapshot_id: String,
     /// Project dependency snapshot used to derive this plan.
-    pub(crate) source: DependencyQueueSource,
+    pub(crate) source: DependencyReviewSource,
     /// Packages successfully analyzed into review batches.
-    pub(crate) packages: Vec<DependencyQueuePackageRecord>,
+    pub(crate) packages: Vec<DependencyReviewPackageRecord>,
     /// Packages discovered but not yet downloaded or analyzed.
-    pub(crate) pending_packages: Vec<DependencyQueuePackage>,
-    /// Packages skipped while building the queue.
-    pub(crate) skipped_packages: Vec<SkippedDependencyPackage>,
+    pub(crate) pending_packages: Vec<DependencyReviewPackage>,
+    /// Packages skipped while building the plan.
+    pub(crate) skipped_packages: Vec<SkippedDependencyReviewPackage>,
 }
 
-impl DependencyQueue {
+impl DependencyReviewPlan {
     /// Count all review batches across planned packages.
     pub(crate) fn batch_count(&self) -> usize {
         self.packages
@@ -189,7 +174,7 @@ impl DependencyQueue {
         self.packages
             .iter()
             .flat_map(|package| &package.batches)
-            .filter(|batch| batch.status == DependencyQueueBatchStatus::Reviewed)
+            .filter(|batch| batch.status == DependencyReviewBatchStatus::Reviewed)
             .count()
     }
 
@@ -211,8 +196,8 @@ impl DependencyQueue {
 }
 
 /// Batch sizing limits captured in a dependency review plan.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DependencyQueueBatchLimits {
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub(crate) struct DependencyReviewBatchLimits {
     /// Maximum total line count to include in one batch.
     pub(crate) max_lines_per_batch: usize,
     /// Maximum number of files to include in one batch.
@@ -220,21 +205,21 @@ pub(crate) struct DependencyQueueBatchLimits {
 }
 
 /// Project files and dependency count used to derive a dependency review plan.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DependencyQueueSource {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct DependencyReviewSource {
     /// Stable identifier for this dependency snapshot.
     pub(crate) snapshot_id: String,
     /// Absolute project root used for dependency discovery.
     pub(crate) project_root: String,
     /// Dependency files that contributed dependency candidates.
-    pub(crate) dependency_files: Vec<DependencyQueueSourceFile>,
+    pub(crate) dependency_files: Vec<DependencyReviewSourceFile>,
     /// Number of distinct dependency packages discovered.
     pub(crate) dependency_count: usize,
 }
 
 /// Dependency source file identity.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DependencyQueueSourceFile {
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+pub(crate) struct DependencyReviewSourceFile {
     /// Dependency file path.
     pub(crate) path: String,
     /// Blake3 digest of the dependency file contents.
@@ -242,8 +227,8 @@ pub(crate) struct DependencyQueueSourceFile {
 }
 
 /// One analyzed dependency package in a review plan.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DependencyQueuePackageRecord {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct DependencyReviewPackageRecord {
     /// Extension name that discovered this package.
     pub(crate) extension_name: String,
     /// Registry host that owns this package.
@@ -259,28 +244,27 @@ pub(crate) struct DependencyQueuePackageRecord {
     /// Source artifact download URL.
     pub(crate) artifact_url: String,
     /// Review batches built for this package.
-    pub(crate) batches: Vec<DependencyQueueBatch>,
+    pub(crate) batches: Vec<DependencyReviewBatch>,
 }
 
 /// One bounded group of files to review together.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DependencyQueueBatch {
-    /// One-based rank across the whole queue.
-    pub(crate) queue_rank: usize,
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct DependencyReviewBatch {
+    /// One-based rank across the whole plan.
+    pub(crate) plan_rank: usize,
     /// One-based rank within this package.
     pub(crate) package_batch_rank: usize,
     /// Current local review status for this batch.
-    pub(crate) status: DependencyQueueBatchStatus,
+    pub(crate) status: DependencyReviewBatchStatus,
     /// Total line count across batch files.
     pub(crate) total_lines: usize,
     /// Files included in this batch.
-    pub(crate) files: Vec<DependencyQueueFile>,
+    pub(crate) files: Vec<DependencyReviewFile>,
 }
 
-/// Local review status for one dependency queue batch.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum DependencyQueueBatchStatus {
+/// Local review status for one dependency review batch.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub(crate) enum DependencyReviewBatchStatus {
     /// The batch still has files without local review coverage.
     Pending,
     /// All batch files have local review coverage.
@@ -288,8 +272,8 @@ pub(crate) enum DependencyQueueBatchStatus {
 }
 
 /// One file included in a local dependency review batch.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct DependencyQueueFile {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct DependencyReviewFile {
     /// Package-relative path.
     pub(crate) path: String,
     /// Blake3 digest of the file contents.
@@ -305,8 +289,8 @@ pub(crate) struct DependencyQueueFile {
 }
 
 /// Dependency package skipped while building a local review plan.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct SkippedDependencyPackage {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct SkippedDependencyReviewPackage {
     /// Extension name that discovered this package.
     pub(crate) extension_name: String,
     /// Registry host that owns this package.
@@ -322,39 +306,38 @@ pub(crate) struct SkippedDependencyPackage {
 #[derive(Debug, Serialize)]
 struct DependencySnapshotKey<'a> {
     schema_version: u32,
-    batch_limits: DependencyQueueBatchLimits,
+    batch_limits: DependencyReviewBatchLimits,
     project_root: &'a str,
-    dependency_files: &'a [DependencyQueueSourceFile],
-    packages: &'a [DependencyQueuePackage],
+    dependency_files: &'a [DependencyReviewSourceFile],
+    packages: &'a [DependencyReviewPackage],
 }
 
 /// Build a dependency review plan for the current project dependency snapshot.
 pub(crate) fn plan_for_project(
     project_root: &Path,
     dependency_files: &[PathBuf],
-    packages: &[DependencyQueuePackage],
+    packages: &[DependencyReviewPackage],
 ) -> Result<DependencyReviewPlan> {
     let project_root = canonical_path(project_root)?;
     let source_files = dependency_source_files(dependency_files)?;
     let packages = sorted_packages(packages);
     let project_root_string = project_root.display().to_string();
     let snapshot_id = dependency_snapshot_id(&project_root_string, &source_files, &packages)?;
-    let queue = new_queue(&project_root_string, source_files, packages, &snapshot_id)?;
-    Ok(DependencyReviewPlan { queue })
+    new_plan(&project_root_string, source_files, packages, &snapshot_id)
 }
 
-fn new_queue(
+fn new_plan(
     project_root: &str,
-    dependency_files: Vec<DependencyQueueSourceFile>,
-    packages: Vec<DependencyQueuePackage>,
+    dependency_files: Vec<DependencyReviewSourceFile>,
+    packages: Vec<DependencyReviewPackage>,
     snapshot_id: &str,
-) -> Result<DependencyQueue> {
-    Ok(DependencyQueue {
+) -> Result<DependencyReviewPlan> {
+    Ok(DependencyReviewPlan {
         schema_version: DEPENDENCY_REVIEW_PLAN_VERSION,
         generated_at_unix: now_unix_seconds()?,
-        batch_limits: dependency_queue_batch_limits(),
+        batch_limits: dependency_plan_batch_limits(),
         snapshot_id: snapshot_id.to_string(),
-        source: DependencyQueueSource {
+        source: DependencyReviewSource {
             snapshot_id: snapshot_id.to_string(),
             project_root: project_root.to_string(),
             dependency_files,
@@ -367,11 +350,11 @@ fn new_queue(
 }
 
 fn build_package_record(
-    package: &DependencyQueuePackage,
+    package: &DependencyReviewPackage,
     extensions: &[Box<dyn thirdpass_core::extension::Extension>],
     snapshot_id: &str,
-    first_queue_rank: usize,
-) -> Result<DependencyQueuePackageRecord> {
+    first_plan_rank: usize,
+) -> Result<DependencyReviewPackageRecord> {
     let extension = extension_for_package(package, extensions)?;
     let metadata = primary_metadata_for_package(extension, package)?;
     let artifact_url = url::Url::parse(&metadata.artifact_url).context(format!(
@@ -402,7 +385,7 @@ fn build_package_record(
             review_batch_config(snapshot_id, package),
         )?;
 
-        Ok(DependencyQueuePackageRecord {
+        Ok(DependencyReviewPackageRecord {
             extension_name: package.extension_name.clone(),
             registry_host: metadata.registry_host_name.clone(),
             package_name: package.package_name.clone(),
@@ -410,7 +393,7 @@ fn build_package_record(
             package_hash: workspace_manifest.package_hash.clone(),
             human_url: metadata.human_url.clone(),
             artifact_url: metadata.artifact_url.clone(),
-            batches: queue_batches(first_queue_rank, &batches),
+            batches: plan_batches(first_plan_rank, &batches),
         })
     })();
     let remove_result = crate::review::workspace::remove(&workspace_manifest);
@@ -423,7 +406,7 @@ fn build_package_record(
 }
 
 fn extension_for_package<'a>(
-    package: &DependencyQueuePackage,
+    package: &DependencyReviewPackage,
     extensions: &'a [Box<dyn thirdpass_core::extension::Extension>],
 ) -> Result<&'a dyn thirdpass_core::extension::Extension> {
     extensions
@@ -438,7 +421,7 @@ fn extension_for_package<'a>(
 
 fn primary_metadata_for_package(
     extension: &dyn thirdpass_core::extension::Extension,
-    package: &DependencyQueuePackage,
+    package: &DependencyReviewPackage,
 ) -> Result<thirdpass_core::extension::RegistryPackageMetadata> {
     let version = Some(package.package_version.as_str());
     let metadata = extension.registries_package_metadata(&package.package_name, &version)?;
@@ -543,22 +526,22 @@ fn reviewable_file_line_count(
     }
 }
 
-fn queue_batches(
-    first_queue_rank: usize,
+fn plan_batches(
+    first_plan_rank: usize,
     batches: &[thirdpass_core::package::ReviewBatch],
-) -> Vec<DependencyQueueBatch> {
+) -> Vec<DependencyReviewBatch> {
     batches
         .iter()
         .enumerate()
-        .map(|(index, batch)| DependencyQueueBatch {
-            queue_rank: first_queue_rank + index,
+        .map(|(index, batch)| DependencyReviewBatch {
+            plan_rank: first_plan_rank + index,
             package_batch_rank: batch.package_batch_rank,
-            status: DependencyQueueBatchStatus::Pending,
+            status: DependencyReviewBatchStatus::Pending,
             total_lines: batch.total_lines,
             files: batch
                 .files
                 .iter()
-                .map(|file| DependencyQueueFile {
+                .map(|file| DependencyReviewFile {
                     path: file.path.clone(),
                     file_hash: file.file_hash.clone(),
                     size_bytes: file.size_bytes,
@@ -571,7 +554,7 @@ fn queue_batches(
         .collect()
 }
 
-fn dependency_source_files(paths: &[PathBuf]) -> Result<Vec<DependencyQueueSourceFile>> {
+fn dependency_source_files(paths: &[PathBuf]) -> Result<Vec<DependencyReviewSourceFile>> {
     let mut source_files = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
 
@@ -582,7 +565,7 @@ fn dependency_source_files(paths: &[PathBuf]) -> Result<Vec<DependencyQueueSourc
         }
         let blake3 = thirdpass_core::package::file_blake3_digest(&path)
             .context(format!("can't hash dependency file: {}", path.display()))?;
-        source_files.push(DependencyQueueSourceFile {
+        source_files.push(DependencyReviewSourceFile {
             path: path.display().to_string(),
             blake3,
         });
@@ -592,7 +575,7 @@ fn dependency_source_files(paths: &[PathBuf]) -> Result<Vec<DependencyQueueSourc
     Ok(source_files)
 }
 
-fn sorted_packages(packages: &[DependencyQueuePackage]) -> Vec<DependencyQueuePackage> {
+fn sorted_packages(packages: &[DependencyReviewPackage]) -> Vec<DependencyReviewPackage> {
     packages
         .iter()
         .cloned()
@@ -603,12 +586,12 @@ fn sorted_packages(packages: &[DependencyQueuePackage]) -> Vec<DependencyQueuePa
 
 fn dependency_snapshot_id(
     project_root: &str,
-    dependency_files: &[DependencyQueueSourceFile],
-    packages: &[DependencyQueuePackage],
+    dependency_files: &[DependencyReviewSourceFile],
+    packages: &[DependencyReviewPackage],
 ) -> Result<String> {
     let key = DependencySnapshotKey {
         schema_version: DEPENDENCY_REVIEW_PLAN_VERSION,
-        batch_limits: dependency_queue_batch_limits(),
+        batch_limits: dependency_plan_batch_limits(),
         project_root,
         dependency_files,
         packages,
@@ -625,10 +608,49 @@ struct PackageReviewKey {
     package_hash: String,
 }
 
+impl PackageReviewKey {
+    fn from_package(package: &DependencyReviewPackageRecord) -> Self {
+        Self {
+            registry_host: package.registry_host.clone(),
+            package_name: package.package_name.clone(),
+            package_version: package.package_version.clone(),
+            package_hash: package.package_hash.clone(),
+        }
+    }
+
+    fn from_review_registry(
+        review: &crate::review::Review,
+        registry: &crate::registry::Registry,
+    ) -> Self {
+        Self {
+            registry_host: registry.host_name.clone(),
+            package_name: review.package.name.clone(),
+            package_version: review.package.version.clone(),
+            package_hash: review.package.package_hash.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 struct ReviewedFileKey {
     path: String,
     file_hash: thirdpass_core::schema::FileHash,
+}
+
+impl ReviewedFileKey {
+    fn from_plan_file(file: &DependencyReviewFile) -> Self {
+        Self {
+            path: file.path.clone(),
+            file_hash: file.file_hash.clone(),
+        }
+    }
+
+    fn from_review_target(target: &crate::review::ReviewTarget) -> Option<Self> {
+        target.file_hash.as_ref().map(|file_hash| Self {
+            path: package_relative_path_string(&target.file_path),
+            file_hash: file_hash.clone(),
+        })
+    }
 }
 
 type PackageReviewCoverage = BTreeMap<PackageReviewKey, BTreeSet<ReviewedFileKey>>;
@@ -642,37 +664,31 @@ fn local_review_coverage(public_user_id: &str) -> Result<PackageReviewCoverage> 
         }
 
         for registry in &review.package.registries {
-            let key = PackageReviewKey {
-                registry_host: registry.host_name.clone(),
-                package_name: review.package.name.clone(),
-                package_version: review.package.version.clone(),
-                package_hash: review.package.package_hash.clone(),
-            };
+            let key = PackageReviewKey::from_review_registry(&review, registry);
             let package_coverage = coverage.entry(key).or_default();
             for target in &review.targets {
-                let Some(file_hash) = &target.file_hash else {
-                    continue;
-                };
-                package_coverage.insert(ReviewedFileKey {
-                    path: package_relative_path_string(&target.file_path),
-                    file_hash: file_hash.clone(),
-                });
+                if let Some(key) = ReviewedFileKey::from_review_target(target) {
+                    package_coverage.insert(key);
+                }
             }
         }
     }
     Ok(coverage)
 }
 
-fn refresh_queue_progress(queue: &mut DependencyQueue, coverage: &PackageReviewCoverage) -> bool {
+fn refresh_plan_progress(
+    plan: &mut DependencyReviewPlan,
+    coverage: &PackageReviewCoverage,
+) -> bool {
     let mut changed = false;
-    for package in &mut queue.packages {
-        let package_key = package_review_key(package);
+    for package in &mut plan.packages {
+        let package_key = PackageReviewKey::from_package(package);
         let covered_files = coverage.get(&package_key);
         for batch in &mut package.batches {
             let new_status = if batch_is_covered(batch, covered_files) {
-                DependencyQueueBatchStatus::Reviewed
+                DependencyReviewBatchStatus::Reviewed
             } else {
-                DependencyQueueBatchStatus::Pending
+                DependencyReviewBatchStatus::Pending
             };
             if batch.status != new_status {
                 batch.status = new_status;
@@ -684,15 +700,15 @@ fn refresh_queue_progress(queue: &mut DependencyQueue, coverage: &PackageReviewC
 }
 
 fn select_next_review(
-    queue: &DependencyQueue,
+    plan: &DependencyReviewPlan,
     coverage: &PackageReviewCoverage,
-) -> Option<DependencyQueueSelection> {
-    let queue_batch_count = queue.batch_count();
-    for package in &queue.packages {
-        let package_key = package_review_key(package);
+) -> Option<DependencyReviewSelection> {
+    let plan_batch_count = plan.batch_count();
+    for package in &plan.packages {
+        let package_key = PackageReviewKey::from_package(package);
         let covered_files = coverage.get(&package_key);
         for batch in &package.batches {
-            if batch.status == DependencyQueueBatchStatus::Reviewed {
+            if batch.status == DependencyReviewBatchStatus::Reviewed {
                 continue;
             }
 
@@ -701,13 +717,13 @@ fn select_next_review(
                 continue;
             }
 
-            return Some(DependencyQueueSelection {
+            return Some(DependencyReviewSelection {
                 extension_name: package.extension_name.clone(),
                 registry_host: package.registry_host.clone(),
                 package_name: package.package_name.clone(),
                 package_version: package.package_version.clone(),
-                queue_rank: batch.queue_rank,
-                queue_batch_count,
+                plan_rank: batch.plan_rank,
+                plan_batch_count,
                 package_batch_rank: batch.package_batch_rank,
                 batch_file_count: batch.files.len(),
                 target_files,
@@ -718,16 +734,16 @@ fn select_next_review(
 }
 
 fn set_batch_status(
-    queue: &mut DependencyQueue,
-    queue_rank: usize,
-    status: DependencyQueueBatchStatus,
+    plan: &mut DependencyReviewPlan,
+    plan_rank: usize,
+    status: DependencyReviewBatchStatus,
 ) -> bool {
-    for batch in queue
+    for batch in plan
         .packages
         .iter_mut()
         .flat_map(|package| &mut package.batches)
     {
-        if batch.queue_rank == queue_rank {
+        if batch.plan_rank == plan_rank {
             if batch.status == status {
                 return false;
             }
@@ -738,17 +754,8 @@ fn set_batch_status(
     false
 }
 
-fn package_review_key(package: &DependencyQueuePackageRecord) -> PackageReviewKey {
-    PackageReviewKey {
-        registry_host: package.registry_host.clone(),
-        package_name: package.package_name.clone(),
-        package_version: package.package_version.clone(),
-        package_hash: package.package_hash.clone(),
-    }
-}
-
 fn batch_is_covered(
-    batch: &DependencyQueueBatch,
+    batch: &DependencyReviewBatch,
     covered_files: Option<&BTreeSet<ReviewedFileKey>>,
 ) -> bool {
     let Some(covered_files) = covered_files else {
@@ -757,11 +764,11 @@ fn batch_is_covered(
     batch
         .files
         .iter()
-        .all(|file| covered_files.contains(&reviewed_file_key(file)))
+        .all(|file| covered_files.contains(&ReviewedFileKey::from_plan_file(file)))
 }
 
 fn uncovered_batch_files(
-    batch: &DependencyQueueBatch,
+    batch: &DependencyReviewBatch,
     covered_files: Option<&BTreeSet<ReviewedFileKey>>,
 ) -> Vec<String> {
     batch
@@ -769,22 +776,17 @@ fn uncovered_batch_files(
         .iter()
         .filter(|file| {
             covered_files
-                .map(|covered_files| !covered_files.contains(&reviewed_file_key(file)))
+                .map(|covered_files| {
+                    !covered_files.contains(&ReviewedFileKey::from_plan_file(file))
+                })
                 .unwrap_or(true)
         })
         .map(|file| file.path.clone())
         .collect()
 }
 
-fn reviewed_file_key(file: &DependencyQueueFile) -> ReviewedFileKey {
-    ReviewedFileKey {
-        path: file.path.clone(),
-        file_hash: file.file_hash.clone(),
-    }
-}
-
-fn dependency_queue_batch_limits() -> DependencyQueueBatchLimits {
-    DependencyQueueBatchLimits {
+fn dependency_plan_batch_limits() -> DependencyReviewBatchLimits {
+    DependencyReviewBatchLimits {
         max_lines_per_batch: thirdpass_core::package::DEFAULT_REVIEW_BATCH_MAX_LINES,
         max_files_per_batch: thirdpass_core::package::DEFAULT_REVIEW_BATCH_MAX_FILES,
     }
@@ -792,9 +794,9 @@ fn dependency_queue_batch_limits() -> DependencyQueueBatchLimits {
 
 fn review_batch_config(
     snapshot_id: &str,
-    package: &DependencyQueuePackage,
+    package: &DependencyReviewPackage,
 ) -> thirdpass_core::package::ReviewBatchConfig {
-    let limits = dependency_queue_batch_limits();
+    let limits = dependency_plan_batch_limits();
     thirdpass_core::package::ReviewBatchConfig {
         max_lines: limits.max_lines_per_batch,
         max_files: limits.max_files_per_batch,
@@ -802,7 +804,7 @@ fn review_batch_config(
     }
 }
 
-fn package_shuffle_seed(snapshot_id: &str, package: &DependencyQueuePackage) -> u64 {
+fn package_shuffle_seed(snapshot_id: &str, package: &DependencyReviewPackage) -> u64 {
     let material = format!(
         "{}\0{}\0{}\0{}\0{}",
         snapshot_id,
@@ -818,10 +820,10 @@ fn package_shuffle_seed(snapshot_id: &str, package: &DependencyQueuePackage) -> 
 }
 
 fn skipped_dependency_package(
-    package: &DependencyQueuePackage,
+    package: &DependencyReviewPackage,
     error: anyhow::Error,
-) -> SkippedDependencyPackage {
-    SkippedDependencyPackage {
+) -> SkippedDependencyReviewPackage {
+    SkippedDependencyReviewPackage {
         extension_name: package.extension_name.clone(),
         registry_host: package.registry_host_name.clone(),
         package_name: package.package_name.clone(),
@@ -902,28 +904,27 @@ mod tests {
             package("js", "npmjs.com", "left-pad", "1.3.0"),
         ];
 
-        let queue = new_queue(
+        let plan = new_plan(
             "/project",
             vec![source_file("/project/Cargo.lock", "source-hash")],
             packages.clone(),
-            "queue-id",
+            "plan-id",
         )?;
 
-        assert_eq!(queue.snapshot_id, "queue-id");
-        assert_eq!(queue.source.snapshot_id, "queue-id");
-        assert_eq!(queue.source.dependency_count, 2);
-        assert_eq!(queue.packages, Vec::new());
-        assert_eq!(queue.pending_packages, packages);
-        assert_eq!(queue.skipped_packages, Vec::new());
+        assert_eq!(plan.snapshot_id, "plan-id");
+        assert_eq!(plan.source.snapshot_id, "plan-id");
+        assert_eq!(plan.source.dependency_count, 2);
+        assert_eq!(plan.packages, Vec::new());
+        assert_eq!(plan.pending_packages, packages);
+        assert_eq!(plan.skipped_packages, Vec::new());
         Ok(())
     }
 
     #[test]
     fn prepare_next_package_skips_missing_extension_without_other_packages() -> Result<()> {
-        let mut queue = sample_queue();
-        queue.pending_packages = vec![package("rs", "crates.io", "serde", "1.0.0")];
-        queue.source.dependency_count = 1;
-        let mut plan = DependencyReviewPlan { queue };
+        let mut plan = sample_plan();
+        plan.pending_packages = vec![package("rs", "crates.io", "serde", "1.0.0")];
+        plan.source.dependency_count = 1;
         let extensions: Vec<Box<dyn thirdpass_core::extension::Extension>> = Vec::new();
 
         let preparation = plan
@@ -932,7 +933,7 @@ mod tests {
 
         assert_eq!(
             preparation,
-            DependencyQueuePreparation::Skipped {
+            DependencyReviewPreparation::Skipped {
                 extension_name: "rs".to_string(),
                 registry_host: "crates.io".to_string(),
                 package_name: "serde".to_string(),
@@ -940,9 +941,9 @@ mod tests {
                 reason: "extension 'rs' is not enabled".to_string(),
             }
         );
-        assert_eq!(plan.queue.pending_package_count(), 0);
-        assert_eq!(plan.queue.skipped_packages.len(), 1);
-        assert_eq!(plan.queue.packages.len(), 0);
+        assert_eq!(plan.pending_package_count(), 0);
+        assert_eq!(plan.skipped_packages.len(), 1);
+        assert_eq!(plan.packages.len(), 0);
         Ok(())
     }
 
@@ -974,48 +975,48 @@ mod tests {
 
     #[test]
     fn select_next_review_skips_covered_files() {
-        let mut queue = queue_with_batches();
+        let mut plan = plan_with_batches();
         let mut coverage = PackageReviewCoverage::new();
         coverage.insert(
-            package_review_key(&queue.packages[0]),
-            reviewed_files(&queue, &["src/a.rs", "src/b.rs", "src/c.rs"]),
+            PackageReviewKey::from_package(&plan.packages[0]),
+            reviewed_files(&plan, &["src/a.rs", "src/b.rs", "src/c.rs"]),
         );
 
-        assert!(refresh_queue_progress(&mut queue, &coverage));
-        let selection = select_next_review(&queue, &coverage)
-            .expect("partially covered queue should still select work");
+        assert!(refresh_plan_progress(&mut plan, &coverage));
+        let selection = select_next_review(&plan, &coverage)
+            .expect("partially covered plan should still select work");
 
-        assert_eq!(queue.reviewed_batch_count(), 1);
-        assert_eq!(queue.remaining_batch_count(), 1);
-        assert_eq!(selection.queue_rank, 2);
-        assert_eq!(selection.queue_batch_count, 2);
+        assert_eq!(plan.reviewed_batch_count(), 1);
+        assert_eq!(plan.remaining_batch_count(), 1);
+        assert_eq!(selection.plan_rank, 2);
+        assert_eq!(selection.plan_batch_count, 2);
         assert_eq!(selection.package_batch_rank, 2);
         assert_eq!(selection.batch_file_count, 2);
         assert_eq!(selection.target_files, vec!["src/d.rs".to_string()]);
     }
 
     #[test]
-    fn select_next_review_returns_none_when_queue_is_covered() {
-        let mut queue = queue_with_batches();
+    fn select_next_review_returns_none_when_plan_is_covered() {
+        let mut plan = plan_with_batches();
         let mut coverage = PackageReviewCoverage::new();
         coverage.insert(
-            package_review_key(&queue.packages[0]),
-            reviewed_files(&queue, &["src/a.rs", "src/b.rs", "src/c.rs", "src/d.rs"]),
+            PackageReviewKey::from_package(&plan.packages[0]),
+            reviewed_files(&plan, &["src/a.rs", "src/b.rs", "src/c.rs", "src/d.rs"]),
         );
 
-        assert!(refresh_queue_progress(&mut queue, &coverage));
+        assert!(refresh_plan_progress(&mut plan, &coverage));
 
-        assert_eq!(queue.reviewed_batch_count(), 2);
-        assert_eq!(queue.remaining_batch_count(), 0);
-        assert_eq!(select_next_review(&queue, &coverage), None);
+        assert_eq!(plan.reviewed_batch_count(), 2);
+        assert_eq!(plan.remaining_batch_count(), 0);
+        assert_eq!(select_next_review(&plan, &coverage), None);
     }
 
     #[test]
     fn select_next_review_requires_matching_file_hash() {
-        let mut queue = queue_with_batches();
+        let mut plan = plan_with_batches();
         let mut coverage = PackageReviewCoverage::new();
         coverage.insert(
-            package_review_key(&queue.packages[0]),
+            PackageReviewKey::from_package(&plan.packages[0]),
             vec![ReviewedFileKey {
                 path: "src/a.rs".to_string(),
                 file_hash: thirdpass_core::schema::FileHash::blake3("different-hash"),
@@ -1024,19 +1025,19 @@ mod tests {
             .collect(),
         );
 
-        assert!(!refresh_queue_progress(&mut queue, &coverage));
-        let selection = select_next_review(&queue, &coverage)
+        assert!(!refresh_plan_progress(&mut plan, &coverage));
+        let selection = select_next_review(&plan, &coverage)
             .expect("hash mismatch should leave the file uncovered");
 
-        assert_eq!(selection.queue_rank, 1);
+        assert_eq!(selection.plan_rank, 1);
         assert_eq!(
             selection.target_files,
             vec!["src/a.rs".to_string(), "src/b.rs".to_string()]
         );
     }
 
-    fn source_file(path: &str, blake3: &str) -> DependencyQueueSourceFile {
-        DependencyQueueSourceFile {
+    fn source_file(path: &str, blake3: &str) -> DependencyReviewSourceFile {
+        DependencyReviewSourceFile {
             path: path.to_string(),
             blake3: blake3.to_string(),
         }
@@ -1047,8 +1048,8 @@ mod tests {
         registry_host_name: &str,
         package_name: &str,
         package_version: &str,
-    ) -> DependencyQueuePackage {
-        DependencyQueuePackage {
+    ) -> DependencyReviewPackage {
+        DependencyReviewPackage {
             extension_name: extension_name.to_string(),
             registry_host_name: registry_host_name.to_string(),
             package_name: package_name.to_string(),
@@ -1056,13 +1057,13 @@ mod tests {
         }
     }
 
-    fn sample_queue() -> DependencyQueue {
-        DependencyQueue {
+    fn sample_plan() -> DependencyReviewPlan {
+        DependencyReviewPlan {
             schema_version: DEPENDENCY_REVIEW_PLAN_VERSION,
             generated_at_unix: 1,
-            batch_limits: dependency_queue_batch_limits(),
+            batch_limits: dependency_plan_batch_limits(),
             snapshot_id: "snapshot-id".to_string(),
-            source: DependencyQueueSource {
+            source: DependencyReviewSource {
                 snapshot_id: "snapshot-id".to_string(),
                 project_root: "/project".to_string(),
                 dependency_files: vec![source_file("/project/Cargo.toml", "hash")],
@@ -1074,20 +1075,19 @@ mod tests {
         }
     }
 
-    fn reviewed_files(queue: &DependencyQueue, paths: &[&str]) -> BTreeSet<ReviewedFileKey> {
-        queue
-            .packages
+    fn reviewed_files(plan: &DependencyReviewPlan, paths: &[&str]) -> BTreeSet<ReviewedFileKey> {
+        plan.packages
             .iter()
             .flat_map(|package| &package.batches)
             .flat_map(|batch| &batch.files)
             .filter(|file| paths.contains(&file.path.as_str()))
-            .map(reviewed_file_key)
+            .map(ReviewedFileKey::from_plan_file)
             .collect()
     }
 
-    fn queue_with_batches() -> DependencyQueue {
-        let mut queue = sample_queue();
-        queue.packages = vec![DependencyQueuePackageRecord {
+    fn plan_with_batches() -> DependencyReviewPlan {
+        let mut plan = sample_plan();
+        plan.packages = vec![DependencyReviewPackageRecord {
             extension_name: "rs".to_string(),
             registry_host: "crates.io".to_string(),
             package_name: "demo".to_string(),
@@ -1100,19 +1100,19 @@ mod tests {
                 batch(2, 2, &["src/c.rs", "src/d.rs"]),
             ],
         }];
-        queue
+        plan
     }
 
-    fn batch(queue_rank: usize, package_batch_rank: usize, paths: &[&str]) -> DependencyQueueBatch {
-        DependencyQueueBatch {
-            queue_rank,
+    fn batch(plan_rank: usize, package_batch_rank: usize, paths: &[&str]) -> DependencyReviewBatch {
+        DependencyReviewBatch {
+            plan_rank,
             package_batch_rank,
-            status: DependencyQueueBatchStatus::Pending,
+            status: DependencyReviewBatchStatus::Pending,
             total_lines: paths.len(),
             files: paths
                 .iter()
                 .enumerate()
-                .map(|(index, path)| DependencyQueueFile {
+                .map(|(index, path)| DependencyReviewFile {
                     path: path.to_string(),
                     file_hash: thirdpass_core::schema::FileHash::blake3(format!(
                         "file-hash-{index}"

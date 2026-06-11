@@ -10,7 +10,7 @@ const PROJECT_REVIEW_SCHEMA_VERSION: u32 = 1;
 /// Store a dependency review artifact inside the project checkout.
 pub(crate) fn store_dependency_review(
     project_root: &Path,
-    source: &review::dependency_queue::DependencyQueueSource,
+    source: &review::dependency_plan::DependencyReviewSource,
     review: &review::Review,
 ) -> Result<PathBuf> {
     let artifact = ProjectReviewArtifact::from_source(project_root, source, review);
@@ -30,7 +30,7 @@ struct ProjectReviewArtifact {
 impl ProjectReviewArtifact {
     fn from_source(
         project_root: &Path,
-        source: &review::dependency_queue::DependencyQueueSource,
+        source: &review::dependency_plan::DependencyReviewSource,
         review: &review::Review,
     ) -> Self {
         let source_project_root = PathBuf::from(&source.project_root);
@@ -199,11 +199,11 @@ mod tests {
     fn dependency_source(
         project_root: &Path,
         dependency_file: &Path,
-    ) -> review::dependency_queue::DependencyQueueSource {
-        review::dependency_queue::DependencyQueueSource {
+    ) -> review::dependency_plan::DependencyReviewSource {
+        review::dependency_plan::DependencyReviewSource {
             snapshot_id: "snapshot-id".to_string(),
             project_root: project_root.display().to_string(),
-            dependency_files: vec![review::dependency_queue::DependencyQueueSourceFile {
+            dependency_files: vec![review::dependency_plan::DependencyReviewSourceFile {
                 path: dependency_file.display().to_string(),
                 blake3: "dependency-hash".to_string(),
             }],
