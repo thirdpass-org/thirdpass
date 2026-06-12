@@ -5,15 +5,14 @@ use std::path::{Path, PathBuf};
 
 use crate::review;
 
-const PROJECT_REVIEW_SCHEMA_VERSION: u32 = 1;
+const PROJECT_REVIEW_SCHEMA_VERSION: u32 = 2;
 
 /// Store a dependency review artifact inside the project checkout.
 pub(crate) fn store_dependency_review(
     project_root: &Path,
-    source: &review::dependency_plan::DependencyReviewSource,
     review: &review::Review,
 ) -> Result<PathBuf> {
-    let artifact = ProjectReviewArtifact::from_source(project_root, source, review);
+    let artifact = ProjectReviewArtifact::from_review(review);
     let bytes = serde_json::to_vec_pretty(&artifact)?;
     let path = project_review_path(project_root, review, &bytes)?;
     write_json_atomically(&path, &bytes)?;
@@ -23,51 +22,16 @@ pub(crate) fn store_dependency_review(
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 struct ProjectReviewArtifact {
     schema_version: u32,
-    source: ProjectReviewSource,
     review: review::Review,
 }
 
 impl ProjectReviewArtifact {
-    fn from_source(
-        project_root: &Path,
-        source: &review::dependency_plan::DependencyReviewSource,
-        review: &review::Review,
-    ) -> Self {
-        let source_project_root = PathBuf::from(&source.project_root);
-        let dependency_files = source
-            .dependency_files
-            .iter()
-            .map(|file| ProjectReviewSourceFile {
-                path: project_relative_path(&source_project_root, Path::new(&file.path)),
-                blake3: file.blake3.clone(),
-            })
-            .collect();
-
+    fn from_review(review: &review::Review) -> Self {
         Self {
             schema_version: PROJECT_REVIEW_SCHEMA_VERSION,
-            source: ProjectReviewSource {
-                snapshot_id: source.snapshot_id.clone(),
-                project_root: project_relative_path(project_root, project_root),
-                dependency_files,
-                dependency_count: source.dependency_count,
-            },
             review: review.clone(),
         }
     }
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-struct ProjectReviewSource {
-    snapshot_id: String,
-    project_root: String,
-    dependency_files: Vec<ProjectReviewSourceFile>,
-    dependency_count: usize,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-struct ProjectReviewSourceFile {
-    path: String,
-    blake3: String,
 }
 
 fn project_review_path(
@@ -108,32 +72,6 @@ fn single_registry_host(review: &review::Review) -> Result<&str> {
     }
 }
 
-fn project_relative_path(project_root: &Path, path: &Path) -> String {
-    if path == project_root {
-        return ".".to_string();
-    }
-
-    path.strip_prefix(project_root)
-        .ok()
-        .map(package_relative_path_string)
-        .or_else(|| {
-            path.file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-        })
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
-fn package_relative_path_string(path: &Path) -> String {
-    if path.as_os_str().is_empty() {
-        return ".".to_string();
-    }
-
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
 fn write_json_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path.parent().ok_or(format_err!(
         "can't find parent directory for project review: {}",
@@ -168,47 +106,19 @@ mod tests {
     use crate::{package, peer, registry};
 
     #[test]
-    fn store_dependency_review_writes_project_relative_artifact() -> Result<()> {
+    fn store_dependency_review_writes_project_artifact() -> Result<()> {
         let project = tempfile::tempdir()?;
-        let dependency_file = project.path().join("package-lock.json");
-        std::fs::write(&dependency_file, "{}")?;
-        let source = dependency_source(project.path(), &dependency_file);
         let review = stored_review()?;
 
-        let path = store_dependency_review(project.path(), &source, &review)?;
+        let path = store_dependency_review(project.path(), &review)?;
         let contents = std::fs::read_to_string(&path)?;
         let artifact: ProjectReviewArtifact = serde_json::from_str(&contents)?;
 
         assert!(path.starts_with(project.path().join(".thirdpass").join("reviews")));
         assert_eq!(artifact.schema_version, PROJECT_REVIEW_SCHEMA_VERSION);
-        assert_eq!(artifact.source.project_root, ".");
-        assert_eq!(
-            artifact.source.dependency_files[0].path,
-            "package-lock.json"
-        );
-        assert_eq!(
-            artifact.source.dependency_files[0].blake3,
-            "dependency-hash"
-        );
-        assert_eq!(artifact.source.snapshot_id, "snapshot-id");
         assert_eq!(artifact.review.package.name, "left-pad");
         assert!(!contents.contains(&project.path().display().to_string()));
         Ok(())
-    }
-
-    fn dependency_source(
-        project_root: &Path,
-        dependency_file: &Path,
-    ) -> review::dependency_plan::DependencyReviewSource {
-        review::dependency_plan::DependencyReviewSource {
-            snapshot_id: "snapshot-id".to_string(),
-            project_root: project_root.display().to_string(),
-            dependency_files: vec![review::dependency_plan::DependencyReviewSourceFile {
-                path: dependency_file.display().to_string(),
-                blake3: "dependency-hash".to_string(),
-            }],
-            dependency_count: 1,
-        }
     }
 
     fn stored_review() -> Result<review::Review> {

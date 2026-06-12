@@ -252,11 +252,8 @@ fn run_discovered_dependency_reviews(
             },
             submitter,
         )?;
-        let project_review_path = review::project::store_dependency_review(
-            working_directory,
-            &plan.source,
-            &result.review,
-        )?;
+        let project_review_path =
+            review::project::store_dependency_review(working_directory, &result.review)?;
         println!("Project review saved: {}.", project_review_path.display());
         plan.mark_batch_reviewed(plan_rank)?;
         session.record(&result.outcome);

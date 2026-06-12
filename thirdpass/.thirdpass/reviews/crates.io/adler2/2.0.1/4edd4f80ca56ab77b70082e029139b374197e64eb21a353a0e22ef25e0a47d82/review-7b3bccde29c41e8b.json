@@ -1,16 +1,5 @@
 {
-  "schema_version": 1,
-  "source": {
-    "snapshot_id": "9305f7c2122d4f397289069dfbfc242078207cff8fa1db398ba21781f5d97f06",
-    "project_root": ".",
-    "dependency_files": [
-      {
-        "path": "Cargo.lock",
-        "blake3": "4cd15bce3be2dd2807fda997b2943f079cb74249b622dd4514609ea70dece75e"
-      }
-    ],
-    "dependency_count": 374
-  },
+  "schema_version": 2,
   "review": {
     "package": {
       "name": "adler2",
