@@ -7,6 +7,8 @@ mod package;
 mod peer;
 mod registry;
 mod review;
+#[cfg(test)]
+mod test_support;
 
 fn main() {
     let env = env_logger::Env::new().filter_or("THIRDPASS_LOG", "off");

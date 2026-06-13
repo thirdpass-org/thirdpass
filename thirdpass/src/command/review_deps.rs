@@ -567,10 +567,8 @@ fn sort_dependency_review_candidates(candidates: &mut [DependencyReviewCandidate
 mod tests {
     use super::*;
     use crate::common;
+    use crate::test_support::{DependencyReviewFixture, FixtureExtension};
     use crate::{package, peer, registry};
-    use std::ffi::OsString;
-    use std::io::Write;
-    use std::path::{Path, PathBuf};
 
     #[test]
     fn sort_dependency_review_candidates_prefers_review_needs() {
@@ -720,7 +718,7 @@ mod tests {
         let _lock = common::TEST_ENV_LOCK
             .lock()
             .expect("test env lock poisoned");
-        let fixture = ReviewDepsFixture::new()?;
+        let fixture = DependencyReviewFixture::new("thirdpass-review-deps-e2e-")?;
         let _env = fixture.enter_client_environment();
         fixture.prepare_cached_workspace()?;
         fixture.write_project_review()?;
@@ -737,12 +735,12 @@ mod tests {
             &[Box::new(FixtureExtension::new(&fixture))],
             fixture.project_root(),
             DependencyReviewDiscovery {
-                dependency_files: vec![fixture.dependency_file.clone()],
+                dependency_files: vec![fixture.dependency_file().to_path_buf()],
                 candidates: vec![DependencyReviewCandidate {
                     extension_name: "fixture".to_string(),
-                    registry_host_name: fixture.registry_host_name.clone(),
-                    package_name: fixture.package_name.clone(),
-                    package_version: fixture.package_version.clone(),
+                    registry_host_name: fixture.registry_host_name().to_string(),
+                    package_name: fixture.package_name().to_string(),
+                    package_version: fixture.package_version().to_string(),
                     current_reviewer_review_count: 0,
                     total_review_count: 0,
                 }],
@@ -810,253 +808,5 @@ mod tests {
             overall_security_summary: review::SecuritySummary::default(),
             overall_security_confidence: None,
         })
-    }
-
-    struct ReviewDepsFixture {
-        root: tempfile::TempDir,
-        project: PathBuf,
-        dependency_file: PathBuf,
-        registry_host_name: String,
-        package_name: String,
-        package_version: String,
-        package_hash: String,
-        files: Vec<FixturePackageFile>,
-    }
-
-    impl ReviewDepsFixture {
-        fn new() -> Result<Self> {
-            let root = tempfile::Builder::new()
-                .prefix("thirdpass-review-deps-e2e-")
-                .tempdir()?;
-            let project = root.path().join("project");
-            std::fs::create_dir_all(&project)?;
-            let dependency_file = project.join("deps.lock");
-            std::fs::write(&dependency_file, "fixture-package 1.0.0\n")?;
-
-            Ok(Self {
-                root,
-                project,
-                dependency_file,
-                registry_host_name: "fixture.registry".to_string(),
-                package_name: "fixture-package".to_string(),
-                package_version: "1.0.0".to_string(),
-                package_hash: "fixture-package-hash".to_string(),
-                files: vec![
-                    FixturePackageFile {
-                        path: PathBuf::from("README.md"),
-                        contents: b"# Fixture\n".to_vec(),
-                    },
-                    FixturePackageFile {
-                        path: PathBuf::from("src/lib.rs"),
-                        contents: b"pub fn fixture() {}\n".to_vec(),
-                    },
-                ],
-            })
-        }
-
-        fn enter_client_environment(&self) -> ScopedEnv {
-            let client_root = self.root.path().join("client");
-            ScopedEnv::set(&[
-                ("HOME", client_root.join("home")),
-                ("XDG_CONFIG_HOME", client_root.join("xdg-config")),
-                ("XDG_DATA_HOME", client_root.join("xdg-data")),
-            ])
-        }
-
-        fn project_root(&self) -> &Path {
-            &self.project
-        }
-
-        fn prepare_cached_workspace(&self) -> Result<()> {
-            let data_paths = common::fs::DataPaths::new()?;
-            let package_path = thirdpass_core::package::unique_package_path(
-                &self.package_name,
-                &self.package_version,
-                &self.registry_host_name,
-            )?;
-            let package_directory = data_paths.ongoing_reviews_directory.join(package_path);
-            let workspace_path =
-                package_directory.join(format!("{}-{}", self.package_name, self.package_version));
-            std::fs::create_dir_all(&workspace_path)?;
-            for file in &self.files {
-                let path = workspace_path.join(&file.path);
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                std::fs::write(path, &file.contents)?;
-            }
-
-            let archive_path = package_directory.join("archive.tar.gz");
-            std::fs::write(&archive_path, b"stand-in archive bytes")?;
-            let manifest = thirdpass_core::package::Manifest {
-                workspace_path,
-                manifest_path: package_directory.join("manifest.json"),
-                artifact_path: archive_path,
-                package_hash: self.package_hash.clone(),
-            };
-            let mut manifest_file = std::fs::File::create(&manifest.manifest_path)?;
-            manifest_file.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
-            Ok(())
-        }
-
-        fn write_project_review(&self) -> Result<()> {
-            review::project::store_dependency_review(self.project_root(), &self.review()?)?;
-            Ok(())
-        }
-
-        fn review(&self) -> Result<review::Review> {
-            let mut registries = std::collections::BTreeSet::new();
-            registries.insert(registry::Registry {
-                id: 0,
-                host_name: self.registry_host_name.clone(),
-                human_url: url::Url::parse("https://fixture.registry/fixture-package")?,
-                artifact_url: url::Url::parse(
-                    "https://fixture.registry/fixture-package-1.0.0.tar.gz",
-                )?,
-            });
-
-            let workspace_path = self.cached_workspace_path()?;
-            let targets = self
-                .files
-                .iter()
-                .map(|file| {
-                    let file_hash = thirdpass_core::package::file_blake3_digest(
-                        &workspace_path.join(&file.path),
-                    )?;
-                    Ok(review::ReviewTarget {
-                        file_path: file.path.clone(),
-                        file_hash: Some(thirdpass_core::schema::FileHash::blake3(file_hash)),
-                        agent_summary: None,
-                        security_summary: Some(review::SecuritySummary::None),
-                        confidence: None,
-                        comments: std::collections::BTreeSet::new(),
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
-
-            Ok(review::Review {
-                id: 0,
-                peer: peer::Peer::default(),
-                package: package::Package {
-                    id: 0,
-                    name: self.package_name.clone(),
-                    version: self.package_version.clone(),
-                    registries,
-                    package_hash: self.package_hash.clone(),
-                },
-                targets,
-                reviewer_details: review::ReviewerDetails {
-                    public_user_id: "committed-reviewer".to_string(),
-                    ..review::ReviewerDetails::default()
-                },
-                agent_summary: String::new(),
-                overall_security_summary: review::SecuritySummary::None,
-                overall_security_confidence: None,
-            })
-        }
-
-        fn cached_workspace_path(&self) -> Result<PathBuf> {
-            let data_paths = common::fs::DataPaths::new()?;
-            Ok(data_paths
-                .ongoing_reviews_directory
-                .join(thirdpass_core::package::unique_package_path(
-                    &self.package_name,
-                    &self.package_version,
-                    &self.registry_host_name,
-                )?)
-                .join(format!("{}-{}", self.package_name, self.package_version)))
-        }
-    }
-
-    struct FixturePackageFile {
-        path: PathBuf,
-        contents: Vec<u8>,
-    }
-
-    struct FixtureExtension {
-        registry_host_name: String,
-        package_name: String,
-        package_version: String,
-    }
-
-    impl FixtureExtension {
-        fn new(fixture: &ReviewDepsFixture) -> Self {
-            Self {
-                registry_host_name: fixture.registry_host_name.clone(),
-                package_name: fixture.package_name.clone(),
-                package_version: fixture.package_version.clone(),
-            }
-        }
-    }
-
-    impl thirdpass_core::extension::Extension for FixtureExtension {
-        fn name(&self) -> String {
-            "fixture".to_string()
-        }
-
-        fn registries(&self) -> Vec<String> {
-            vec![self.registry_host_name.clone()]
-        }
-
-        fn identify_package_dependencies(
-            &self,
-            _package_name: &str,
-            _package_version: &Option<&str>,
-            _extension_args: &[String],
-        ) -> Result<Vec<thirdpass_core::extension::PackageDependencies>> {
-            Ok(Vec::new())
-        }
-
-        fn identify_file_defined_dependencies(
-            &self,
-            _working_directory: &Path,
-            _extension_args: &[String],
-        ) -> Result<Vec<thirdpass_core::extension::FileDefinedDependencies>> {
-            Ok(Vec::new())
-        }
-
-        fn registries_package_metadata(
-            &self,
-            package_name: &str,
-            package_version: &Option<&str>,
-        ) -> Result<Vec<thirdpass_core::extension::RegistryPackageMetadata>> {
-            assert_eq!(package_name, self.package_name);
-            assert_eq!(*package_version, Some(self.package_version.as_str()));
-            Ok(vec![thirdpass_core::extension::RegistryPackageMetadata {
-                registry_host_name: self.registry_host_name.clone(),
-                human_url: "https://fixture.registry/fixture-package".to_string(),
-                artifact_url: "https://fixture.registry/fixture-package-1.0.0.tar.gz".to_string(),
-                is_primary: true,
-                package_version: self.package_version.clone(),
-            }])
-        }
-    }
-
-    struct ScopedEnv {
-        previous: Vec<(&'static str, Option<OsString>)>,
-    }
-
-    impl ScopedEnv {
-        fn set(values: &[(&'static str, PathBuf)]) -> Self {
-            let previous = values
-                .iter()
-                .map(|(name, _)| (*name, std::env::var_os(name)))
-                .collect::<Vec<_>>();
-            for (name, value) in values {
-                std::env::set_var(name, value);
-            }
-            Self { previous }
-        }
-    }
-
-    impl Drop for ScopedEnv {
-        fn drop(&mut self) {
-            for (name, value) in self.previous.iter().rev() {
-                match value {
-                    Some(value) => std::env::set_var(name, value),
-                    None => std::env::remove_var(name),
-                }
-            }
-        }
     }
 }
