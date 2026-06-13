@@ -6,6 +6,47 @@ use std::path::{Path, PathBuf};
 use crate::review;
 
 const PROJECT_REVIEW_SCHEMA_VERSION: u32 = 1;
+const PROJECT_REVIEW_FILE_PREFIX: &str = "review-";
+
+/// Return dependency reviews committed inside the project checkout.
+pub(crate) fn list_dependency_reviews(project_root: &Path) -> Result<Vec<review::Review>> {
+    let reviews_directory = project_root.join(".thirdpass").join("reviews");
+    if !reviews_directory.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    collect_project_review_files(&reviews_directory, &mut files)?;
+    files.sort();
+
+    let mut reviews = Vec::new();
+    for file in files {
+        let reader = std::io::BufReader::new(std::fs::File::open(&file)?);
+        match serde_json::from_reader::<_, ProjectReviewArtifact>(reader) {
+            Ok(artifact) => {
+                if artifact.schema_version != PROJECT_REVIEW_SCHEMA_VERSION {
+                    log::warn!(
+                        "Skipping project review file {}: unsupported schema version {}",
+                        file.display(),
+                        artifact.schema_version
+                    );
+                    continue;
+                }
+                let mut review = artifact.review;
+                review.overall_security_summary = crate::review::overall_security_summary(&review)?;
+                reviews.push(review);
+            }
+            Err(err) => {
+                log::warn!(
+                    "Failed to parse project review file {}: {}",
+                    file.display(),
+                    err
+                );
+            }
+        }
+    }
+    Ok(reviews)
+}
 
 /// Store a dependency review artifact inside the project checkout.
 pub(crate) fn store_dependency_review(
@@ -52,6 +93,33 @@ fn project_review_path(
         .join(package_path)
         .join(&review.package.package_hash)
         .join(format!("review-{digest}.json")))
+}
+
+fn collect_project_review_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in std::fs::read_dir(directory).context(format!(
+        "can't read project review directory: {}",
+        directory.display()
+    ))? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_project_review_files(&path, files)?;
+            continue;
+        }
+        if is_project_review_file(&path) {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn is_project_review_file(path: &Path) -> bool {
+    path.extension().and_then(|extension| extension.to_str()) == Some("json")
+        && path
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .map(|file_name| file_name.starts_with(PROJECT_REVIEW_FILE_PREFIX))
+            .unwrap_or(false)
 }
 
 fn single_registry_host(review: &review::Review) -> Result<&str> {
@@ -118,6 +186,49 @@ mod tests {
         assert_eq!(artifact.schema_version, PROJECT_REVIEW_SCHEMA_VERSION);
         assert_eq!(artifact.review.package.name, "left-pad");
         assert!(!contents.contains(&project.path().display().to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn list_dependency_reviews_reads_project_artifacts() -> Result<()> {
+        let project = tempfile::tempdir()?;
+        let review = stored_review()?;
+        store_dependency_review(project.path(), &review)?;
+
+        let reviews = list_dependency_reviews(project.path())?;
+
+        assert_eq!(reviews.len(), 1);
+        assert_eq!(reviews[0].package.name, "left-pad");
+        assert_eq!(reviews[0].package.package_hash, "package-hash");
+        Ok(())
+    }
+
+    #[test]
+    fn list_dependency_reviews_ignores_unsupported_artifacts() -> Result<()> {
+        let project = tempfile::tempdir()?;
+        let reviews_directory = project.path().join(".thirdpass").join("reviews");
+        std::fs::create_dir_all(&reviews_directory)?;
+        std::fs::write(
+            reviews_directory.join("review-old.json"),
+            serde_json::to_string_pretty(&ProjectReviewArtifact {
+                schema_version: 99,
+                review: stored_review()?,
+            })?,
+        )?;
+
+        let reviews = list_dependency_reviews(project.path())?;
+
+        assert_eq!(reviews, Vec::new());
+        Ok(())
+    }
+
+    #[test]
+    fn list_dependency_reviews_ignores_missing_directory() -> Result<()> {
+        let project = tempfile::tempdir()?;
+
+        let reviews = list_dependency_reviews(project.path())?;
+
+        assert_eq!(reviews, Vec::new());
         Ok(())
     }
 

@@ -24,7 +24,8 @@ impl DependencyReviewPlan {
         &mut self,
         public_user_id: &str,
     ) -> Result<Option<DependencyReviewSelection>> {
-        let coverage = local_review_coverage(public_user_id)?;
+        let coverage =
+            dependency_review_coverage(public_user_id, Path::new(&self.source.project_root))?;
         refresh_plan_progress(self, &coverage);
         Ok(select_next_review(self, &coverage))
     }
@@ -655,6 +656,17 @@ impl ReviewedFileKey {
 
 type PackageReviewCoverage = BTreeMap<PackageReviewKey, BTreeSet<ReviewedFileKey>>;
 
+fn dependency_review_coverage(
+    public_user_id: &str,
+    project_root: &Path,
+) -> Result<PackageReviewCoverage> {
+    let mut coverage = local_review_coverage(public_user_id)?;
+    for (key, files) in project_review_coverage(project_root)? {
+        coverage.entry(key).or_default().extend(files);
+    }
+    Ok(coverage)
+}
+
 fn local_review_coverage(public_user_id: &str) -> Result<PackageReviewCoverage> {
     let mut coverage = PackageReviewCoverage::new();
     for stored in crate::review::fs::list_with_status()? {
@@ -663,17 +675,29 @@ fn local_review_coverage(public_user_id: &str) -> Result<PackageReviewCoverage> 
             continue;
         }
 
-        for registry in &review.package.registries {
-            let key = PackageReviewKey::from_review_registry(&review, registry);
-            let package_coverage = coverage.entry(key).or_default();
-            for target in &review.targets {
-                if let Some(key) = ReviewedFileKey::from_review_target(target) {
-                    package_coverage.insert(key);
-                }
+        add_review_coverage(&mut coverage, &review);
+    }
+    Ok(coverage)
+}
+
+fn project_review_coverage(project_root: &Path) -> Result<PackageReviewCoverage> {
+    let mut coverage = PackageReviewCoverage::new();
+    for review in crate::review::project::list_dependency_reviews(project_root)? {
+        add_review_coverage(&mut coverage, &review);
+    }
+    Ok(coverage)
+}
+
+fn add_review_coverage(coverage: &mut PackageReviewCoverage, review: &crate::review::Review) {
+    for registry in &review.package.registries {
+        let key = PackageReviewKey::from_review_registry(review, registry);
+        let package_coverage = coverage.entry(key).or_default();
+        for target in &review.targets {
+            if let Some(key) = ReviewedFileKey::from_review_target(target) {
+                package_coverage.insert(key);
             }
         }
     }
-    Ok(coverage)
 }
 
 fn refresh_plan_progress(
@@ -1036,6 +1060,48 @@ mod tests {
         );
     }
 
+    #[test]
+    fn select_next_review_requires_matching_package_hash() {
+        let mut plan = plan_with_batches();
+        let mut key = PackageReviewKey::from_package(&plan.packages[0]);
+        key.package_hash = "different-package-hash".to_string();
+        let mut coverage = PackageReviewCoverage::new();
+        coverage.insert(
+            key,
+            reviewed_files(&plan, &["src/a.rs", "src/b.rs", "src/c.rs", "src/d.rs"]),
+        );
+
+        assert!(!refresh_plan_progress(&mut plan, &coverage));
+        let selection = select_next_review(&plan, &coverage)
+            .expect("package hash mismatch should leave the package uncovered");
+
+        assert_eq!(selection.plan_rank, 1);
+        assert_eq!(
+            selection.target_files,
+            vec!["src/a.rs".to_string(), "src/b.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn project_review_coverage_counts_project_artifacts_from_any_reviewer() -> Result<()> {
+        let project = tempfile::tempdir()?;
+        let plan = plan_with_batches();
+        let review = review_for_plan_file(&plan, "other-user", "src/a.rs")?;
+        crate::review::project::store_dependency_review(project.path(), &review)?;
+
+        let coverage = project_review_coverage(project.path())?;
+        let key = PackageReviewKey::from_package(&plan.packages[0]);
+        let covered_files = coverage
+            .get(&key)
+            .expect("project review should cover the package");
+
+        assert!(covered_files.contains(&ReviewedFileKey {
+            path: "src/a.rs".to_string(),
+            file_hash: thirdpass_core::schema::FileHash::blake3("file-hash-0"),
+        }));
+        Ok(())
+    }
+
     fn source_file(path: &str, blake3: &str) -> DependencyReviewSourceFile {
         DependencyReviewSourceFile {
             path: path.to_string(),
@@ -1101,6 +1167,55 @@ mod tests {
             ],
         }];
         plan
+    }
+
+    fn review_for_plan_file(
+        plan: &DependencyReviewPlan,
+        public_user_id: &str,
+        path: &str,
+    ) -> Result<crate::review::Review> {
+        let package = &plan.packages[0];
+        let file = plan
+            .packages
+            .iter()
+            .flat_map(|package| &package.batches)
+            .flat_map(|batch| &batch.files)
+            .find(|file| file.path == path)
+            .expect("test review target should exist");
+        let mut registries = BTreeSet::new();
+        registries.insert(crate::registry::Registry {
+            id: 0,
+            host_name: package.registry_host.clone(),
+            human_url: url::Url::parse(&package.human_url)?,
+            artifact_url: url::Url::parse(&package.artifact_url)?,
+        });
+
+        Ok(crate::review::Review {
+            id: 0,
+            peer: crate::peer::Peer::default(),
+            package: crate::package::Package {
+                id: 0,
+                name: package.package_name.clone(),
+                version: package.package_version.clone(),
+                registries,
+                package_hash: package.package_hash.clone(),
+            },
+            targets: vec![crate::review::ReviewTarget {
+                file_path: PathBuf::from(path),
+                file_hash: Some(file.file_hash.clone()),
+                agent_summary: None,
+                security_summary: Some(crate::review::SecuritySummary::None),
+                confidence: None,
+                comments: BTreeSet::new(),
+            }],
+            reviewer_details: crate::review::ReviewerDetails {
+                public_user_id: public_user_id.to_string(),
+                ..crate::review::ReviewerDetails::default()
+            },
+            agent_summary: String::new(),
+            overall_security_summary: crate::review::SecuritySummary::None,
+            overall_security_confidence: None,
+        })
     }
 
     fn batch(plan_rank: usize, package_batch_rank: usize, paths: &[&str]) -> DependencyReviewBatch {
