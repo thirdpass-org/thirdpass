@@ -161,7 +161,7 @@ fn matching_project_reviews(
         package_version: package_version.to_string(),
     };
     let current =
-        review::dependency_plan::package_record_for_extension(&package, context.extension)?;
+        review::dependency_package::package_record_for_extension(&package, context.extension)?;
 
     let mut matches = review::project::matching_reviews_for_package(
         &candidates,
