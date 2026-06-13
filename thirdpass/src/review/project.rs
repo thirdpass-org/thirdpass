@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::review;
 
-const PROJECT_REVIEW_SCHEMA_VERSION: u32 = 2;
+const PROJECT_REVIEW_SCHEMA_VERSION: u32 = 1;
 
 /// Store a dependency review artifact inside the project checkout.
 pub(crate) fn store_dependency_review(
