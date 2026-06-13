@@ -53,6 +53,12 @@ Review a package version:
 thirdpass review <package> <version>
 ```
 
+Review dependencies in the current project and write committed review artifacts:
+
+```bash
+thirdpass review-deps
+```
+
 Check dependencies in the current project:
 
 ```bash
