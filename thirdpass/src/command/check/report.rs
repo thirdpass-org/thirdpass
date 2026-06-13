@@ -37,12 +37,14 @@ impl DependencyNote {
     }
 }
 
-/// Project-local reviews available while building a dependency report.
-pub struct ProjectReviewContext<'a> {
+/// Review data shared while building dependency reports for one command.
+pub struct DependencyReportContext<'a> {
     /// Extension that can resolve and prepare the current package artifact.
     pub extension: &'a dyn thirdpass_core::extension::Extension,
     /// Reviews read from the current project's `.thirdpass/reviews` directory.
-    pub reviews: &'a [review::Review],
+    pub project_reviews: &'a [review::Review],
+    /// Reviews read from local global storage, plus reviews fetched during the command.
+    pub local_reviews: &'a mut Vec<review::Review>,
 }
 
 /// Given a local project dependency, create a corresponding review report from known reviews.
@@ -50,7 +52,7 @@ pub fn get_dependency_report(
     dependency: &thirdpass_core::extension::Dependency,
     registry_host_name: &str,
     config: &crate::common::config::Config,
-    project_review_context: Option<&ProjectReviewContext>,
+    report_context: &mut DependencyReportContext,
 ) -> Result<DependencyReport> {
     let package_version = match &dependency.version {
         Ok(version) => version.clone(),
@@ -68,52 +70,52 @@ pub fn get_dependency_report(
     };
 
     let mut context_notes = Vec::new();
-    if let Err(err) = pull_latest_reviews(
+    match pull_latest_reviews(
         registry_host_name,
         &dependency.name,
         &package_version,
         config,
     ) {
-        log::warn!(
-            "Failed to sync latest reviews for {name}@{version} ({registry}): {error}",
-            name = dependency.name,
-            version = package_version,
-            registry = registry_host_name,
-            error = err
-        );
-        context_notes.push(DependencyNote::SyncFailed);
+        Ok(fetched_reviews) => report_context.local_reviews.extend(fetched_reviews),
+        Err(err) => {
+            log::warn!(
+                "Failed to sync latest reviews for {name}@{version} ({registry}): {error}",
+                name = dependency.name,
+                version = package_version,
+                registry = registry_host_name,
+                error = err
+            );
+            context_notes.push(DependencyNote::SyncFailed);
+        }
     }
 
     let mut reviews = review::project::reviews_for_package(
-        &review::fs::list()?,
+        report_context.local_reviews.as_slice(),
         registry_host_name,
         &dependency.name,
         &package_version,
     );
-    match project_review_context {
-        Some(context) => match matching_project_reviews(
-            context,
-            registry_host_name,
-            &dependency.name,
-            &package_version,
-        ) {
-            Ok(project_reviews) => {
-                context_notes.extend(project_review_note(&project_reviews));
-                reviews.extend(project_reviews.reviews);
-                reviews = deduplicate_reviews(reviews);
-            }
-            Err(err) => {
-                log::warn!(
-                    "Failed to validate project reviews for {name}@{version} ({registry}): {error}",
-                    name = dependency.name,
-                    version = package_version,
-                    registry = registry_host_name,
-                    error = err
-                );
-                context_notes.push(DependencyNote::ProjectReviewValidationFailed);
-            }
-        },
-        None => {}
+    match matching_project_reviews(
+        report_context,
+        registry_host_name,
+        &dependency.name,
+        &package_version,
+    ) {
+        Ok(project_reviews) => {
+            context_notes.extend(project_review_note(&project_reviews));
+            reviews.extend(project_reviews.reviews);
+            reviews = deduplicate_reviews(reviews);
+        }
+        Err(err) => {
+            log::warn!(
+                "Failed to validate project reviews for {name}@{version} ({registry}): {error}",
+                name = dependency.name,
+                version = package_version,
+                registry = registry_host_name,
+                error = err
+            );
+            context_notes.push(DependencyNote::ProjectReviewValidationFailed);
+        }
     }
 
     if reviews.is_empty() {
@@ -146,7 +148,7 @@ fn pull_latest_reviews(
     package_name: &str,
     package_version: &str,
     config: &crate::common::config::Config,
-) -> Result<()> {
+) -> Result<Vec<review::Review>> {
     let query = review::remote::ReviewQuery {
         registry_host: Some(registry_host_name.to_string()),
         package_name: Some(package_name.to_string()),
@@ -154,18 +156,17 @@ fn pull_latest_reviews(
         file_path: None,
     };
     let records = review::remote::fetch(&query, config)?;
-    review::remote::store_records(records, config)?;
-    Ok(())
+    review::remote::store_records_with_reviews(records, config)
 }
 
 fn matching_project_reviews(
-    context: &ProjectReviewContext,
+    context: &DependencyReportContext,
     registry_host_name: &str,
     package_name: &str,
     package_version: &str,
 ) -> Result<review::project::ProjectReviewMatches> {
     let candidates = review::project::reviews_for_package(
-        context.reviews,
+        context.project_reviews,
         registry_host_name,
         package_name,
         package_version,

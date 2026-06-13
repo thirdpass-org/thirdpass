@@ -18,6 +18,7 @@ pub fn report(
     let working_directory = std::env::current_dir()?;
     log::debug!("Current working directory: {}", working_directory.display());
     let project_reviews = review::project::list_dependency_reviews(&working_directory)?;
+    let mut local_reviews = review::fs::list()?;
 
     let mut dependencies_found = false;
     let all_dependencies_specs = extension::identify_file_defined_dependencies(
@@ -46,6 +47,7 @@ pub fn report(
                 fs_dependencies,
                 extension.as_ref(),
                 &project_reviews,
+                &mut local_reviews,
                 config,
                 false,
             )?;
@@ -71,6 +73,7 @@ fn report_dependencies(
     package_dependencies: &thirdpass_core::extension::FileDefinedDependencies,
     extension: &dyn thirdpass_core::extension::Extension,
     project_reviews: &[review::Review],
+    local_reviews: &mut Vec<review::Review>,
     config: &common::config::Config,
     first_row_separate: bool,
 ) -> Result<Option<output::DependencyGroup>> {
@@ -80,22 +83,20 @@ fn report_dependencies(
     );
     let dependencies = &package_dependencies.dependencies;
 
-    let dependency_reports: Result<Vec<report::DependencyReport>> = dependencies
-        .iter()
-        .map(|dependency| -> Result<report::DependencyReport> {
-            let project_review_context = report::ProjectReviewContext {
-                extension,
-                reviews: project_reviews,
-            };
-            report::get_dependency_report(
-                dependency,
-                &package_dependencies.registry_host_name,
-                config,
-                Some(&project_review_context),
-            )
-        })
-        .collect();
-    let dependency_reports = dependency_reports?;
+    let mut dependency_reports = Vec::new();
+    for dependency in dependencies {
+        let mut report_context = report::DependencyReportContext {
+            extension,
+            project_reviews,
+            local_reviews,
+        };
+        dependency_reports.push(report::get_dependency_report(
+            dependency,
+            &package_dependencies.registry_host_name,
+            config,
+            &mut report_context,
+        )?);
+    }
 
     log::info!("Number of dependencies found: {}", dependency_reports.len());
     if dependency_reports.is_empty() {
@@ -128,11 +129,13 @@ mod tests {
         let server = EmptyReviewServer::start()?;
         let mut config = common::config::Config::default();
         config.core.api_base = server.api_base.clone();
+        let mut local_reviews = review::fs::list()?;
 
         let group = report_dependencies(
             &fixture.file_defined_dependencies(),
             &FixtureExtension::new(&fixture),
             &project_reviews,
+            &mut local_reviews,
             &config,
             false,
         )?
@@ -161,11 +164,13 @@ mod tests {
         let server = EmptyReviewServer::start()?;
         let mut config = common::config::Config::default();
         config.core.api_base = server.api_base.clone();
+        let mut local_reviews = review::fs::list()?;
 
         let group = report_dependencies(
             &fixture.file_defined_dependencies(),
             &FixtureExtension::new(&fixture),
             &project_reviews,
+            &mut local_reviews,
             &config,
             false,
         )?

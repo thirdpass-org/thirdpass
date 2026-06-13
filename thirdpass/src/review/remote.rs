@@ -339,22 +339,25 @@ fn is_authentication_required_status(status: StatusCode) -> bool {
     matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
 }
 
-pub fn store_records(
+/// Store remote review records and return the reviews accepted into local cache.
+pub(crate) fn store_records_with_reviews(
     records: Vec<api::ReviewRecord>,
     config: &common::config::Config,
-) -> Result<usize> {
-    let mut stored = 0;
+) -> Result<Vec<review::Review>> {
+    let mut stored = Vec::new();
     for record in records {
         if record.reviewer_details.public_user_id == config.core.public_user_id {
             continue;
         }
-        store_record(record, config)?;
-        stored += 1;
+        stored.push(store_record(record, config)?);
     }
     Ok(stored)
 }
 
-fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> Result<()> {
+fn store_record(
+    record: api::ReviewRecord,
+    config: &common::config::Config,
+) -> Result<review::Review> {
     let api::ReviewRecord {
         target,
         reviewer_details,
@@ -405,7 +408,7 @@ fn store_record(record: api::ReviewRecord, config: &common::config::Config) -> R
     };
 
     review::store_submitted(&review)?;
-    Ok(())
+    Ok(review)
 }
 
 fn to_api_review_files(targets: &[review::ReviewTarget]) -> Vec<api::ReviewFile> {

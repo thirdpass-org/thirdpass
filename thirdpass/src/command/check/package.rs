@@ -20,6 +20,7 @@ pub fn report(
     let extensions = extension::manage::get_enabled(extension_names, config)?;
     let working_directory = std::env::current_dir()?;
     let project_reviews = review::project::list_dependency_reviews(&working_directory)?;
+    let mut local_reviews = review::fs::list()?;
 
     let mut dependencies_found = false;
     let all_extensions_results = extension::identify_package_dependencies(
@@ -52,6 +53,7 @@ pub fn report(
                 package_dependencies,
                 extension.as_ref(),
                 &project_reviews,
+                &mut local_reviews,
                 config,
                 true,
             )?;
@@ -73,6 +75,7 @@ fn report_dependencies(
     package_dependencies: &thirdpass_core::extension::PackageDependencies,
     extension: &dyn thirdpass_core::extension::Extension,
     project_reviews: &[review::Review],
+    local_reviews: &mut Vec<review::Review>,
     config: &common::config::Config,
     first_row_separate: bool,
 ) -> Result<output::DependencyGroup> {
@@ -80,9 +83,10 @@ fn report_dependencies(
     let dependencies = &package_dependencies.dependencies;
 
     let mut dependency_reports = vec![];
-    let project_review_context = report::ProjectReviewContext {
+    let mut report_context = report::DependencyReportContext {
         extension,
-        reviews: project_reviews,
+        project_reviews,
+        local_reviews,
     };
     let target_package_dependency_report = report::get_dependency_report(
         &thirdpass_core::extension::Dependency {
@@ -91,7 +95,7 @@ fn report_dependencies(
         },
         &package_dependencies.registry_host_name,
         config,
-        Some(&project_review_context),
+        &mut report_context,
     )?;
     dependency_reports.push(target_package_dependency_report);
     for dependency in dependencies {
@@ -99,7 +103,7 @@ fn report_dependencies(
             dependency,
             &package_dependencies.registry_host_name,
             config,
-            Some(&project_review_context),
+            &mut report_context,
         )?;
         dependency_reports.push(dependency_report);
     }
