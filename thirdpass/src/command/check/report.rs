@@ -12,6 +12,31 @@ pub struct DependencyReport {
     pub note: Option<String>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+enum DependencyNote {
+    VersionResolutionFailed(String),
+    SyncFailed,
+    ProjectReviewValidationFailed,
+    ProjectReviewsStale,
+    ProjectReviews { count: usize },
+    CriticalFindings { count: i32 },
+    MediumFindings { count: i32 },
+}
+
+impl DependencyNote {
+    fn render(self) -> String {
+        match self {
+            Self::VersionResolutionFailed(error) => error,
+            Self::SyncFailed => "sync failed; using local cache".to_string(),
+            Self::ProjectReviewValidationFailed => "project review validation failed".to_string(),
+            Self::ProjectReviewsStale => "project reviews stale".to_string(),
+            Self::ProjectReviews { count } => format!("project reviews ({count})"),
+            Self::CriticalFindings { count } => format!("critical ({count})"),
+            Self::MediumFindings { count } => format!("medium ({count})"),
+        }
+    }
+}
+
 /// Project-local reviews available while building a dependency report.
 pub struct ProjectReviewContext<'a> {
     /// Extension that can resolve and prepare the current package artifact.
@@ -35,29 +60,29 @@ pub fn get_dependency_report(
                 name: dependency.name.clone(),
                 version: None,
                 review_count: None,
-                note: Some(error.to_string()),
+                note: render_notes(Some(DependencyNote::VersionResolutionFailed(
+                    error.to_string(),
+                ))),
             });
         }
     };
 
-    let sync_note = match pull_latest_reviews(
+    let mut context_notes = Vec::new();
+    if let Err(err) = pull_latest_reviews(
         registry_host_name,
         &dependency.name,
         &package_version,
         config,
     ) {
-        Ok(_) => None,
-        Err(err) => {
-            log::warn!(
-                "Failed to sync latest reviews for {name}@{version} ({registry}): {error}",
-                name = dependency.name,
-                version = package_version,
-                registry = registry_host_name,
-                error = err
-            );
-            Some("sync failed; using local cache".to_string())
-        }
-    };
+        log::warn!(
+            "Failed to sync latest reviews for {name}@{version} ({registry}): {error}",
+            name = dependency.name,
+            version = package_version,
+            registry = registry_host_name,
+            error = err
+        );
+        context_notes.push(DependencyNote::SyncFailed);
+    }
 
     let mut reviews = review::project::reviews_for_package(
         &review::fs::list()?,
@@ -65,7 +90,7 @@ pub fn get_dependency_report(
         &dependency.name,
         &package_version,
     );
-    let project_note = match project_review_context {
+    match project_review_context {
         Some(context) => match matching_project_reviews(
             context,
             registry_host_name,
@@ -73,10 +98,9 @@ pub fn get_dependency_report(
             &package_version,
         ) {
             Ok(project_reviews) => {
-                let note = project_review_note(&project_reviews);
+                context_notes.extend(project_review_note(&project_reviews));
                 reviews.extend(project_reviews.reviews);
                 reviews = deduplicate_reviews(reviews);
-                note
             }
             Err(err) => {
                 log::warn!(
@@ -86,12 +110,11 @@ pub fn get_dependency_report(
                     registry = registry_host_name,
                     error = err
                 );
-                Some("project review validation failed".to_string())
+                context_notes.push(DependencyNote::ProjectReviewValidationFailed);
             }
         },
-        None => None,
-    };
-    let sync_note = merge_notes(sync_note, project_note);
+        None => {}
+    }
 
     if reviews.is_empty() {
         // Report no reviews found for dependency.
@@ -100,20 +123,21 @@ pub fn get_dependency_report(
             name: dependency.name.clone(),
             version: Some(package_version.clone()),
             review_count: Some(0),
-            note: sync_note,
+            note: render_notes(context_notes),
         });
     }
 
     let stats = get_dependency_stats(&reviews)?;
     let status = get_dependency_status(&stats)?;
-    let note = merge_notes(get_dependency_note(&stats), sync_note);
+    let mut notes = dependency_security_notes(&stats);
+    notes.extend(context_notes);
 
     Ok(DependencyReport {
         summary: status,
         name: dependency.name.clone(),
         version: Some(package_version.clone()),
         review_count: Some(reviews.len()),
-        note,
+        note: render_notes(notes),
     })
 }
 
@@ -174,13 +198,15 @@ fn matching_project_reviews(
     Ok(matches)
 }
 
-fn project_review_note(matches: &review::project::ProjectReviewMatches) -> Option<String> {
+fn project_review_note(matches: &review::project::ProjectReviewMatches) -> Option<DependencyNote> {
     if matches.candidate_count == 0 {
         None
     } else if matches.reviews.is_empty() {
-        Some("project reviews stale".to_string())
+        Some(DependencyNote::ProjectReviewsStale)
     } else {
-        Some(format!("project reviews ({})", matches.reviews.len()))
+        Some(DependencyNote::ProjectReviews {
+            count: matches.reviews.len(),
+        })
     }
 }
 
@@ -229,29 +255,32 @@ fn get_dependency_status(stats: &DependencyStats) -> Result<review::SecuritySumm
     Ok(review::SecuritySummary::Low)
 }
 
-fn get_dependency_note(stats: &DependencyStats) -> Option<String> {
-    let mut note_parts = Vec::<_>::new();
+fn dependency_security_notes(stats: &DependencyStats) -> Vec<DependencyNote> {
+    let mut notes = Vec::new();
     if stats.count_critical_comments > 0 {
-        note_parts.push(format!("critical ({})", stats.count_critical_comments));
+        notes.push(DependencyNote::CriticalFindings {
+            count: stats.count_critical_comments,
+        });
     }
 
     if stats.count_medium_comments > 0 {
-        note_parts.push(format!("medium ({})", stats.count_medium_comments));
+        notes.push(DependencyNote::MediumFindings {
+            count: stats.count_medium_comments,
+        });
     }
 
-    if note_parts.is_empty() {
-        None
-    } else {
-        Some(note_parts.join("; "))
-    }
+    notes
 }
 
-fn merge_notes(primary_note: Option<String>, secondary_note: Option<String>) -> Option<String> {
-    match (primary_note, secondary_note) {
-        (None, None) => None,
-        (Some(note), None) => Some(note),
-        (None, Some(note)) => Some(note),
-        (Some(primary), Some(secondary)) => Some(format!("{}; {}", primary, secondary)),
+fn render_notes(notes: impl IntoIterator<Item = DependencyNote>) -> Option<String> {
+    let parts = notes
+        .into_iter()
+        .map(DependencyNote::render)
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("; "))
     }
 }
 
@@ -314,7 +343,7 @@ mod tests {
                 candidate_count: 1,
                 reviews: Vec::new(),
             }),
-            Some("project reviews stale".to_string())
+            Some(DependencyNote::ProjectReviewsStale)
         );
         assert_eq!(
             project_review_note(&review::project::ProjectReviewMatches {
@@ -324,7 +353,16 @@ mod tests {
                     &[("src/lib.rs", "file-hash")]
                 )?],
             }),
-            Some("project reviews (1)".to_string())
+            Some(DependencyNote::ProjectReviews { count: 1 })
+        );
+        assert_eq!(
+            render_notes(project_review_note(
+                &review::project::ProjectReviewMatches {
+                    candidate_count: 1,
+                    reviews: Vec::new(),
+                }
+            )),
+            Some("project reviews stale".to_string())
         );
         Ok(())
     }
