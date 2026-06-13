@@ -572,8 +572,6 @@ mod tests {
     use std::io::Write;
     use std::path::{Path, PathBuf};
 
-    static REVIEW_DEPS_TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn sort_dependency_review_candidates_prefers_review_needs() {
         let mut candidates = vec![
@@ -719,7 +717,7 @@ mod tests {
 
     #[test]
     fn review_deps_reuses_committed_project_reviews_without_running_review() -> Result<()> {
-        let _lock = REVIEW_DEPS_TEST_ENV_LOCK
+        let _lock = common::TEST_ENV_LOCK
             .lock()
             .expect("test env lock poisoned");
         let fixture = ReviewDepsFixture::new()?;
