@@ -1,7 +1,9 @@
 use anyhow::{format_err, Context, Result};
 use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+
+use crate::review::project;
 
 const DEPENDENCY_REVIEW_PLAN_VERSION: u32 = 1;
 
@@ -618,112 +620,37 @@ fn dependency_snapshot_id(
     Ok(blake3::hash(&bytes).to_hex().as_str().to_string())
 }
 
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
-struct PackageReviewKey {
-    registry_host: String,
-    package_name: String,
-    package_version: String,
-    package_hash: String,
-}
-
-impl PackageReviewKey {
-    fn from_package(package: &DependencyReviewPackageRecord) -> Self {
-        Self {
-            registry_host: package.registry_host.clone(),
-            package_name: package.package_name.clone(),
-            package_version: package.package_version.clone(),
-            package_hash: package.package_hash.clone(),
-        }
-    }
-
-    fn from_review_registry(
-        review: &crate::review::Review,
-        registry: &crate::registry::Registry,
-    ) -> Self {
-        Self {
-            registry_host: registry.host_name.clone(),
-            package_name: review.package.name.clone(),
-            package_version: review.package.version.clone(),
-            package_hash: review.package.package_hash.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
-struct ReviewedFileKey {
-    path: String,
-    file_hash: thirdpass_core::schema::FileHash,
-}
-
-impl ReviewedFileKey {
-    fn from_plan_file(file: &DependencyReviewFile) -> Self {
-        Self {
-            path: file.path.clone(),
-            file_hash: file.file_hash.clone(),
-        }
-    }
-
-    fn from_review_target(target: &crate::review::ReviewTarget) -> Option<Self> {
-        target.file_hash.as_ref().map(|file_hash| Self {
-            path: package_relative_path_string(&target.file_path),
-            file_hash: file_hash.clone(),
-        })
-    }
-}
-
-type PackageReviewCoverage = BTreeMap<PackageReviewKey, BTreeSet<ReviewedFileKey>>;
-
 fn dependency_review_coverage(
     public_user_id: &str,
     project_root: &Path,
-) -> Result<PackageReviewCoverage> {
+) -> Result<project::ProjectReviewCoverage> {
     let mut coverage = local_review_coverage(public_user_id)?;
-    for (key, files) in project_review_coverage(project_root)? {
+    for (key, files) in project::coverage_for_project(project_root)? {
         coverage.entry(key).or_default().extend(files);
     }
     Ok(coverage)
 }
 
-fn local_review_coverage(public_user_id: &str) -> Result<PackageReviewCoverage> {
-    let mut coverage = PackageReviewCoverage::new();
+fn local_review_coverage(public_user_id: &str) -> Result<project::ProjectReviewCoverage> {
+    let mut coverage = project::ProjectReviewCoverage::new();
     for stored in crate::review::fs::list_with_status()? {
         let review = stored.review;
         if review.reviewer_details.public_user_id != public_user_id {
             continue;
         }
 
-        add_review_coverage(&mut coverage, &review);
+        project::add_review_coverage(&mut coverage, &review);
     }
     Ok(coverage)
-}
-
-fn project_review_coverage(project_root: &Path) -> Result<PackageReviewCoverage> {
-    let mut coverage = PackageReviewCoverage::new();
-    for review in crate::review::project::list_dependency_reviews(project_root)? {
-        add_review_coverage(&mut coverage, &review);
-    }
-    Ok(coverage)
-}
-
-fn add_review_coverage(coverage: &mut PackageReviewCoverage, review: &crate::review::Review) {
-    for registry in &review.package.registries {
-        let key = PackageReviewKey::from_review_registry(review, registry);
-        let package_coverage = coverage.entry(key).or_default();
-        for target in &review.targets {
-            if let Some(key) = ReviewedFileKey::from_review_target(target) {
-                package_coverage.insert(key);
-            }
-        }
-    }
 }
 
 fn refresh_plan_progress(
     plan: &mut DependencyReviewPlan,
-    coverage: &PackageReviewCoverage,
+    coverage: &project::ProjectReviewCoverage,
 ) -> bool {
     let mut changed = false;
     for package in &mut plan.packages {
-        let package_key = PackageReviewKey::from_package(package);
+        let package_key = project::package_key_from_record(package);
         let covered_files = coverage.get(&package_key);
         for batch in &mut package.batches {
             let new_status = if batch_is_covered(batch, covered_files) {
@@ -742,11 +669,11 @@ fn refresh_plan_progress(
 
 fn select_next_review(
     plan: &DependencyReviewPlan,
-    coverage: &PackageReviewCoverage,
+    coverage: &project::ProjectReviewCoverage,
 ) -> Option<DependencyReviewSelection> {
     let plan_batch_count = plan.batch_count();
     for package in &plan.packages {
-        let package_key = PackageReviewKey::from_package(package);
+        let package_key = project::package_key_from_record(package);
         let covered_files = coverage.get(&package_key);
         for batch in &package.batches {
             if batch.status == DependencyReviewBatchStatus::Reviewed {
@@ -797,7 +724,7 @@ fn set_batch_status(
 
 fn batch_is_covered(
     batch: &DependencyReviewBatch,
-    covered_files: Option<&BTreeSet<ReviewedFileKey>>,
+    covered_files: Option<&BTreeSet<project::ProjectReviewFileKey>>,
 ) -> bool {
     let Some(covered_files) = covered_files else {
         return false;
@@ -805,12 +732,12 @@ fn batch_is_covered(
     batch
         .files
         .iter()
-        .all(|file| covered_files.contains(&ReviewedFileKey::from_plan_file(file)))
+        .all(|file| covered_files.contains(&project::file_key_from_plan_file(file)))
 }
 
 fn uncovered_batch_files(
     batch: &DependencyReviewBatch,
-    covered_files: Option<&BTreeSet<ReviewedFileKey>>,
+    covered_files: Option<&BTreeSet<project::ProjectReviewFileKey>>,
 ) -> Vec<String> {
     batch
         .files
@@ -818,7 +745,7 @@ fn uncovered_batch_files(
         .filter(|file| {
             covered_files
                 .map(|covered_files| {
-                    !covered_files.contains(&ReviewedFileKey::from_plan_file(file))
+                    !covered_files.contains(&project::file_key_from_plan_file(file))
                 })
                 .unwrap_or(true)
         })
@@ -1017,9 +944,9 @@ mod tests {
     #[test]
     fn select_next_review_skips_covered_files() {
         let mut plan = plan_with_batches();
-        let mut coverage = PackageReviewCoverage::new();
+        let mut coverage = project::ProjectReviewCoverage::new();
         coverage.insert(
-            PackageReviewKey::from_package(&plan.packages[0]),
+            project::package_key_from_record(&plan.packages[0]),
             reviewed_files(&plan, &["src/a.rs", "src/b.rs", "src/c.rs"]),
         );
 
@@ -1039,9 +966,9 @@ mod tests {
     #[test]
     fn select_next_review_returns_none_when_plan_is_covered() {
         let mut plan = plan_with_batches();
-        let mut coverage = PackageReviewCoverage::new();
+        let mut coverage = project::ProjectReviewCoverage::new();
         coverage.insert(
-            PackageReviewKey::from_package(&plan.packages[0]),
+            project::package_key_from_record(&plan.packages[0]),
             reviewed_files(&plan, &["src/a.rs", "src/b.rs", "src/c.rs", "src/d.rs"]),
         );
 
@@ -1055,10 +982,10 @@ mod tests {
     #[test]
     fn select_next_review_requires_matching_file_hash() {
         let mut plan = plan_with_batches();
-        let mut coverage = PackageReviewCoverage::new();
+        let mut coverage = project::ProjectReviewCoverage::new();
         coverage.insert(
-            PackageReviewKey::from_package(&plan.packages[0]),
-            vec![ReviewedFileKey {
+            project::package_key_from_record(&plan.packages[0]),
+            vec![project::ProjectReviewFileKey {
                 path: "src/a.rs".to_string(),
                 file_hash: thirdpass_core::schema::FileHash::blake3("different-hash"),
             }]
@@ -1080,9 +1007,9 @@ mod tests {
     #[test]
     fn select_next_review_requires_matching_package_hash() {
         let mut plan = plan_with_batches();
-        let mut key = PackageReviewKey::from_package(&plan.packages[0]);
+        let mut key = project::package_key_from_record(&plan.packages[0]);
         key.package_hash = "different-package-hash".to_string();
-        let mut coverage = PackageReviewCoverage::new();
+        let mut coverage = project::ProjectReviewCoverage::new();
         coverage.insert(
             key,
             reviewed_files(&plan, &["src/a.rs", "src/b.rs", "src/c.rs", "src/d.rs"]),
@@ -1104,15 +1031,15 @@ mod tests {
         let project = tempfile::tempdir()?;
         let plan = plan_with_batches();
         let review = review_for_plan_file(&plan, "other-user", "src/a.rs")?;
-        crate::review::project::store_dependency_review(project.path(), &review)?;
+        project::store_dependency_review(project.path(), &review)?;
 
-        let coverage = project_review_coverage(project.path())?;
-        let key = PackageReviewKey::from_package(&plan.packages[0]);
+        let coverage = project::coverage_for_project(project.path())?;
+        let key = project::package_key_from_record(&plan.packages[0]);
         let covered_files = coverage
             .get(&key)
             .expect("project review should cover the package");
 
-        assert!(covered_files.contains(&ReviewedFileKey {
+        assert!(covered_files.contains(&project::ProjectReviewFileKey {
             path: "src/a.rs".to_string(),
             file_hash: thirdpass_core::schema::FileHash::blake3("file-hash-0"),
         }));
@@ -1158,13 +1085,16 @@ mod tests {
         }
     }
 
-    fn reviewed_files(plan: &DependencyReviewPlan, paths: &[&str]) -> BTreeSet<ReviewedFileKey> {
+    fn reviewed_files(
+        plan: &DependencyReviewPlan,
+        paths: &[&str],
+    ) -> BTreeSet<project::ProjectReviewFileKey> {
         plan.packages
             .iter()
             .flat_map(|package| &package.batches)
             .flat_map(|batch| &batch.files)
             .filter(|file| paths.contains(&file.path.as_str()))
-            .map(ReviewedFileKey::from_plan_file)
+            .map(project::file_key_from_plan_file)
             .collect()
     }
 

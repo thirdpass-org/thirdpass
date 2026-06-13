@@ -1,5 +1,6 @@
 use anyhow::{format_err, Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -73,6 +74,209 @@ impl ProjectReviewArtifact {
             review: review.clone(),
         }
     }
+}
+
+/// Exact package identity used when matching project-local review coverage.
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ProjectReviewPackageKey {
+    /// Registry host that owns this package.
+    pub(crate) registry_host: String,
+    /// Package name in the registry.
+    pub(crate) package_name: String,
+    /// Package version in the registry.
+    pub(crate) package_version: String,
+    /// Blake3 digest of the package source artifact.
+    pub(crate) package_hash: String,
+}
+
+/// Exact file identity used when matching project-local review coverage.
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct ProjectReviewFileKey {
+    /// Package-relative path.
+    pub(crate) path: String,
+    /// File content hash.
+    pub(crate) file_hash: thirdpass_core::schema::FileHash,
+}
+
+/// File coverage grouped by exact package identity.
+pub(crate) type ProjectReviewCoverage =
+    BTreeMap<ProjectReviewPackageKey, BTreeSet<ProjectReviewFileKey>>;
+
+/// Project reviews split into matching and stale candidates for one package.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct ProjectReviewMatches {
+    /// Project reviews with matching registry, package name, and version.
+    pub(crate) candidate_count: usize,
+    /// Candidate reviews that still match the current package and file hashes.
+    pub(crate) reviews: Vec<review::Review>,
+}
+
+/// Build exact file coverage from a set of reviews.
+pub(crate) fn coverage_for_reviews<'a>(
+    reviews: impl IntoIterator<Item = &'a review::Review>,
+) -> ProjectReviewCoverage {
+    let mut coverage = ProjectReviewCoverage::new();
+    for review in reviews {
+        add_review_coverage(&mut coverage, review);
+    }
+    coverage
+}
+
+/// Build exact file coverage from reviews committed inside a project checkout.
+pub(crate) fn coverage_for_project(project_root: &Path) -> Result<ProjectReviewCoverage> {
+    Ok(coverage_for_reviews(&list_dependency_reviews(
+        project_root,
+    )?))
+}
+
+/// Add one review's target files to exact package/file coverage.
+pub(crate) fn add_review_coverage(coverage: &mut ProjectReviewCoverage, review: &review::Review) {
+    for registry in &review.package.registries {
+        let key = package_key_from_review_registry(review, registry);
+        let package_coverage = coverage.entry(key).or_default();
+        for target in &review.targets {
+            if let Some(key) = file_key_from_review_target(target) {
+                package_coverage.insert(key);
+            }
+        }
+    }
+}
+
+/// Return the exact package key for an analyzed dependency package.
+pub(crate) fn package_key_from_record(
+    package: &review::dependency_plan::DependencyReviewPackageRecord,
+) -> ProjectReviewPackageKey {
+    ProjectReviewPackageKey {
+        registry_host: package.registry_host.clone(),
+        package_name: package.package_name.clone(),
+        package_version: package.package_version.clone(),
+        package_hash: package.package_hash.clone(),
+    }
+}
+
+/// Return the exact file key for an analyzed dependency package file.
+pub(crate) fn file_key_from_plan_file(
+    file: &review::dependency_plan::DependencyReviewFile,
+) -> ProjectReviewFileKey {
+    ProjectReviewFileKey {
+        path: file.path.clone(),
+        file_hash: file.file_hash.clone(),
+    }
+}
+
+/// Return project reviews for a dependency that still match current package content.
+pub(crate) fn matching_reviews_for_package(
+    reviews: &[review::Review],
+    registry_host_name: &str,
+    package_name: &str,
+    package_version: &str,
+    current: &review::dependency_plan::DependencyReviewPackageRecord,
+) -> ProjectReviewMatches {
+    let candidates =
+        reviews_for_package(reviews, registry_host_name, package_name, package_version);
+    let candidate_count = candidates.len();
+    let reviews = candidates
+        .into_iter()
+        .filter(|review| review_matches_package(review, current))
+        .collect();
+
+    ProjectReviewMatches {
+        candidate_count,
+        reviews,
+    }
+}
+
+/// Return true when a review applies to the current package artifact and files.
+pub(crate) fn review_matches_package(
+    review: &review::Review,
+    current: &review::dependency_plan::DependencyReviewPackageRecord,
+) -> bool {
+    review.package.name == current.package_name
+        && review.package.version == current.package_version
+        && review.package.package_hash == current.package_hash
+        && review
+            .package
+            .registries
+            .iter()
+            .any(|registry| registry.host_name == current.registry_host)
+        && review_targets_match_current_package(review, current)
+}
+
+fn package_key_from_review_registry(
+    review: &review::Review,
+    registry: &crate::registry::Registry,
+) -> ProjectReviewPackageKey {
+    ProjectReviewPackageKey {
+        registry_host: registry.host_name.clone(),
+        package_name: review.package.name.clone(),
+        package_version: review.package.version.clone(),
+        package_hash: review.package.package_hash.clone(),
+    }
+}
+
+fn file_key_from_review_target(target: &review::ReviewTarget) -> Option<ProjectReviewFileKey> {
+    target
+        .file_hash
+        .as_ref()
+        .map(|file_hash| ProjectReviewFileKey {
+            path: package_relative_path_string(&target.file_path),
+            file_hash: file_hash.clone(),
+        })
+}
+
+/// Return reviews with matching registry, package name, and package version.
+pub(crate) fn reviews_for_package(
+    reviews: &[review::Review],
+    registry_host_name: &str,
+    package_name: &str,
+    package_version: &str,
+) -> Vec<review::Review> {
+    reviews
+        .iter()
+        .filter(|review| {
+            review.package.name == package_name
+                && review.package.version == package_version
+                && review
+                    .package
+                    .registries
+                    .iter()
+                    .any(|registry| registry.host_name == registry_host_name)
+        })
+        .cloned()
+        .collect()
+}
+
+fn review_targets_match_current_package(
+    review: &review::Review,
+    current: &review::dependency_plan::DependencyReviewPackageRecord,
+) -> bool {
+    if review.targets.is_empty() {
+        return false;
+    }
+
+    let current_files = current
+        .batches
+        .iter()
+        .flat_map(|batch| &batch.files)
+        .map(file_key_from_plan_file)
+        .collect::<BTreeSet<_>>();
+
+    review.targets.iter().all(|target| {
+        file_key_from_review_target(target)
+            .map(|key| current_files.contains(&key))
+            .unwrap_or(false)
+    })
+}
+
+fn package_relative_path_string(path: &Path) -> String {
+    if path.as_os_str().is_empty() {
+        return ".".to_string();
+    }
+
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn project_review_path(

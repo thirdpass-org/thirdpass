@@ -2,7 +2,6 @@ use anyhow::Result;
 
 use crate::review;
 use std::collections::BTreeSet;
-use std::path::Path;
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, serde::Serialize)]
 pub struct DependencyReport {
@@ -60,7 +59,7 @@ pub fn get_dependency_report(
         }
     };
 
-    let mut reviews = filter_reviews(
+    let mut reviews = review::project::reviews_for_package(
         &review::fs::list()?,
         registry_host_name,
         &dependency.name,
@@ -135,47 +134,20 @@ fn pull_latest_reviews(
     Ok(())
 }
 
-fn filter_reviews(
-    reviews: &[review::Review],
-    registry_host_name: &str,
-    package_name: &str,
-    package_version: &str,
-) -> Vec<review::Review> {
-    reviews
-        .iter()
-        .filter(|review| {
-            review.package.name == package_name
-                && review.package.version == package_version
-                && review
-                    .package
-                    .registries
-                    .iter()
-                    .any(|registry| registry.host_name == registry_host_name)
-        })
-        .cloned()
-        .collect()
-}
-
-#[derive(Debug)]
-struct ProjectReviewMatches {
-    candidate_count: usize,
-    reviews: Vec<review::Review>,
-}
-
 fn matching_project_reviews(
     context: &ProjectReviewContext,
     registry_host_name: &str,
     package_name: &str,
     package_version: &str,
-) -> Result<ProjectReviewMatches> {
-    let candidates = filter_reviews(
+) -> Result<review::project::ProjectReviewMatches> {
+    let candidates = review::project::reviews_for_package(
         context.reviews,
         registry_host_name,
         package_name,
         package_version,
     );
     if candidates.is_empty() {
-        return Ok(ProjectReviewMatches {
+        return Ok(review::project::ProjectReviewMatches {
             candidate_count: 0,
             reviews: Vec::new(),
         });
@@ -191,16 +163,18 @@ fn matching_project_reviews(
     let current =
         review::dependency_plan::package_record_for_extension(&package, context.extension)?;
 
-    Ok(ProjectReviewMatches {
-        candidate_count,
-        reviews: candidates
-            .into_iter()
-            .filter(|review| project_review_matches_current_package(review, &current))
-            .collect(),
-    })
+    let mut matches = review::project::matching_reviews_for_package(
+        &candidates,
+        registry_host_name,
+        package_name,
+        package_version,
+        &current,
+    );
+    matches.candidate_count = candidate_count;
+    Ok(matches)
 }
 
-fn project_review_note(matches: &ProjectReviewMatches) -> Option<String> {
+fn project_review_note(matches: &review::project::ProjectReviewMatches) -> Option<String> {
     if matches.candidate_count == 0 {
         None
     } else if matches.reviews.is_empty() {
@@ -208,61 +182,6 @@ fn project_review_note(matches: &ProjectReviewMatches) -> Option<String> {
     } else {
         Some(format!("project reviews ({})", matches.reviews.len()))
     }
-}
-
-fn project_review_matches_current_package(
-    review: &review::Review,
-    current: &review::dependency_plan::DependencyReviewPackageRecord,
-) -> bool {
-    review.package.name == current.package_name
-        && review.package.version == current.package_version
-        && review.package.package_hash == current.package_hash
-        && review
-            .package
-            .registries
-            .iter()
-            .any(|registry| registry.host_name == current.registry_host)
-        && project_review_targets_match_current_package(review, current)
-}
-
-fn project_review_targets_match_current_package(
-    review: &review::Review,
-    current: &review::dependency_plan::DependencyReviewPackageRecord,
-) -> bool {
-    if review.targets.is_empty() {
-        return false;
-    }
-
-    let current_files = current
-        .batches
-        .iter()
-        .flat_map(|batch| &batch.files)
-        .map(|file| (file.path.clone(), file.file_hash.clone()))
-        .collect::<BTreeSet<_>>();
-
-    review.targets.iter().all(|target| {
-        target
-            .file_hash
-            .as_ref()
-            .map(|file_hash| {
-                current_files.contains(&(
-                    package_relative_path_string(&target.file_path),
-                    file_hash.clone(),
-                ))
-            })
-            .unwrap_or(false)
-    })
-}
-
-fn package_relative_path_string(path: &Path) -> String {
-    if path.as_os_str().is_empty() {
-        return ".".to_string();
-    }
-
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join("/")
 }
 
 fn deduplicate_reviews(reviews: Vec<review::Review>) -> Vec<review::Review> {
@@ -350,7 +269,7 @@ mod tests {
         );
         let review = stored_review("package-hash", &[("src/lib.rs", "file-hash")])?;
 
-        assert!(project_review_matches_current_package(&review, &current));
+        assert!(review::project::review_matches_package(&review, &current));
         Ok(())
     }
 
@@ -359,7 +278,7 @@ mod tests {
         let current = package_record("package-hash", &[("src/lib.rs", "file-hash")]);
         let review = stored_review("different-package-hash", &[("src/lib.rs", "file-hash")])?;
 
-        assert!(!project_review_matches_current_package(&review, &current));
+        assert!(!review::project::review_matches_package(&review, &current));
         Ok(())
     }
 
@@ -368,7 +287,7 @@ mod tests {
         let current = package_record("package-hash", &[("src/lib.rs", "file-hash")]);
         let review = stored_review("package-hash", &[("src/lib.rs", "different-file-hash")])?;
 
-        assert!(!project_review_matches_current_package(&review, &current));
+        assert!(!review::project::review_matches_package(&review, &current));
         Ok(())
     }
 
@@ -377,28 +296,28 @@ mod tests {
         let current = package_record("package-hash", &[("src/lib.rs", "file-hash")]);
         let review = stored_review("package-hash", &[])?;
 
-        assert!(!project_review_matches_current_package(&review, &current));
+        assert!(!review::project::review_matches_package(&review, &current));
         Ok(())
     }
 
     #[test]
     fn project_review_note_reports_matching_and_stale_reviews() -> Result<()> {
         assert_eq!(
-            project_review_note(&ProjectReviewMatches {
+            project_review_note(&review::project::ProjectReviewMatches {
                 candidate_count: 0,
                 reviews: Vec::new(),
             }),
             None
         );
         assert_eq!(
-            project_review_note(&ProjectReviewMatches {
+            project_review_note(&review::project::ProjectReviewMatches {
                 candidate_count: 1,
                 reviews: Vec::new(),
             }),
             Some("project reviews stale".to_string())
         );
         assert_eq!(
-            project_review_note(&ProjectReviewMatches {
+            project_review_note(&review::project::ProjectReviewMatches {
                 candidate_count: 2,
                 reviews: vec![stored_review(
                     "package-hash",
