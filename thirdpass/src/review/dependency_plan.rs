@@ -32,6 +32,14 @@ impl DependencyReviewPlan {
         Ok(select_next_review(self, &coverage))
     }
 
+    /// Summarize the supplied project reviews against prepared packages.
+    pub(crate) fn project_review_summary_for_reviews(
+        &self,
+        project_reviews: &[crate::review::Review],
+    ) -> DependencyProjectReviewSummary {
+        project_review_summary(self, project_reviews)
+    }
+
     /// Return the next dependency package waiting to be prepared.
     pub(crate) fn next_pending_package(&self) -> Option<&DependencyReviewPackage> {
         self.pending_packages.first()
@@ -87,6 +95,24 @@ impl DependencyReviewPlan {
     pub(crate) fn mark_batch_reviewed(&mut self, plan_rank: usize) -> Result<()> {
         let _ = set_batch_status(self, plan_rank, DependencyReviewBatchStatus::Reviewed);
         Ok(())
+    }
+}
+
+/// Committed project review status for prepared dependency packages.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub(crate) struct DependencyProjectReviewSummary {
+    /// Committed project reviews that match current package and file hashes.
+    pub(crate) matching_reviews: usize,
+    /// Files skipped because committed project reviews already cover them.
+    pub(crate) covered_files: usize,
+    /// Committed project reviews for current packages that no longer match.
+    pub(crate) stale_reviews: usize,
+}
+
+impl DependencyProjectReviewSummary {
+    /// Return true when there is nothing useful to report.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.matching_reviews == 0 && self.covered_files == 0 && self.stale_reviews == 0
     }
 }
 
@@ -424,6 +450,45 @@ fn local_review_coverage(public_user_id: &str) -> Result<project::ProjectReviewC
         project::add_review_coverage(&mut coverage, &review);
     }
     Ok(coverage)
+}
+
+fn project_review_summary(
+    plan: &DependencyReviewPlan,
+    project_reviews: &[crate::review::Review],
+) -> DependencyProjectReviewSummary {
+    let coverage = project::coverage_for_reviews(project_reviews);
+    let mut summary = DependencyProjectReviewSummary::default();
+
+    for package in &plan.packages {
+        let package_key = project::package_key_from_record(package);
+        let covered_files = coverage.get(&package_key);
+        summary.covered_files += package
+            .batches
+            .iter()
+            .flat_map(|batch| &batch.files)
+            .filter(|file| {
+                covered_files
+                    .map(|covered_files| {
+                        covered_files.contains(&project::file_key_from_plan_file(file))
+                    })
+                    .unwrap_or(false)
+            })
+            .count();
+
+        let matches = project::matching_reviews_for_package(
+            project_reviews,
+            &package.registry_host,
+            &package.package_name,
+            &package.package_version,
+            package,
+        );
+        summary.matching_reviews += matches.reviews.len();
+        summary.stale_reviews += matches
+            .candidate_count
+            .saturating_sub(matches.reviews.len());
+    }
+
+    summary
 }
 
 fn refresh_plan_progress(

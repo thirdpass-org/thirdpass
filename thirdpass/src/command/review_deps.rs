@@ -215,12 +215,23 @@ fn run_discovered_dependency_reviews(
         &discovery.dependency_files,
         &review_packages,
     )?;
+    let initial_project_reviews = review::project::list_dependency_reviews(working_directory)?;
     let mut session = DependencyReviewSession::default();
+    let mut last_project_review_summary =
+        review::dependency_plan::DependencyProjectReviewSummary::default();
     println!("Dependency review started. Press Ctrl-C to stop.");
     print_plan_summary(&plan);
 
     loop {
-        let selection = match plan.select_next_review(public_user_id)? {
+        let selection = plan.select_next_review(public_user_id)?;
+        let project_review_summary =
+            plan.project_review_summary_for_reviews(&initial_project_reviews);
+        if project_review_summary != last_project_review_summary {
+            print_project_review_summary(&project_review_summary);
+            last_project_review_summary = project_review_summary;
+        }
+
+        let selection = match selection {
             Some(selection) => selection,
             None => {
                 if prepare_next_dependency(&mut plan, extensions)? {
@@ -259,6 +270,51 @@ fn run_discovered_dependency_reviews(
         session.record(&result.outcome);
         session.track_submission(result.submission);
         print_review_deps_progress(&plan, &session);
+    }
+}
+
+fn print_project_review_summary(summary: &review::dependency_plan::DependencyProjectReviewSummary) {
+    if summary.is_empty() {
+        return;
+    }
+    for line in project_review_summary_lines(summary) {
+        println!("{}", line);
+    }
+}
+
+fn project_review_summary_lines(
+    summary: &review::dependency_plan::DependencyProjectReviewSummary,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    if summary.matching_reviews > 0 {
+        lines.push(format!(
+            "Using {} committed project {}.",
+            summary.matching_reviews,
+            plural(summary.matching_reviews, "review", "reviews")
+        ));
+    }
+    if summary.covered_files > 0 {
+        lines.push(format!(
+            "Skipping {} {} already covered by committed reviews.",
+            summary.covered_files,
+            plural(summary.covered_files, "file", "files")
+        ));
+    }
+    if summary.stale_reviews > 0 {
+        lines.push(format!(
+            "{} committed project {} stale.",
+            summary.stale_reviews,
+            plural(summary.stale_reviews, "review is", "reviews are")
+        ));
+    }
+    lines
+}
+
+fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
+    if count == 1 {
+        singular
+    } else {
+        plural
     }
 }
 
@@ -755,6 +811,77 @@ mod tests {
             1
         );
         Ok(())
+    }
+
+    #[test]
+    fn review_deps_reports_stale_committed_project_reviews() -> Result<()> {
+        let _lock = common::TEST_ENV_LOCK
+            .lock()
+            .expect("test env lock poisoned");
+        let fixture = DependencyReviewFixture::new("thirdpass-review-deps-stale-")?;
+        let _env = fixture.enter_client_environment();
+        fixture.prepare_cached_workspace()?;
+        fixture.write_project_review_with_package_hash("stale-package-hash")?;
+
+        let mut plan = review::dependency_plan::plan_for_project(
+            fixture.project_root(),
+            &[fixture.dependency_file().to_path_buf()],
+            &[review::dependency_plan::DependencyReviewPackage {
+                extension_name: "fixture".to_string(),
+                registry_host_name: fixture.registry_host_name().to_string(),
+                package_name: fixture.package_name().to_string(),
+                package_version: fixture.package_version().to_string(),
+            }],
+        )?;
+        let extensions: Vec<Box<dyn thirdpass_core::extension::Extension>> =
+            vec![Box::new(FixtureExtension::new(&fixture))];
+        plan.prepare_next_package(&extensions)?;
+
+        let project_reviews = review::project::list_dependency_reviews(fixture.project_root())?;
+        let summary = plan.project_review_summary_for_reviews(&project_reviews);
+        assert_eq!(
+            summary,
+            review::dependency_plan::DependencyProjectReviewSummary {
+                matching_reviews: 0,
+                covered_files: 0,
+                stale_reviews: 1,
+            }
+        );
+        assert_eq!(
+            project_review_summary_lines(&summary),
+            vec!["1 committed project review is stale.".to_string()]
+        );
+
+        let selection = plan
+            .select_next_review("current-user")?
+            .expect("stale review should not cover the package");
+        let mut target_files = selection.target_files;
+        target_files.sort();
+        assert_eq!(
+            target_files,
+            vec!["README.md".to_string(), "src/lib.rs".to_string()]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn project_review_summary_lines_report_committed_review_status() {
+        let lines = project_review_summary_lines(
+            &review::dependency_plan::DependencyProjectReviewSummary {
+                matching_reviews: 2,
+                covered_files: 1,
+                stale_reviews: 3,
+            },
+        );
+
+        assert_eq!(
+            lines,
+            vec![
+                "Using 2 committed project reviews.".to_string(),
+                "Skipping 1 file already covered by committed reviews.".to_string(),
+                "3 committed project reviews are stale.".to_string(),
+            ]
+        );
     }
 
     fn candidate(
