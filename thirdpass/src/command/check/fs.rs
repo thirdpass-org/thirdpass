@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use crate::common;
 use crate::extension;
+use crate::review;
 
 use super::output;
 use super::report;
@@ -16,6 +17,7 @@ pub fn report(
     let extensions = extension::manage::get_enabled(extension_names, config)?;
     let working_directory = std::env::current_dir()?;
     log::debug!("Current working directory: {}", working_directory.display());
+    let project_reviews = review::project::list_dependency_reviews(&working_directory)?;
 
     let mut dependencies_found = false;
     let all_dependencies_specs = extension::identify_file_defined_dependencies(
@@ -40,7 +42,13 @@ pub fn report(
             }
         };
         for fs_dependencies in extension_all_dependencies.iter() {
-            let dependency_group = report_dependencies(fs_dependencies, config, false)?;
+            let dependency_group = report_dependencies(
+                fs_dependencies,
+                extension.as_ref(),
+                &project_reviews,
+                config,
+                false,
+            )?;
             if let Some(dependency_group) = dependency_group {
                 dependencies_found = true;
                 groups.push(dependency_group);
@@ -61,6 +69,8 @@ pub fn report(
 
 fn report_dependencies(
     package_dependencies: &thirdpass_core::extension::FileDefinedDependencies,
+    extension: &dyn thirdpass_core::extension::Extension,
+    project_reviews: &[review::Review],
     config: &common::config::Config,
     first_row_separate: bool,
 ) -> Result<Option<output::DependencyGroup>> {
@@ -73,10 +83,15 @@ fn report_dependencies(
     let dependency_reports: Result<Vec<report::DependencyReport>> = dependencies
         .iter()
         .map(|dependency| -> Result<report::DependencyReport> {
+            let project_review_context = report::ProjectReviewContext {
+                extension,
+                reviews: project_reviews,
+            };
             report::get_dependency_report(
                 dependency,
                 &package_dependencies.registry_host_name,
                 config,
+                Some(&project_review_context),
             )
         })
         .collect();

@@ -327,6 +327,14 @@ pub(crate) fn plan_for_project(
     new_plan(&project_root_string, source_files, packages, &snapshot_id)
 }
 
+/// Download and analyze one dependency package into a review package record.
+pub(crate) fn package_record_for_extension(
+    package: &DependencyReviewPackage,
+    extension: &dyn thirdpass_core::extension::Extension,
+) -> Result<DependencyReviewPackageRecord> {
+    build_package_record_with_extension(package, extension, "check", 1)
+}
+
 fn new_plan(
     project_root: &str,
     dependency_files: Vec<DependencyReviewSourceFile>,
@@ -357,6 +365,15 @@ fn build_package_record(
     first_plan_rank: usize,
 ) -> Result<DependencyReviewPackageRecord> {
     let extension = extension_for_package(package, extensions)?;
+    build_package_record_with_extension(package, extension, snapshot_id, first_plan_rank)
+}
+
+fn build_package_record_with_extension(
+    package: &DependencyReviewPackage,
+    extension: &dyn thirdpass_core::extension::Extension,
+    snapshot_id: &str,
+    first_plan_rank: usize,
+) -> Result<DependencyReviewPackageRecord> {
     let metadata = primary_metadata_for_package(extension, package)?;
     let artifact_url = url::Url::parse(&metadata.artifact_url).context(format!(
         "can't parse artifact URL for {}@{}",
