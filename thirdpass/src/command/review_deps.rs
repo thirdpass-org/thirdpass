@@ -185,6 +185,31 @@ impl DependencyReviewSession {
     }
 }
 
+/// Global review reuse materialized into project review artifacts.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+struct GlobalReviewReuseSummary {
+    /// Matching global reviews copied into the project checkout.
+    copied_reviews: usize,
+    /// Previously uncovered files covered by copied global reviews.
+    covered_files: usize,
+}
+
+impl GlobalReviewReuseSummary {
+    /// Return true when no global reviews were copied.
+    fn is_empty(&self) -> bool {
+        self.copied_reviews == 0 && self.covered_files == 0
+    }
+}
+
+/// Result of trying to prepare the next dependency package.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum DependencyPreparationOutcome {
+    /// A package was prepared and appended to the plan at this index.
+    Prepared { package_index: usize },
+    /// A package was skipped because it could not be prepared.
+    Skipped,
+}
+
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
 struct DependencyReviewKey {
     extension_name: String,
@@ -215,7 +240,7 @@ fn run_discovered_dependency_reviews(
         &discovery.dependency_files,
         &review_packages,
     )?;
-    let initial_project_reviews = review::project::list_dependency_reviews(working_directory)?;
+    let mut reusable_project_reviews = review::project::list_dependency_reviews(working_directory)?;
     let mut session = DependencyReviewSession::default();
     let mut last_project_review_summary =
         review::dependency_plan::DependencyProjectReviewSummary::default();
@@ -225,7 +250,7 @@ fn run_discovered_dependency_reviews(
     loop {
         let selection = plan.select_next_review(public_user_id)?;
         let project_review_summary =
-            plan.project_review_summary_for_reviews(&initial_project_reviews);
+            plan.project_review_summary_for_reviews(&reusable_project_reviews);
         if project_review_summary != last_project_review_summary {
             print_project_review_summary(&project_review_summary);
             last_project_review_summary = project_review_summary;
@@ -233,14 +258,24 @@ fn run_discovered_dependency_reviews(
 
         let selection = match selection {
             Some(selection) => selection,
-            None => {
-                if prepare_next_dependency(&mut plan, extensions)? {
+            None => match prepare_next_dependency(&mut plan, extensions)? {
+                Some(DependencyPreparationOutcome::Prepared { package_index }) => {
+                    let reuse_summary = copy_matching_global_reviews_for_package(
+                        working_directory,
+                        &plan.packages[package_index],
+                        public_user_id,
+                        &mut reusable_project_reviews,
+                    )?;
+                    print_global_review_reuse_summary(&reuse_summary);
                     continue;
                 }
-                session.wait_for_submissions()?;
-                println!("Dependency review plan complete.");
-                return Ok(());
-            }
+                Some(DependencyPreparationOutcome::Skipped) => continue,
+                None => {
+                    session.wait_for_submissions()?;
+                    println!("Dependency review plan complete.");
+                    return Ok(());
+                }
+            },
         };
 
         let review_number = session.completed_reviews + 1;
@@ -310,6 +345,20 @@ fn project_review_summary_lines(
     lines
 }
 
+fn print_global_review_reuse_summary(summary: &GlobalReviewReuseSummary) {
+    if summary.is_empty() {
+        return;
+    }
+
+    println!(
+        "Copied {} global {} into project reviews, covering {} {}.",
+        summary.copied_reviews,
+        plural(summary.copied_reviews, "review", "reviews"),
+        summary.covered_files,
+        plural(summary.covered_files, "file", "files")
+    );
+}
+
 fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
     if count == 1 {
         singular
@@ -338,10 +387,11 @@ fn print_plan_summary(plan: &review::dependency_plan::DependencyReviewPlan) {
 fn prepare_next_dependency(
     plan: &mut review::dependency_plan::DependencyReviewPlan,
     extensions: &[Box<dyn thirdpass_core::extension::Extension>],
-) -> Result<bool> {
+) -> Result<Option<DependencyPreparationOutcome>> {
     let Some(package) = plan.next_pending_package().cloned() else {
-        return Ok(false);
+        return Ok(None);
     };
+    let package_index = plan.packages.len();
     let dependency_number = plan.prepared_package_count() + 1;
     let dependency_total = plan.source.dependency_count;
 
@@ -369,7 +419,9 @@ fn prepare_next_dependency(
                 "Prepared {}@{} ({}): {} batches, {} files.",
                 package_name, package_version, registry_host, batch_count, file_count
             );
-            Ok(true)
+            Ok(Some(DependencyPreparationOutcome::Prepared {
+                package_index,
+            }))
         }
         Some(review::dependency_plan::DependencyReviewPreparation::Skipped {
             package_name,
@@ -382,10 +434,65 @@ fn prepare_next_dependency(
                 "Skipped {}@{} ({}): {}",
                 package_name, package_version, registry_host, reason
             );
-            Ok(true)
+            Ok(Some(DependencyPreparationOutcome::Skipped))
         }
-        None => Ok(false),
+        None => Ok(None),
     }
+}
+
+fn copy_matching_global_reviews_for_package(
+    working_directory: &std::path::Path,
+    package: &review::dependency_plan::DependencyReviewPackageRecord,
+    public_user_id: &str,
+    project_reviews: &mut Vec<review::Review>,
+) -> Result<GlobalReviewReuseSummary> {
+    let package_key = review::project::package_key_from_record(package);
+    let mut project_coverage = review::project::coverage_for_reviews(project_reviews.iter());
+    let mut stored_reviews = review::fs::list_with_status()?;
+    stored_reviews.sort_by(|left, right| left.path.cmp(&right.path));
+
+    let global_reviews = stored_reviews
+        .into_iter()
+        .filter(|stored| stored.review.reviewer_details.public_user_id == public_user_id)
+        .map(|stored| stored.review)
+        .collect::<Vec<_>>();
+    let matches = review::project::matching_reviews_for_package(
+        &global_reviews,
+        &package.registry_host,
+        &package.package_name,
+        &package.package_version,
+        package,
+    );
+
+    let mut summary = GlobalReviewReuseSummary::default();
+    for global_review in matches.reviews {
+        let review_coverage =
+            review::project::coverage_for_reviews(std::iter::once(&global_review));
+        let Some(review_files) = review_coverage.get(&package_key) else {
+            continue;
+        };
+        let already_covered = project_coverage.get(&package_key);
+        let newly_covered_files = review_files
+            .iter()
+            .filter(|file| {
+                already_covered
+                    .map(|files| !files.contains(file))
+                    .unwrap_or(true)
+            })
+            .count();
+
+        if newly_covered_files == 0 {
+            continue;
+        }
+
+        review::project::store_dependency_review(working_directory, &global_review)?;
+        review::project::add_review_coverage(&mut project_coverage, &global_review);
+        project_reviews.push(global_review);
+        summary.copied_reviews += 1;
+        summary.covered_files += newly_covered_files;
+    }
+
+    Ok(summary)
 }
 
 fn print_selected_batch(
@@ -810,6 +917,54 @@ mod tests {
             review::project::list_dependency_reviews(fixture.project_root())?.len(),
             1
         );
+        Ok(())
+    }
+
+    #[test]
+    fn review_deps_copies_matching_global_reviews_into_project() -> Result<()> {
+        let _lock = common::TEST_ENV_LOCK
+            .lock()
+            .expect("test env lock poisoned");
+        let fixture = DependencyReviewFixture::new("thirdpass-review-deps-global-")?;
+        let _env = fixture.enter_client_environment();
+        fixture.prepare_cached_workspace()?;
+        fixture.write_global_review("current-user")?;
+
+        run_discovered_dependency_reviews(
+            &Arguments {
+                extension_names: Some(vec!["fixture".to_string()]),
+                manual: false,
+                agent: None,
+                agent_model: None,
+                agent_reasoning_effort: None,
+                local_only: true,
+            },
+            &[Box::new(FixtureExtension::new(&fixture))],
+            fixture.project_root(),
+            DependencyReviewDiscovery {
+                dependency_files: vec![fixture.dependency_file().to_path_buf()],
+                candidates: vec![DependencyReviewCandidate {
+                    extension_name: "fixture".to_string(),
+                    registry_host_name: fixture.registry_host_name().to_string(),
+                    package_name: fixture.package_name().to_string(),
+                    package_version: fixture.package_version().to_string(),
+                    current_reviewer_review_count: 1,
+                    total_review_count: 1,
+                }],
+            },
+            "current-user",
+            None,
+        )?;
+
+        let global_reviews = review::fs::list()?;
+        let project_reviews = review::project::list_dependency_reviews(fixture.project_root())?;
+        assert_eq!(global_reviews.len(), 1);
+        assert_eq!(project_reviews.len(), 1);
+        assert_eq!(
+            project_reviews[0].reviewer_details.public_user_id,
+            "current-user"
+        );
+        assert_eq!(project_reviews[0].targets.len(), 2);
         Ok(())
     }
 

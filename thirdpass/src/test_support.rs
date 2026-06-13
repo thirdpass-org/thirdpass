@@ -169,12 +169,17 @@ impl DependencyReviewFixture {
     pub(crate) fn write_project_review_with_package_hash(&self, package_hash: &str) -> Result<()> {
         review::project::store_dependency_review(
             self.project_root(),
-            &self.review(package_hash.to_string())?,
+            &self.review(package_hash.to_string(), "committed-reviewer")?,
         )?;
         Ok(())
     }
 
-    fn review(&self, package_hash: String) -> Result<review::Review> {
+    /// Store a matching review in the client-wide review store.
+    pub(crate) fn write_global_review(&self, public_user_id: &str) -> Result<std::path::PathBuf> {
+        review::store_submitted(&self.review(self.package_hash.clone(), public_user_id)?)
+    }
+
+    fn review(&self, package_hash: String, public_user_id: &str) -> Result<review::Review> {
         let mut registries = std::collections::BTreeSet::new();
         registries.insert(registry::Registry {
             id: 0,
@@ -213,7 +218,7 @@ impl DependencyReviewFixture {
             },
             targets,
             reviewer_details: review::ReviewerDetails {
-                public_user_id: "committed-reviewer".to_string(),
+                public_user_id: public_user_id.to_string(),
                 ..review::ReviewerDetails::default()
             },
             agent_summary: String::new(),
