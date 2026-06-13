@@ -218,6 +218,29 @@ struct DependencyReviewKey {
     package_version: String,
 }
 
+/// Executes a selected dependency review batch.
+trait DependencyReviewRunner {
+    /// Run one review command for selected package files.
+    fn run(
+        &self,
+        args: &crate::command::review::Arguments,
+        submitter: Option<&review::submission::Submitter>,
+    ) -> Result<crate::command::review::ReviewCommandResult>;
+}
+
+/// Production runner backed by the normal review command implementation.
+struct CommandDependencyReviewRunner;
+
+impl DependencyReviewRunner for CommandDependencyReviewRunner {
+    fn run(
+        &self,
+        args: &crate::command::review::Arguments,
+        submitter: Option<&review::submission::Submitter>,
+    ) -> Result<crate::command::review::ReviewCommandResult> {
+        crate::command::review::run_command_with_result(args, submitter)
+    }
+}
+
 fn run_discovered_dependency_reviews(
     args: &Arguments,
     extensions: &[Box<dyn thirdpass_core::extension::Extension>],
@@ -225,6 +248,26 @@ fn run_discovered_dependency_reviews(
     discovery: DependencyReviewDiscovery,
     public_user_id: &str,
     submitter: Option<&review::submission::Submitter>,
+) -> Result<()> {
+    run_discovered_dependency_reviews_with_runner(
+        args,
+        extensions,
+        working_directory,
+        discovery,
+        public_user_id,
+        submitter,
+        &CommandDependencyReviewRunner,
+    )
+}
+
+fn run_discovered_dependency_reviews_with_runner(
+    args: &Arguments,
+    extensions: &[Box<dyn thirdpass_core::extension::Extension>],
+    working_directory: &std::path::Path,
+    discovery: DependencyReviewDiscovery,
+    public_user_id: &str,
+    submitter: Option<&review::submission::Submitter>,
+    runner: &dyn DependencyReviewRunner,
 ) -> Result<()> {
     let review_packages = discovery
         .candidates
@@ -282,7 +325,7 @@ fn run_discovered_dependency_reviews(
         print_selected_batch(review_number, &selection);
 
         let plan_rank = selection.plan_rank;
-        let result = crate::command::review::run_command_with_result(
+        let result = runner.run(
             &crate::command::review::Arguments {
                 package_name: selection.package_name,
                 package_version: Some(selection.package_version),
@@ -732,6 +775,7 @@ mod tests {
     use crate::common;
     use crate::test_support::{DependencyReviewFixture, FixtureExtension};
     use crate::{package, peer, registry};
+    use std::cell::RefCell;
 
     #[test]
     fn sort_dependency_review_candidates_prefers_review_needs() {
@@ -969,6 +1013,61 @@ mod tests {
     }
 
     #[test]
+    fn review_deps_reviews_only_files_not_covered_by_global_reviews() -> Result<()> {
+        let _lock = common::TEST_ENV_LOCK
+            .lock()
+            .expect("test env lock poisoned");
+        let fixture = DependencyReviewFixture::new("thirdpass-review-deps-partial-global-")?;
+        let _env = fixture.enter_client_environment();
+        fixture.prepare_cached_workspace()?;
+        fixture.write_global_review_for_files("current-user", &["README.md"])?;
+        let runner = RecordingDependencyReviewRunner::new(&fixture);
+
+        run_discovered_dependency_reviews_with_runner(
+            &Arguments {
+                extension_names: Some(vec!["fixture".to_string()]),
+                manual: false,
+                agent: None,
+                agent_model: None,
+                agent_reasoning_effort: None,
+                local_only: true,
+            },
+            &[Box::new(FixtureExtension::new(&fixture))],
+            fixture.project_root(),
+            DependencyReviewDiscovery {
+                dependency_files: vec![fixture.dependency_file().to_path_buf()],
+                candidates: vec![DependencyReviewCandidate {
+                    extension_name: "fixture".to_string(),
+                    registry_host_name: fixture.registry_host_name().to_string(),
+                    package_name: fixture.package_name().to_string(),
+                    package_version: fixture.package_version().to_string(),
+                    current_reviewer_review_count: 1,
+                    total_review_count: 1,
+                }],
+            },
+            "current-user",
+            None,
+            &runner,
+        )?;
+
+        assert_eq!(runner.calls(), vec![vec!["src/lib.rs".to_string()]]);
+
+        let project_reviews = review::project::list_dependency_reviews(fixture.project_root())?;
+        assert_eq!(project_reviews.len(), 2);
+        let mut target_paths = project_reviews
+            .iter()
+            .flat_map(|project_review| &project_review.targets)
+            .map(|target| target.file_path.display().to_string())
+            .collect::<Vec<_>>();
+        target_paths.sort();
+        assert_eq!(
+            target_paths,
+            vec!["README.md".to_string(), "src/lib.rs".to_string()]
+        );
+        Ok(())
+    }
+
+    #[test]
     fn review_deps_reports_stale_committed_project_reviews() -> Result<()> {
         let _lock = common::TEST_ENV_LOCK
             .lock()
@@ -1054,6 +1153,60 @@ mod tests {
             package_version: package_version.to_string(),
             current_reviewer_review_count,
             total_review_count,
+        }
+    }
+
+    struct RecordingDependencyReviewRunner<'a> {
+        fixture: &'a DependencyReviewFixture,
+        calls: RefCell<Vec<Vec<String>>>,
+    }
+
+    impl<'a> RecordingDependencyReviewRunner<'a> {
+        fn new(fixture: &'a DependencyReviewFixture) -> Self {
+            Self {
+                fixture,
+                calls: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn calls(&self) -> Vec<Vec<String>> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    impl DependencyReviewRunner for RecordingDependencyReviewRunner<'_> {
+        fn run(
+            &self,
+            args: &crate::command::review::Arguments,
+            submitter: Option<&review::submission::Submitter>,
+        ) -> Result<crate::command::review::ReviewCommandResult> {
+            assert!(submitter.is_none());
+            self.calls.borrow_mut().push(args.target_files.clone());
+
+            let target_paths = args
+                .target_files
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            let review = self
+                .fixture
+                .review_for_files("current-user", &target_paths)?;
+            let outcome = crate::command::review::ReviewCommandOutcome {
+                package_name: review.package.name.clone(),
+                package_version: review.package.version.clone(),
+                target_file_count: review.targets.len(),
+                comment_count: 0,
+                critical_comment_count: 0,
+                medium_comment_count: 0,
+                low_comment_count: 0,
+                submitted: false,
+            };
+
+            Ok(crate::command::review::ReviewCommandResult {
+                review,
+                outcome,
+                submission: None,
+            })
         }
     }
 

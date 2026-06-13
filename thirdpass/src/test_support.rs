@@ -167,19 +167,55 @@ impl DependencyReviewFixture {
 
     /// Commit a project review with an explicit package hash.
     pub(crate) fn write_project_review_with_package_hash(&self, package_hash: &str) -> Result<()> {
+        let all_paths = self.all_file_paths();
         review::project::store_dependency_review(
             self.project_root(),
-            &self.review(package_hash.to_string(), "committed-reviewer")?,
+            &self.review(package_hash.to_string(), "committed-reviewer", &all_paths)?,
         )?;
         Ok(())
     }
 
     /// Store a matching review in the client-wide review store.
     pub(crate) fn write_global_review(&self, public_user_id: &str) -> Result<std::path::PathBuf> {
-        review::store_submitted(&self.review(self.package_hash.clone(), public_user_id)?)
+        let all_paths = self.all_file_paths();
+        review::store_submitted(&self.review_for_files(public_user_id, &all_paths)?)
     }
 
-    fn review(&self, package_hash: String, public_user_id: &str) -> Result<review::Review> {
+    /// Store a matching review for specific fixture files in the client-wide review store.
+    pub(crate) fn write_global_review_for_files(
+        &self,
+        public_user_id: &str,
+        paths: &[&str],
+    ) -> Result<std::path::PathBuf> {
+        review::store_submitted(&self.review_for_files(public_user_id, paths)?)
+    }
+
+    /// Build a matching review for specific fixture package files.
+    pub(crate) fn review_for_files(
+        &self,
+        public_user_id: &str,
+        paths: &[&str],
+    ) -> Result<review::Review> {
+        self.review(self.package_hash.clone(), public_user_id, paths)
+    }
+
+    fn all_file_paths(&self) -> Vec<&str> {
+        self.files
+            .iter()
+            .map(|file| {
+                file.path
+                    .to_str()
+                    .expect("fixture paths should be UTF-8 strings")
+            })
+            .collect()
+    }
+
+    fn review(
+        &self,
+        package_hash: String,
+        public_user_id: &str,
+        paths: &[&str],
+    ) -> Result<review::Review> {
         let mut registries = std::collections::BTreeSet::new();
         registries.insert(registry::Registry {
             id: 0,
@@ -188,16 +224,18 @@ impl DependencyReviewFixture {
             artifact_url: url::Url::parse("https://fixture.registry/fixture-package-1.0.0.tar.gz")?,
         });
 
-        let workspace_path = self.cached_workspace_path()?;
         let targets = self
             .files
             .iter()
+            .filter(|file| {
+                paths
+                    .iter()
+                    .any(|path| file.path == std::path::Path::new(path))
+            })
             .map(|file| {
-                let file_hash =
-                    thirdpass_core::package::file_blake3_digest(&workspace_path.join(&file.path))?;
                 Ok(review::ReviewTarget {
                     file_path: file.path.clone(),
-                    file_hash: Some(thirdpass_core::schema::FileHash::blake3(file_hash)),
+                    file_hash: Some(file.hash()),
                     agent_summary: None,
                     security_summary: Some(review::SecuritySummary::None),
                     confidence: None,
@@ -226,23 +264,18 @@ impl DependencyReviewFixture {
             overall_security_confidence: None,
         })
     }
-
-    fn cached_workspace_path(&self) -> Result<PathBuf> {
-        let data_paths = common::fs::DataPaths::new()?;
-        Ok(data_paths
-            .ongoing_reviews_directory
-            .join(thirdpass_core::package::unique_package_path(
-                &self.package_name,
-                &self.package_version,
-                &self.registry_host_name,
-            )?)
-            .join(format!("{}-{}", self.package_name, self.package_version)))
-    }
 }
 
 struct FixturePackageFile {
     path: PathBuf,
     contents: Vec<u8>,
+}
+
+impl FixturePackageFile {
+    fn hash(&self) -> thirdpass_core::schema::FileHash {
+        let digest = blake3::hash(&self.contents).to_hex().as_str().to_string();
+        thirdpass_core::schema::FileHash::blake3(digest)
+    }
 }
 
 /// Fake extension that serves the shared dependency fixture.
