@@ -185,22 +185,6 @@ impl DependencyReviewSession {
     }
 }
 
-/// Global review reuse materialized into project review artifacts.
-#[derive(Debug, Clone, Default, Eq, PartialEq)]
-struct GlobalReviewReuseSummary {
-    /// Matching global reviews copied into the project checkout.
-    copied_reviews: usize,
-    /// Previously uncovered files covered by copied global reviews.
-    covered_files: usize,
-}
-
-impl GlobalReviewReuseSummary {
-    /// Return true when no global reviews were copied.
-    fn is_empty(&self) -> bool {
-        self.copied_reviews == 0 && self.covered_files == 0
-    }
-}
-
 /// Result of trying to prepare the next dependency package.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum DependencyPreparationOutcome {
@@ -303,12 +287,13 @@ fn run_discovered_dependency_reviews_with_runner(
             Some(selection) => selection,
             None => match prepare_next_dependency(&mut plan, extensions)? {
                 Some(DependencyPreparationOutcome::Prepared { package_index }) => {
-                    let reuse_summary = copy_matching_global_reviews_for_package(
-                        working_directory,
-                        &plan.packages[package_index],
-                        public_user_id,
-                        &mut reusable_project_reviews,
-                    )?;
+                    let reuse_summary =
+                        review::dependency_reuse::copy_matching_global_reviews_for_package(
+                            working_directory,
+                            &plan.packages[package_index],
+                            public_user_id,
+                            &mut reusable_project_reviews,
+                        )?;
                     print_global_review_reuse_summary(&reuse_summary);
                     continue;
                 }
@@ -388,7 +373,7 @@ fn project_review_summary_lines(
     lines
 }
 
-fn print_global_review_reuse_summary(summary: &GlobalReviewReuseSummary) {
+fn print_global_review_reuse_summary(summary: &review::dependency_reuse::GlobalReviewReuseSummary) {
     if summary.is_empty() {
         return;
     }
@@ -481,61 +466,6 @@ fn prepare_next_dependency(
         }
         None => Ok(None),
     }
-}
-
-fn copy_matching_global_reviews_for_package(
-    working_directory: &std::path::Path,
-    package: &review::dependency_plan::DependencyReviewPackageRecord,
-    public_user_id: &str,
-    project_reviews: &mut Vec<review::Review>,
-) -> Result<GlobalReviewReuseSummary> {
-    let package_key = review::project::package_key_from_record(package);
-    let mut project_coverage = review::project::coverage_for_reviews(project_reviews.iter());
-    let mut stored_reviews = review::fs::list_with_status()?;
-    stored_reviews.sort_by(|left, right| left.path.cmp(&right.path));
-
-    let global_reviews = stored_reviews
-        .into_iter()
-        .filter(|stored| stored.review.reviewer_details.public_user_id == public_user_id)
-        .map(|stored| stored.review)
-        .collect::<Vec<_>>();
-    let matches = review::project::matching_reviews_for_package(
-        &global_reviews,
-        &package.registry_host,
-        &package.package_name,
-        &package.package_version,
-        package,
-    );
-
-    let mut summary = GlobalReviewReuseSummary::default();
-    for global_review in matches.reviews {
-        let review_coverage =
-            review::project::coverage_for_reviews(std::iter::once(&global_review));
-        let Some(review_files) = review_coverage.get(&package_key) else {
-            continue;
-        };
-        let already_covered = project_coverage.get(&package_key);
-        let newly_covered_files = review_files
-            .iter()
-            .filter(|file| {
-                already_covered
-                    .map(|files| !files.contains(file))
-                    .unwrap_or(true)
-            })
-            .count();
-
-        if newly_covered_files == 0 {
-            continue;
-        }
-
-        review::project::store_dependency_review(working_directory, &global_review)?;
-        review::project::add_review_coverage(&mut project_coverage, &global_review);
-        project_reviews.push(global_review);
-        summary.copied_reviews += 1;
-        summary.covered_files += newly_covered_files;
-    }
-
-    Ok(summary)
 }
 
 fn print_selected_batch(
@@ -941,17 +871,7 @@ mod tests {
             },
             &[Box::new(FixtureExtension::new(&fixture))],
             fixture.project_root(),
-            DependencyReviewDiscovery {
-                dependency_files: vec![fixture.dependency_file().to_path_buf()],
-                candidates: vec![DependencyReviewCandidate {
-                    extension_name: "fixture".to_string(),
-                    registry_host_name: fixture.registry_host_name().to_string(),
-                    package_name: fixture.package_name().to_string(),
-                    package_version: fixture.package_version().to_string(),
-                    current_reviewer_review_count: 0,
-                    total_review_count: 0,
-                }],
-            },
+            fixture_discovery(&fixture, 0, 0),
             "current-user",
             None,
         )?;
@@ -985,17 +905,7 @@ mod tests {
             },
             &[Box::new(FixtureExtension::new(&fixture))],
             fixture.project_root(),
-            DependencyReviewDiscovery {
-                dependency_files: vec![fixture.dependency_file().to_path_buf()],
-                candidates: vec![DependencyReviewCandidate {
-                    extension_name: "fixture".to_string(),
-                    registry_host_name: fixture.registry_host_name().to_string(),
-                    package_name: fixture.package_name().to_string(),
-                    package_version: fixture.package_version().to_string(),
-                    current_reviewer_review_count: 1,
-                    total_review_count: 1,
-                }],
-            },
+            fixture_discovery(&fixture, 1, 1),
             "current-user",
             None,
         )?;
@@ -1034,17 +944,7 @@ mod tests {
             },
             &[Box::new(FixtureExtension::new(&fixture))],
             fixture.project_root(),
-            DependencyReviewDiscovery {
-                dependency_files: vec![fixture.dependency_file().to_path_buf()],
-                candidates: vec![DependencyReviewCandidate {
-                    extension_name: "fixture".to_string(),
-                    registry_host_name: fixture.registry_host_name().to_string(),
-                    package_name: fixture.package_name().to_string(),
-                    package_version: fixture.package_version().to_string(),
-                    current_reviewer_review_count: 1,
-                    total_review_count: 1,
-                }],
-            },
+            fixture_discovery(&fixture, 1, 1),
             "current-user",
             None,
             &runner,
@@ -1153,6 +1053,24 @@ mod tests {
             package_version: package_version.to_string(),
             current_reviewer_review_count,
             total_review_count,
+        }
+    }
+
+    fn fixture_discovery(
+        fixture: &DependencyReviewFixture,
+        current_reviewer_review_count: usize,
+        total_review_count: usize,
+    ) -> DependencyReviewDiscovery {
+        DependencyReviewDiscovery {
+            dependency_files: vec![fixture.dependency_file().to_path_buf()],
+            candidates: vec![DependencyReviewCandidate {
+                extension_name: "fixture".to_string(),
+                registry_host_name: fixture.registry_host_name().to_string(),
+                package_name: fixture.package_name().to_string(),
+                package_version: fixture.package_version().to_string(),
+                current_reviewer_review_count,
+                total_review_count,
+            }],
         }
     }
 

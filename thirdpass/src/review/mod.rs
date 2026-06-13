@@ -5,6 +5,7 @@ pub mod comment;
 mod common;
 pub(crate) mod dependency_package;
 pub(crate) mod dependency_plan;
+pub(crate) mod dependency_reuse;
 pub mod fs;
 pub(crate) mod project;
 pub mod remote;
