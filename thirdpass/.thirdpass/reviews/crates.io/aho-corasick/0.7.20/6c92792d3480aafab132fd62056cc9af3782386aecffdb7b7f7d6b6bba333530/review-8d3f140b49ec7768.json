@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "review": {
+    "package": {
+      "name": "aho-corasick",
+      "version": "0.7.20",
+      "registries": [
+        {
+          "host_name": "crates.io",
+          "human_url": "https://crates.io/crates/aho-corasick/0.7.20",
+          "artifact_url": "https://static.crates.io/crates/aho-corasick/aho-corasick-0.7.20.crate"
+        }
+      ],
+      "package_hash": "6c92792d3480aafab132fd62056cc9af3782386aecffdb7b7f7d6b6bba333530"
+    },
+    "targets": [
+      {
+        "file_path": "src/packed/teddy/runtime.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "b4221659d76ec923103d8cdcb32d2ab03a7f390e111d10bc1d769f4e9f92313e"
+        },
+        "agent_summary": "Reviewed `src/packed/teddy/runtime.rs`, a SIMD Teddy search runtime for pattern matching with SSSE3/AVX2-specialized verification and candidate generation. I found no concrete indicators of install-time execution, network or exfiltration, credential access, dynamic code loading, obfuscation, or persistence behavior in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      }
+    ],
+    "reviewer_details": {
+      "public_user_id": "d7d85a95-49ea-818b-aa46-7dff97fe9263",
+      "agent_name": "codex",
+      "agent_model": "gpt-5.4-mini",
+      "agent_reasoning_effort": "medium",
+      "review_strategy": "package-release/v1",
+      "review_scope": "target_file_full",
+      "created_at": "1781396150",
+      "thirdpass_version": "0.5.0"
+    },
+    "agent_summary": "Reviewed `src/packed/teddy/runtime.rs`, a SIMD Teddy search runtime for pattern matching with SSSE3/AVX2-specialized verification and candidate generation. I found no concrete indicators of install-time execution, network or exfiltration, credential access, dynamic code loading, obfuscation, or persistence behavior in this file.",
+    "overall_security_summary": "none"
+  }
+}

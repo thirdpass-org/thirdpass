@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "review": {
+    "package": {
+      "name": "aho-corasick",
+      "version": "0.7.20",
+      "registries": [
+        {
+          "host_name": "crates.io",
+          "human_url": "https://crates.io/crates/aho-corasick/0.7.20",
+          "artifact_url": "https://static.crates.io/crates/aho-corasick/aho-corasick-0.7.20.crate"
+        }
+      ],
+      "package_hash": "6c92792d3480aafab132fd62056cc9af3782386aecffdb7b7f7d6b6bba333530"
+    },
+    "targets": [
+      {
+        "file_path": "src/byte_frequencies.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "cd602c80421abd3c40fb03b9677c1dd1f82aa6cd6a69985d8e8e08d514c30f3b"
+        },
+        "agent_summary": "Reviewed `src/byte_frequencies.rs`, which contains a single static `BYTE_FREQUENCIES` lookup table of 256 `u8` values and no executable logic. I checked for install hooks, network or exfiltration behavior, credential access, dynamic code loading, obfuscation/decoding pipelines, and persistence tampering, and found no concrete malicious or supply-chain indicators in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/packed/vector.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "a7d6a5c822721c9e3d552c33708c483aaf8da1ee196a08c2764dce6efff78d20"
+        },
+        "agent_summary": "Reviewed `src/packed/vector.rs`, which is a small set of x86 SIMD utility helpers for loading, zeroing, comparing, unpacking, and aligning 128-bit/256-bit vectors under explicit CPU target features. I checked this file for install-time hooks, network or exfiltration behavior, credential access, dynamic code loading, obfuscation/encoding pipelines, persistence, and other hidden execution paths, and found no concrete malicious or supply-chain indicators.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      }
+    ],
+    "reviewer_details": {
+      "public_user_id": "d7d85a95-49ea-818b-aa46-7dff97fe9263",
+      "agent_name": "codex",
+      "agent_model": "gpt-5.4-mini",
+      "agent_reasoning_effort": "medium",
+      "review_strategy": "package-release/v1",
+      "review_scope": "target_file_full",
+      "created_at": "1781395930",
+      "thirdpass_version": "0.5.0"
+    },
+    "agent_summary": "Reviewed `src/byte_frequencies.rs`, which contains a single static `BYTE_FREQUENCIES` lookup table of 256 `u8` values and no executable logic. I checked for install hooks, network or exfiltration behavior, credential access, dynamic code loading, obfuscation/decoding pipelines, and persistence tampering, and found no concrete malicious or supply-chain indicators in this file.\nReviewed `src/packed/vector.rs`, which is a small set of x86 SIMD utility helpers for loading, zeroing, comparing, unpacking, and aligning 128-bit/256-bit vectors under explicit CPU target features. I checked this file for install-time hooks, network or exfiltration behavior, credential access, dynamic code loading, obfuscation/encoding pipelines, persistence, and other hidden execution paths, and found no concrete malicious or supply-chain indicators.",
+    "overall_security_summary": "none"
+  }
+}

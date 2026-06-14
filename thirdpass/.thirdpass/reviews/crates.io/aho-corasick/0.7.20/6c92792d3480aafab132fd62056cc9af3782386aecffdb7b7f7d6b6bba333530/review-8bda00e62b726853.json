@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "review": {
+    "package": {
+      "name": "aho-corasick",
+      "version": "0.7.20",
+      "registries": [
+        {
+          "host_name": "crates.io",
+          "human_url": "https://crates.io/crates/aho-corasick/0.7.20",
+          "artifact_url": "https://static.crates.io/crates/aho-corasick/aho-corasick-0.7.20.crate"
+        }
+      ],
+      "package_hash": "6c92792d3480aafab132fd62056cc9af3782386aecffdb7b7f7d6b6bba333530"
+    },
+    "targets": [
+      {
+        "file_path": "DESIGN.md",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "34d8eead590e80a094a54e198d307432631d47e9893e95e162ec83c84b269ba4"
+        },
+        "agent_summary": "`DESIGN.md` is a prose design document for the Aho-Corasick crate, describing NFA/DFA construction, match semantics, stream searching, and SIMD prefilters. I checked it for install-time execution, hidden subprocesses, network or exfiltration behavior, credential access, dynamic code loading, obfuscation, and persistence, and found no concrete malicious or supply-chain indicators in the file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/packed/rabinkarp.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "7f061a9e47b553a8ea2dddd2be53e6a97784e38b02583e32ba563d5e0e4656cf"
+        },
+        "agent_summary": "Reviewed `src/packed/rabinkarp.rs`, which implements an in-memory Rabin-Karp matcher for `aho-corasick` with rolling-hash bucket lookup and pattern verification. I checked for install hooks, subprocess execution, network/exfiltration, credential access, dynamic code loading, obfuscation, and persistence behavior; none are present in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/packed/api.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "b7466f842e3681a596e0d5938f0c55960cdd8b419198a00a180a3cf9ed8e5aed"
+        },
+        "agent_summary": "Reviewed `src/packed/api.rs`, which defines the packed Aho-Corasick `Config`, `Builder`, `Searcher`, and iterator APIs using Teddy and Rabin-Karp search paths. I checked for install-time execution, network or exfiltration, credential access, dynamic code loading, obfuscation, persistence, and subprocess spawning; none were present in this target file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/packed/pattern.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "b3d99708a73f3d325a92df6663411a904e02025c8e06104df2055613c3220cf7"
+        },
+        "agent_summary": "Reviewed `src/packed/pattern.rs`, which defines packed-search pattern storage, iteration order, and byte-comparison helpers for `aho-corasick`. I found no concrete malicious or supply-chain indicators in this file: no install-time hooks, subprocess execution, network/exfiltration, credential access, dynamic code loading, obfuscation, or persistence behavior.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      }
+    ],
+    "reviewer_details": {
+      "public_user_id": "d7d85a95-49ea-818b-aa46-7dff97fe9263",
+      "agent_name": "codex",
+      "agent_model": "gpt-5.4-mini",
+      "agent_reasoning_effort": "medium",
+      "review_strategy": "package-release/v1",
+      "review_scope": "target_file_full",
+      "created_at": "1781396336",
+      "thirdpass_version": "0.5.0"
+    },
+    "agent_summary": "`DESIGN.md` is a prose design document for the Aho-Corasick crate, describing NFA/DFA construction, match semantics, stream searching, and SIMD prefilters. I checked it for install-time execution, hidden subprocesses, network or exfiltration behavior, credential access, dynamic code loading, obfuscation, and persistence, and found no concrete malicious or supply-chain indicators in the file.\nReviewed `src/packed/rabinkarp.rs`, which implements an in-memory Rabin-Karp matcher for `aho-corasick` with rolling-hash bucket lookup and pattern verification. I checked for install hooks, subprocess execution, network/exfiltration, credential access, dynamic code loading, obfuscation, and persistence behavior; none are present in this file.\nReviewed `src/packed/api.rs`, which defines the packed Aho-Corasick `Config`, `Builder`, `Searcher`, and iterator APIs using Teddy and Rabin-Karp search paths. I checked for install-time execution, network or exfiltration, credential access, dynamic code loading, obfuscation, persistence, and subprocess spawning; none were present in this target file.\nReviewed `src/packed/pattern.rs`, which defines packed-search pattern storage, iteration order, and byte-comparison helpers for `aho-corasick`. I found no concrete malicious or supply-chain indicators in this file: no install-time hooks, subprocess execution, network/exfiltration, credential access, dynamic code loading, obfuscation, or persistence behavior.",
+    "overall_security_summary": "none"
+  }
+}

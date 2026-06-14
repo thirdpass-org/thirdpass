@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "review": {
+    "package": {
+      "name": "aho-corasick",
+      "version": "0.7.20",
+      "registries": [
+        {
+          "host_name": "crates.io",
+          "human_url": "https://crates.io/crates/aho-corasick/0.7.20",
+          "artifact_url": "https://static.crates.io/crates/aho-corasick/aho-corasick-0.7.20.crate"
+        }
+      ],
+      "package_hash": "6c92792d3480aafab132fd62056cc9af3782386aecffdb7b7f7d6b6bba333530"
+    },
+    "targets": [
+      {
+        "file_path": "src/nfa.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "2f0519071d7753b14ba4348f8d6f4fc1d74d7b1b1a65e27bd579278ebbd226a8"
+        },
+        "agent_summary": "`src/nfa.rs` is a Rust implementation of the Aho-Corasick NFA builder/search automaton, covering trie construction, failure transitions, byte classes, and debug formatting. I checked it for install hooks, subprocess or network use, credential/secret access, dynamic code loading, obfuscation, persistence, and other supply-chain compromise indicators, and found no concrete malicious behavior.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      }
+    ],
+    "reviewer_details": {
+      "public_user_id": "d7d85a95-49ea-818b-aa46-7dff97fe9263",
+      "agent_name": "codex",
+      "agent_model": "gpt-5.4-mini",
+      "agent_reasoning_effort": "medium",
+      "review_strategy": "package-release/v1",
+      "review_scope": "target_file_full",
+      "created_at": "1781396356",
+      "thirdpass_version": "0.5.0"
+    },
+    "agent_summary": "`src/nfa.rs` is a Rust implementation of the Aho-Corasick NFA builder/search automaton, covering trie construction, failure transitions, byte classes, and debug formatting. I checked it for install hooks, subprocess or network use, credential/secret access, dynamic code loading, obfuscation, persistence, and other supply-chain compromise indicators, and found no concrete malicious behavior.",
+    "overall_security_summary": "none"
+  }
+}

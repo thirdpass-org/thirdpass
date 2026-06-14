@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "review": {
+    "package": {
+      "name": "aho-corasick",
+      "version": "0.7.20",
+      "registries": [
+        {
+          "host_name": "crates.io",
+          "human_url": "https://crates.io/crates/aho-corasick/0.7.20",
+          "artifact_url": "https://static.crates.io/crates/aho-corasick/aho-corasick-0.7.20.crate"
+        }
+      ],
+      "package_hash": "6c92792d3480aafab132fd62056cc9af3782386aecffdb7b7f7d6b6bba333530"
+    },
+    "targets": [
+      {
+        "file_path": "src/prefilter.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "b17a8f8f3913b3ab5e139b25f6197158136a6f3c4c8e62ce23ac3eadcc124512"
+        },
+        "agent_summary": "Reviewed `src/prefilter.rs`, which implements Aho-Corasick prefilter builders and byte-scanning candidates using local `memchr`-based search heuristics. I found no concrete malicious or supply-chain indicators in this file: there are no install hooks, network or exfiltration code, credential access, dynamic code loading, obfuscation/packing, or persistence/environment-tampering behavior.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/packed/mod.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "32370306139bfca9a41209335b2abf88c832943c4bed62bdb0d00067d0194fc0"
+        },
+        "agent_summary": "Reviewed src/packed/mod.rs, which is a documentation-and-reexport module for the packed substring-search API. It contains no install hooks, network or exfiltration code, credential access, dynamic code loading, obfuscation, or persistence behavior.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "COPYING",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "6f51d81f1ebd8a3055ea860bf386d2bd413cc6ef6a66de0decb2302367f3ed8b"
+        },
+        "agent_summary": "Reviewed the `COPYING` file, which is a brief dual-license notice for the project under the Unlicense and MIT licenses. No concrete malicious or supply-chain indicators were present in this file: there were no install hooks, network/exfiltration behavior, credential access, dynamic code loading, obfuscation, or persistence logic to review.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": ".github/workflows/ci.yml",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "d2bcd3ce3c278757daa16236afdf55a93e4e014bdb7ffa075d023770c0841d37"
+        },
+        "agent_summary": "Reviewed the GitHub Actions workflow in .github/workflows/ci.yml. It defines CI jobs that check out the repo, install Rust, optionally install `cross` for cross-compilation, and run build/doc/test/formatting checks; I did not find concrete indicators of malicious behavior such as secret harvesting, exfiltration, hidden downloads beyond the expected tool installs, obfuscation, or persistence.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/packed/teddy/mod.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "4ea8d4ffae3d2043e6fdd993a82be179cbe63c855b103ff3a59701a3ef678bae"
+        },
+        "agent_summary": "Reviewed `src/packed/teddy/mod.rs`, which is a small architecture-gated module shim that re-exports `Builder`/`Teddy` and provides a non-x86_64 fallback with no-op methods. I checked for install-time execution, network or exfiltration behavior, credential access, dynamic code loading, obfuscation, and persistence in this file and found no concrete malicious or supply-chain indicators.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      }
+    ],
+    "reviewer_details": {
+      "public_user_id": "d7d85a95-49ea-818b-aa46-7dff97fe9263",
+      "agent_name": "codex",
+      "agent_model": "gpt-5.4-mini",
+      "agent_reasoning_effort": "medium",
+      "review_strategy": "package-release/v1",
+      "review_scope": "target_file_full",
+      "created_at": "1781395841",
+      "thirdpass_version": "0.5.0"
+    },
+    "agent_summary": "Reviewed `src/prefilter.rs`, which implements Aho-Corasick prefilter builders and byte-scanning candidates using local `memchr`-based search heuristics. I found no concrete malicious or supply-chain indicators in this file: there are no install hooks, network or exfiltration code, credential access, dynamic code loading, obfuscation/packing, or persistence/environment-tampering behavior.\nReviewed src/packed/mod.rs, which is a documentation-and-reexport module for the packed substring-search API. It contains no install hooks, network or exfiltration code, credential access, dynamic code loading, obfuscation, or persistence behavior.\nReviewed the `COPYING` file, which is a brief dual-license notice for the project under the Unlicense and MIT licenses. No concrete malicious or supply-chain indicators were present in this file: there were no install hooks, network/exfiltration behavior, credential access, dynamic code loading, obfuscation, or persistence logic to review.\nReviewed the GitHub Actions workflow in .github/workflows/ci.yml. It defines CI jobs that check out the repo, install Rust, optionally install `cross` for cross-compilation, and run build/doc/test/formatting checks; I did not find concrete indicators of malicious behavior such as secret harvesting, exfiltration, hidden downloads beyond the expected tool installs, obfuscation, or persistence.\nReviewed `src/packed/teddy/mod.rs`, which is a small architecture-gated module shim that re-exports `Builder`/`Teddy` and provides a non-x86_64 fallback with no-op methods. I checked for install-time execution, network or exfiltration behavior, credential access, dynamic code loading, obfuscation, and persistence in this file and found no concrete malicious or supply-chain indicators.",
+    "overall_security_summary": "none"
+  }
+}

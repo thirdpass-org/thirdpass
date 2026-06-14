@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "review": {
+    "package": {
+      "name": "aho-corasick",
+      "version": "0.7.20",
+      "registries": [
+        {
+          "host_name": "crates.io",
+          "human_url": "https://crates.io/crates/aho-corasick/0.7.20",
+          "artifact_url": "https://static.crates.io/crates/aho-corasick/aho-corasick-0.7.20.crate"
+        }
+      ],
+      "package_hash": "6c92792d3480aafab132fd62056cc9af3782386aecffdb7b7f7d6b6bba333530"
+    },
+    "targets": [
+      {
+        "file_path": "src/packed/tests.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "772b55ebd2c644e317bcf2928caf286f5b1e1b6950dee2eaad74593b3729692c"
+        },
+        "agent_summary": "Reviewed `src/packed/tests.rs`, which is a pure Rust test module defining packed-search test cases, configuration macros, and assertion helpers for `aho-corasick`. I found no concrete indicators of install-time execution, network/exfiltration, credential access, dynamic code loading, obfuscation, or persistence in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/packed/teddy/README.md",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "e3db3dd7ef81915af9e2ff4fc2d890d99ff05a7afb606e829fda4860dd057ff5"
+        },
+        "agent_summary": "Reviewed `src/packed/teddy/README.md`, which is a technical design note explaining the Teddy SIMD substring-matching algorithm, its mask/shuffle mechanics, verification flow, AVX/Fat Teddy variants, and academic references. I found no concrete malicious or supply-chain indicators in this file: there are no install hooks, subprocess launches, network or exfiltration paths, credential access, dynamic code loading, obfuscation, or persistence behavior.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "Cargo.toml.orig",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "7760d7db577b253b9e51ff19d7f76b572e5b49b81d9b35c4fe5583e98d65be08"
+        },
+        "agent_summary": "I reviewed the `Cargo.toml.orig` manifest for install-time hooks, build scripts, network/exfiltration behavior, credential access, dynamic code loading, obfuscation, and persistence mechanisms. The file is a standard crate manifest for `aho-corasick` and does not contain any concrete malicious or supply-chain indicators.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "LICENSE-MIT",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "fbeb393c6fa776ec263e6bc2ae2d73f8b226480523b718c8a6cd615bbb97b759"
+        },
+        "agent_summary": "Reviewed `LICENSE-MIT`, which contains a standard MIT license grant and warranty disclaimer. I checked for install hooks, network or exfiltration behavior, credential access, dynamic code loading, obfuscation, persistence, and other payload indicators; none are present in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/buffer.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "d168f6a090f255aacc13e820abd79c736bd3bf83c719479ec22b670bbe008939"
+        },
+        "agent_summary": "Reviewed `src/buffer.rs`, which is a small stream-search roll buffer that allocates a fixed `Vec<u8>`, fills it from an `io::Read`, and rolls the retained suffix forward with `ptr::copy`. I checked for install-time hooks, network/exfiltration, credential access, dynamic code loading, obfuscation, persistence, and other hidden execution paths; none were present in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      }
+    ],
+    "reviewer_details": {
+      "public_user_id": "d7d85a95-49ea-818b-aa46-7dff97fe9263",
+      "agent_name": "codex",
+      "agent_model": "gpt-5.4-mini",
+      "agent_reasoning_effort": "medium",
+      "review_strategy": "package-release/v1",
+      "review_scope": "target_file_full",
+      "created_at": "1781395904",
+      "thirdpass_version": "0.5.0"
+    },
+    "agent_summary": "Reviewed `src/packed/tests.rs`, which is a pure Rust test module defining packed-search test cases, configuration macros, and assertion helpers for `aho-corasick`. I found no concrete indicators of install-time execution, network/exfiltration, credential access, dynamic code loading, obfuscation, or persistence in this file.\nReviewed `src/packed/teddy/README.md`, which is a technical design note explaining the Teddy SIMD substring-matching algorithm, its mask/shuffle mechanics, verification flow, AVX/Fat Teddy variants, and academic references. I found no concrete malicious or supply-chain indicators in this file: there are no install hooks, subprocess launches, network or exfiltration paths, credential access, dynamic code loading, obfuscation, or persistence behavior.\nI reviewed the `Cargo.toml.orig` manifest for install-time hooks, build scripts, network/exfiltration behavior, credential access, dynamic code loading, obfuscation, and persistence mechanisms. The file is a standard crate manifest for `aho-corasick` and does not contain any concrete malicious or supply-chain indicators.\nReviewed `LICENSE-MIT`, which contains a standard MIT license grant and warranty disclaimer. I checked for install hooks, network or exfiltration behavior, credential access, dynamic code loading, obfuscation, persistence, and other payload indicators; none are present in this file.\nReviewed `src/buffer.rs`, which is a small stream-search roll buffer that allocates a fixed `Vec<u8>`, fills it from an `io::Read`, and rolls the retained suffix forward with `ptr::copy`. I checked for install-time hooks, network/exfiltration, credential access, dynamic code loading, obfuscation, persistence, and other hidden execution paths; none were present in this file.",
+    "overall_security_summary": "none"
+  }
+}

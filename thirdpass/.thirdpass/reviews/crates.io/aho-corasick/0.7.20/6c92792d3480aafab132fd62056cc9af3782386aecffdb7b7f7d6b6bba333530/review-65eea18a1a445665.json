@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "review": {
+    "package": {
+      "name": "aho-corasick",
+      "version": "0.7.20",
+      "registries": [
+        {
+          "host_name": "crates.io",
+          "human_url": "https://crates.io/crates/aho-corasick/0.7.20",
+          "artifact_url": "https://static.crates.io/crates/aho-corasick/aho-corasick-0.7.20.crate"
+        }
+      ],
+      "package_hash": "6c92792d3480aafab132fd62056cc9af3782386aecffdb7b7f7d6b6bba333530"
+    },
+    "targets": [
+      {
+        "file_path": "src/state_id.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "fe190b6483041adfcf7033953573ea96fcf54893e3320cf05cc76d56b5d2bd64"
+        },
+        "agent_summary": "Reviewed `src/state_id.rs`, which is a small numeric utility module defining state-ID conversion helpers and sealed trait implementations for integer types. I checked it for install hooks, network/exfiltration, credential access, dynamic code loading, obfuscation, persistence, and other hidden execution behavior, and found no concrete supply-chain or malicious indicators in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/ahocorasick.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "039aafba6407ad13554fa28514f9e4f4c6f24760af7cef1fe3d6c8f7a5aa2326"
+        },
+        "agent_summary": "Reviewed `src/ahocorasick.rs`, which implements the `AhoCorasick` search automaton, its iterators, stream replacement helpers, builder configuration, and match-kind enums. I checked for install-time execution, network or exfiltration behavior, credential access, dynamic code loading, obfuscation/packing, and persistence tampering; no concrete malicious or supply-chain indicators were found in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": ".gitignore",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "a54df22a7f770992f8cf346339cded43f3afac46b29921370035137a50dd5335"
+        },
+        "agent_summary": "Reviewed the target `.gitignore`, which is a standard ignore list for editor swap files, build artifacts, docs, test data, and scratch/output directories. I checked it for install hooks, network/exfiltration, credential access, dynamic code loading, obfuscation, and persistence behavior, and found no concrete malicious or supply-chain indicators in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": "src/classes.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "5626ad9318710a0c5bdd0d82ebbb79fb663e47fb5e60de361fedf68bc8722052"
+        },
+        "agent_summary": "Reviewed `src/classes.rs`, which implements byte equivalence-class bookkeeping and a small test module for the Aho-Corasick DFA/NFA construction path. I checked for install-time hooks, subprocess or network/exfiltration behavior, credential/secret access, dynamic code loading, obfuscation, persistence, and other hidden payload indicators; none were present in this file.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      }
+    ],
+    "reviewer_details": {
+      "public_user_id": "d7d85a95-49ea-818b-aa46-7dff97fe9263",
+      "agent_name": "codex",
+      "agent_model": "gpt-5.4-mini",
+      "agent_reasoning_effort": "medium",
+      "review_strategy": "package-release/v1",
+      "review_scope": "target_file_full",
+      "created_at": "1781396084",
+      "thirdpass_version": "0.5.0"
+    },
+    "agent_summary": "Reviewed `src/state_id.rs`, which is a small numeric utility module defining state-ID conversion helpers and sealed trait implementations for integer types. I checked it for install hooks, network/exfiltration, credential access, dynamic code loading, obfuscation, persistence, and other hidden execution behavior, and found no concrete supply-chain or malicious indicators in this file.\nReviewed `src/ahocorasick.rs`, which implements the `AhoCorasick` search automaton, its iterators, stream replacement helpers, builder configuration, and match-kind enums. I checked for install-time execution, network or exfiltration behavior, credential access, dynamic code loading, obfuscation/packing, and persistence tampering; no concrete malicious or supply-chain indicators were found in this file.\nReviewed the target `.gitignore`, which is a standard ignore list for editor swap files, build artifacts, docs, test data, and scratch/output directories. I checked it for install hooks, network/exfiltration, credential access, dynamic code loading, obfuscation, and persistence behavior, and found no concrete malicious or supply-chain indicators in this file.\nReviewed `src/classes.rs`, which implements byte equivalence-class bookkeeping and a small test module for the Aho-Corasick DFA/NFA construction path. I checked for install-time hooks, subprocess or network/exfiltration behavior, credential/secret access, dynamic code loading, obfuscation, persistence, and other hidden payload indicators; none were present in this file.",
+    "overall_security_summary": "none"
+  }
+}

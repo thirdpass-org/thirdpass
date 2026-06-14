@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "review": {
+    "package": {
+      "name": "aho-corasick",
+      "version": "0.7.20",
+      "registries": [
+        {
+          "host_name": "crates.io",
+          "human_url": "https://crates.io/crates/aho-corasick/0.7.20",
+          "artifact_url": "https://static.crates.io/crates/aho-corasick/aho-corasick-0.7.20.crate"
+        }
+      ],
+      "package_hash": "6c92792d3480aafab132fd62056cc9af3782386aecffdb7b7f7d6b6bba333530"
+    },
+    "targets": [
+      {
+        "file_path": "src/tests.rs",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "e589f934eb4c5aa0f4a83a2957a9b2514ba888474af4028148eb39e7437a3b05"
+        },
+        "agent_summary": "`src/tests.rs` is a large Rust test module for Aho-Corasick search semantics, covering standard, anchored, overlapping, leftmost, ASCII case-insensitive, and regression cases. I checked it for install hooks, subprocesses, network/exfiltration, credential access, dynamic code loading, obfuscation, persistence, and hidden payload execution, and found no concrete malicious or supply-chain indicators.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      },
+      {
+        "file_path": ".cargo_vcs_info.json",
+        "file_hash": {
+          "algorithm": "blake3",
+          "value": "6e608e928d280be2ab77cac45bb0ab0272e5af955180b0916967d09882084bf6"
+        },
+        "agent_summary": "Reviewed the target metadata file `.cargo_vcs_info.json`, which only records the crate's VCS git SHA1 and an empty `path_in_vcs` field. I checked it for signs of install hooks, network/exfiltration, credential access, dynamic code loading, obfuscation, persistence, or other hidden execution behavior and found no concrete malicious or supply-chain indicators.",
+        "security_summary": "none",
+        "confidence": "high",
+        "comments": []
+      }
+    ],
+    "reviewer_details": {
+      "public_user_id": "d7d85a95-49ea-818b-aa46-7dff97fe9263",
+      "agent_name": "codex",
+      "agent_model": "gpt-5.4-mini",
+      "agent_reasoning_effort": "medium",
+      "review_strategy": "package-release/v1",
+      "review_scope": "target_file_full",
+      "created_at": "1781395965",
+      "thirdpass_version": "0.5.0"
+    },
+    "agent_summary": "`src/tests.rs` is a large Rust test module for Aho-Corasick search semantics, covering standard, anchored, overlapping, leftmost, ASCII case-insensitive, and regression cases. I checked it for install hooks, subprocesses, network/exfiltration, credential access, dynamic code loading, obfuscation, persistence, and hidden payload execution, and found no concrete malicious or supply-chain indicators.\nReviewed the target metadata file `.cargo_vcs_info.json`, which only records the crate's VCS git SHA1 and an empty `path_in_vcs` field. I checked it for signs of install hooks, network/exfiltration, credential access, dynamic code loading, obfuscation, persistence, or other hidden execution behavior and found no concrete malicious or supply-chain indicators.",
+    "overall_security_summary": "none"
+  }
+}
