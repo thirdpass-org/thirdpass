@@ -105,14 +105,14 @@ pub(crate) struct DependencyProjectReviewSummary {
     pub(crate) matching_reviews: usize,
     /// Files skipped because committed project reviews already cover them.
     pub(crate) covered_files: usize,
-    /// Committed project reviews for current packages that no longer match.
-    pub(crate) stale_reviews: usize,
+    /// Committed project reviews for current packages that do not match.
+    pub(crate) mismatched_reviews: usize,
 }
 
 impl DependencyProjectReviewSummary {
     /// Return true when there is nothing useful to report.
     pub(crate) fn is_empty(&self) -> bool {
-        self.matching_reviews == 0 && self.covered_files == 0 && self.stale_reviews == 0
+        self.matching_reviews == 0 && self.covered_files == 0 && self.mismatched_reviews == 0
     }
 }
 
@@ -483,7 +483,7 @@ fn project_review_summary(
             package,
         );
         summary.matching_reviews += matches.reviews.len();
-        summary.stale_reviews += matches
+        summary.mismatched_reviews += matches
             .candidate_count
             .saturating_sub(matches.reviews.len());
     }

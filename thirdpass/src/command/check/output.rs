@@ -56,20 +56,23 @@ fn print_plain(groups: &[DependencyGroup]) {
         } else {
             println!("registry={registry}", registry = group.registry_host_name);
         }
-        println!("summary\tname\tversion\treviews\tnotes");
+        println!("summary\tname\tversion\treviews\tcommitted\tnotes");
         for dependency in &group.dependencies {
             let version = dependency.version.as_deref().unwrap_or("");
             let review_count = dependency
                 .review_count
                 .map(|count| count.to_string())
                 .unwrap_or_default();
+            let committed_reviews =
+                table::committed_review_cell(dependency.committed_reviews.as_ref());
             let note = dependency.note.as_deref().unwrap_or("");
             println!(
-                "{summary}\t{name}\t{version}\t{review_count}\t{note}",
+                "{summary}\t{name}\t{version}\t{review_count}\t{committed_reviews}\t{note}",
                 summary = &dependency.summary,
                 name = dependency.name.as_str(),
                 version = version,
                 review_count = review_count,
+                committed_reviews = committed_reviews,
                 note = note
             );
         }

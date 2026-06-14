@@ -145,21 +145,27 @@ mod tests {
         assert_eq!(group.dependencies.len(), 1);
         assert_eq!(group.dependencies[0].review_count, Some(1));
         assert_eq!(
-            group.dependencies[0].note.as_deref(),
-            Some("project reviews (1)")
+            group.dependencies[0].committed_reviews,
+            Some(report::CommittedReviewReport {
+                matching_count: 1,
+                mismatch_count: 0,
+                covered_file_count: 2,
+                total_file_count: 2,
+            })
         );
+        assert_eq!(group.dependencies[0].note, None);
         Ok(())
     }
 
     #[test]
-    fn check_reports_stale_committed_project_reviews() -> Result<()> {
+    fn check_reports_mismatched_committed_project_reviews() -> Result<()> {
         let _lock = common::TEST_ENV_LOCK
             .lock()
             .expect("test env lock poisoned");
         let fixture = DependencyReviewFixture::new("thirdpass-check-project-reviews-")?;
         let _env = fixture.enter_client_environment();
         fixture.prepare_cached_workspace()?;
-        fixture.write_project_review_with_package_hash("stale-package-hash")?;
+        fixture.write_project_review_with_package_hash("mismatched-package-hash")?;
         let project_reviews = review::project::list_dependency_reviews(fixture.project_root())?;
         let server = EmptyReviewServer::start()?;
         let mut config = common::config::Config::default();
@@ -180,8 +186,17 @@ mod tests {
         assert_eq!(group.dependencies.len(), 1);
         assert_eq!(group.dependencies[0].review_count, Some(0));
         assert_eq!(
+            group.dependencies[0].committed_reviews,
+            Some(report::CommittedReviewReport {
+                matching_count: 0,
+                mismatch_count: 1,
+                covered_file_count: 0,
+                total_file_count: 2,
+            })
+        );
+        assert_eq!(
             group.dependencies[0].note.as_deref(),
-            Some("project reviews stale")
+            Some("committed review mismatch (1)")
         );
         Ok(())
     }

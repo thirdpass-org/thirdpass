@@ -9,7 +9,17 @@ pub struct DependencyReport {
     pub name: String,
     pub version: Option<String>,
     pub review_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committed_reviews: Option<CommittedReviewReport>,
     pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, serde::Serialize)]
+pub struct CommittedReviewReport {
+    pub matching_count: usize,
+    pub mismatch_count: usize,
+    pub covered_file_count: usize,
+    pub total_file_count: usize,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -17,8 +27,7 @@ enum DependencyNote {
     VersionResolutionFailed(String),
     SyncFailed,
     ProjectReviewValidationFailed,
-    ProjectReviewsStale,
-    ProjectReviews { count: usize },
+    ProjectReviewMismatch { count: usize },
     CriticalFindings { count: i32 },
     MediumFindings { count: i32 },
 }
@@ -29,8 +38,9 @@ impl DependencyNote {
             Self::VersionResolutionFailed(error) => error,
             Self::SyncFailed => "sync failed; using local cache".to_string(),
             Self::ProjectReviewValidationFailed => "project review validation failed".to_string(),
-            Self::ProjectReviewsStale => "project reviews stale".to_string(),
-            Self::ProjectReviews { count } => format!("project reviews ({count})"),
+            Self::ProjectReviewMismatch { count } => {
+                format!("committed review mismatch ({count})")
+            }
             Self::CriticalFindings { count } => format!("critical ({count})"),
             Self::MediumFindings { count } => format!("medium ({count})"),
         }
@@ -62,6 +72,7 @@ pub fn get_dependency_report(
                 name: dependency.name.clone(),
                 version: None,
                 review_count: None,
+                committed_reviews: None,
                 note: render_notes(Some(DependencyNote::VersionResolutionFailed(
                     error.to_string(),
                 ))),
@@ -95,16 +106,17 @@ pub fn get_dependency_report(
         &dependency.name,
         &package_version,
     );
-    match matching_project_reviews(
+    let committed_reviews = match committed_project_reviews(
         report_context,
         registry_host_name,
         &dependency.name,
         &package_version,
     ) {
-        Ok(project_reviews) => {
-            context_notes.extend(project_review_note(&project_reviews));
-            reviews.extend(project_reviews.reviews);
+        Ok(committed) => {
+            context_notes.extend(committed_review_note(&committed.report));
+            reviews.extend(committed.matching_reviews);
             reviews = deduplicate_reviews(reviews);
+            Some(committed.report)
         }
         Err(err) => {
             log::warn!(
@@ -115,8 +127,9 @@ pub fn get_dependency_report(
                 error = err
             );
             context_notes.push(DependencyNote::ProjectReviewValidationFailed);
+            None
         }
-    }
+    };
 
     if reviews.is_empty() {
         // Report no reviews found for dependency.
@@ -125,6 +138,7 @@ pub fn get_dependency_report(
             name: dependency.name.clone(),
             version: Some(package_version.clone()),
             review_count: Some(0),
+            committed_reviews,
             note: render_notes(context_notes),
         });
     }
@@ -139,6 +153,7 @@ pub fn get_dependency_report(
         name: dependency.name.clone(),
         version: Some(package_version.clone()),
         review_count: Some(reviews.len()),
+        committed_reviews,
         note: render_notes(notes),
     })
 }
@@ -159,24 +174,23 @@ fn pull_latest_reviews(
     review::remote::store_records_with_reviews(records, config)
 }
 
-fn matching_project_reviews(
+struct CommittedProjectReviews {
+    report: CommittedReviewReport,
+    matching_reviews: Vec<review::Review>,
+}
+
+fn committed_project_reviews(
     context: &DependencyReportContext,
     registry_host_name: &str,
     package_name: &str,
     package_version: &str,
-) -> Result<review::project::ProjectReviewMatches> {
+) -> Result<CommittedProjectReviews> {
     let candidates = review::project::reviews_for_package(
         context.project_reviews,
         registry_host_name,
         package_name,
         package_version,
     );
-    if candidates.is_empty() {
-        return Ok(review::project::ProjectReviewMatches {
-            candidate_count: 0,
-            reviews: Vec::new(),
-        });
-    }
     let candidate_count = candidates.len();
 
     let package = review::dependency_plan::DependencyReviewPackage {
@@ -196,18 +210,52 @@ fn matching_project_reviews(
         &current,
     );
     matches.candidate_count = candidate_count;
-    Ok(matches)
+    let report = committed_review_report(&current, &matches);
+    Ok(CommittedProjectReviews {
+        report,
+        matching_reviews: matches.reviews,
+    })
 }
 
-fn project_review_note(matches: &review::project::ProjectReviewMatches) -> Option<DependencyNote> {
-    if matches.candidate_count == 0 {
-        None
-    } else if matches.reviews.is_empty() {
-        Some(DependencyNote::ProjectReviewsStale)
-    } else {
-        Some(DependencyNote::ProjectReviews {
-            count: matches.reviews.len(),
+fn committed_review_report(
+    current: &review::dependency_plan::DependencyReviewPackageRecord,
+    matches: &review::project::ProjectReviewMatches,
+) -> CommittedReviewReport {
+    let package_key = review::project::package_key_from_record(current);
+    let coverage = review::project::coverage_for_reviews(&matches.reviews);
+    let covered_files = coverage.get(&package_key);
+    let current_files = current
+        .batches
+        .iter()
+        .flat_map(|batch| &batch.files)
+        .map(review::project::file_key_from_plan_file)
+        .collect::<BTreeSet<_>>();
+    let covered_file_count = current_files
+        .iter()
+        .filter(|file| {
+            covered_files
+                .map(|covered_files| covered_files.contains(file))
+                .unwrap_or(false)
         })
+        .count();
+
+    CommittedReviewReport {
+        matching_count: matches.reviews.len(),
+        mismatch_count: matches
+            .candidate_count
+            .saturating_sub(matches.reviews.len()),
+        covered_file_count,
+        total_file_count: current_files.len(),
+    }
+}
+
+fn committed_review_note(report: &CommittedReviewReport) -> Option<DependencyNote> {
+    if report.mismatch_count > 0 {
+        Some(DependencyNote::ProjectReviewMismatch {
+            count: report.mismatch_count,
+        })
+    } else {
+        None
     }
 }
 
@@ -331,41 +379,94 @@ mod tests {
     }
 
     #[test]
-    fn project_review_note_reports_matching_and_stale_reviews() -> Result<()> {
+    fn committed_review_report_counts_matching_mismatched_and_covered_files() -> Result<()> {
+        let current = package_record(
+            "package-hash",
+            &[("src/lib.rs", "file-hash"), ("README.md", "readme-hash")],
+        );
         assert_eq!(
-            project_review_note(&review::project::ProjectReviewMatches {
-                candidate_count: 0,
-                reviews: Vec::new(),
+            committed_review_report(
+                &current,
+                &review::project::ProjectReviewMatches {
+                    candidate_count: 2,
+                    reviews: vec![stored_review(
+                        "package-hash",
+                        &[("src/lib.rs", "file-hash")]
+                    )?],
+                },
+            ),
+            CommittedReviewReport {
+                matching_count: 1,
+                mismatch_count: 1,
+                covered_file_count: 1,
+                total_file_count: 2,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn committed_review_note_reports_mismatches_only() -> Result<()> {
+        assert_eq!(
+            committed_review_note(&CommittedReviewReport {
+                matching_count: 0,
+                mismatch_count: 0,
+                covered_file_count: 0,
+                total_file_count: 2,
             }),
             None
         );
         assert_eq!(
-            project_review_note(&review::project::ProjectReviewMatches {
-                candidate_count: 1,
-                reviews: Vec::new(),
+            committed_review_note(&CommittedReviewReport {
+                matching_count: 1,
+                mismatch_count: 0,
+                covered_file_count: 1,
+                total_file_count: 2,
             }),
-            Some(DependencyNote::ProjectReviewsStale)
+            None
         );
         assert_eq!(
-            project_review_note(&review::project::ProjectReviewMatches {
-                candidate_count: 2,
-                reviews: vec![stored_review(
-                    "package-hash",
-                    &[("src/lib.rs", "file-hash")]
-                )?],
+            committed_review_note(&CommittedReviewReport {
+                matching_count: 0,
+                mismatch_count: 1,
+                covered_file_count: 0,
+                total_file_count: 2,
             }),
-            Some(DependencyNote::ProjectReviews { count: 1 })
+            Some(DependencyNote::ProjectReviewMismatch { count: 1 })
         );
         assert_eq!(
-            render_notes(project_review_note(
-                &review::project::ProjectReviewMatches {
-                    candidate_count: 1,
-                    reviews: Vec::new(),
-                }
-            )),
-            Some("project reviews stale".to_string())
+            render_notes(committed_review_note(&CommittedReviewReport {
+                matching_count: 0,
+                mismatch_count: 1,
+                covered_file_count: 0,
+                total_file_count: 2,
+            })),
+            Some("committed review mismatch (1)".to_string())
         );
         Ok(())
+    }
+
+    #[test]
+    fn committed_review_report_counts_missing_committed_reviews() {
+        let current = package_record(
+            "package-hash",
+            &[("src/lib.rs", "file-hash"), ("README.md", "readme-hash")],
+        );
+        assert_eq!(
+            committed_review_report(
+                &current,
+                &review::project::ProjectReviewMatches {
+                    candidate_count: 0,
+                    reviews: Vec::new(),
+                },
+            ),
+            CommittedReviewReport {
+                matching_count: 0,
+                mismatch_count: 0,
+                covered_file_count: 0,
+                total_file_count: 2,
+            }
+        );
     }
 
     fn package_record(

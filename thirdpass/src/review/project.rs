@@ -102,7 +102,7 @@ pub(crate) struct ProjectReviewFileKey {
 pub(crate) type ProjectReviewCoverage =
     BTreeMap<ProjectReviewPackageKey, BTreeSet<ProjectReviewFileKey>>;
 
-/// Project reviews split into matching and stale candidates for one package.
+/// Project reviews split into matching and mismatched candidates for one package.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct ProjectReviewMatches {
     /// Project reviews with matching registry, package name, and version.

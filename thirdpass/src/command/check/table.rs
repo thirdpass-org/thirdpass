@@ -13,6 +13,7 @@ fn get_row(dependency_report: &report::DependencyReport) -> prettytable::Row {
         Some(v) => v.to_string(),
         None => "".to_string(),
     };
+    let committed_reviews = committed_review_cell(dependency_report.committed_reviews.as_ref());
     let note = get_note_cell(dependency_report);
     prettytable::Row::new(vec![
         summary,
@@ -22,6 +23,7 @@ fn get_row(dependency_report: &report::DependencyReport) -> prettytable::Row {
         ),
         prettytable::Cell::new_align(package_version, prettytable::format::Alignment::RIGHT),
         prettytable::Cell::new_align(&review_count, prettytable::format::Alignment::RIGHT),
+        prettytable::Cell::new_align(&committed_reviews, prettytable::format::Alignment::RIGHT),
         note,
     ])
 }
@@ -32,7 +34,9 @@ pub fn get(
     first_row_separate: bool,
 ) -> Result<prettytable::Table> {
     let mut table = prettytable::Table::new();
-    table.set_titles(prettytable::row![c => "  ", "name", "version", "reviews", "notes"]);
+    table.set_titles(
+        prettytable::row![c => "  ", "name", "version", "reviews", "committed", "notes"],
+    );
     table.set_format(*prettytable::format::consts::FORMAT_NO_BORDER_LINE_SEPARATOR);
 
     let mut dependency_reports_iter = dependency_reports.iter();
@@ -40,7 +44,7 @@ pub fn get(
         if let Some(dependency_report) = dependency_reports_iter.next() {
             let row = get_row(dependency_report);
             table.add_row(row);
-            table.add_row(prettytable::row![c => "  ", "", "", "", ""]);
+            table.add_row(prettytable::row![c => "  ", "", "", "", "", ""]);
         }
     }
 
@@ -49,6 +53,33 @@ pub fn get(
         table.add_row(row);
     }
     Ok(table)
+}
+
+pub fn committed_review_cell(report: Option<&report::CommittedReviewReport>) -> String {
+    let Some(report) = report else {
+        return String::new();
+    };
+
+    let mut cell = format!(
+        "{}/{} files",
+        report.covered_file_count, report.total_file_count
+    );
+    if report.mismatch_count > 0 {
+        cell.push_str(&format!(
+            ", {} {}",
+            report.mismatch_count,
+            plural(report.mismatch_count, "mismatch", "mismatches")
+        ));
+    }
+    cell
+}
+
+fn plural<'a>(count: usize, singular: &'a str, plural: &'a str) -> &'a str {
+    if count == 1 {
+        singular
+    } else {
+        plural
+    }
 }
 
 fn get_note_cell(dependency_report: &report::DependencyReport) -> prettytable::Cell {
@@ -93,5 +124,33 @@ fn security_summary_cell(summary: review::SecuritySummary) -> prettytable::Cell 
             ))
     } else {
         prettytable::Cell::new_align(label, prettytable::format::Alignment::CENTER)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn committed_review_cell_reports_file_coverage_and_mismatches() {
+        assert_eq!(committed_review_cell(None), "");
+        assert_eq!(
+            committed_review_cell(Some(&report::CommittedReviewReport {
+                matching_count: 1,
+                mismatch_count: 0,
+                covered_file_count: 2,
+                total_file_count: 5,
+            })),
+            "2/5 files"
+        );
+        assert_eq!(
+            committed_review_cell(Some(&report::CommittedReviewReport {
+                matching_count: 1,
+                mismatch_count: 2,
+                covered_file_count: 2,
+                total_file_count: 5,
+            })),
+            "2/5 files, 2 mismatches"
+        );
     }
 }

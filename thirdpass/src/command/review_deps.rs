@@ -363,11 +363,11 @@ fn project_review_summary_lines(
             plural(summary.covered_files, "file", "files")
         ));
     }
-    if summary.stale_reviews > 0 {
+    if summary.mismatched_reviews > 0 {
         lines.push(format!(
-            "{} committed project {} stale.",
-            summary.stale_reviews,
-            plural(summary.stale_reviews, "review is", "reviews are")
+            "{} committed project review {}.",
+            summary.mismatched_reviews,
+            plural(summary.mismatched_reviews, "mismatch", "mismatches")
         ));
     }
     lines
@@ -968,14 +968,14 @@ mod tests {
     }
 
     #[test]
-    fn review_deps_reports_stale_committed_project_reviews() -> Result<()> {
+    fn review_deps_reports_mismatched_committed_project_reviews() -> Result<()> {
         let _lock = common::TEST_ENV_LOCK
             .lock()
             .expect("test env lock poisoned");
-        let fixture = DependencyReviewFixture::new("thirdpass-review-deps-stale-")?;
+        let fixture = DependencyReviewFixture::new("thirdpass-review-deps-mismatch-")?;
         let _env = fixture.enter_client_environment();
         fixture.prepare_cached_workspace()?;
-        fixture.write_project_review_with_package_hash("stale-package-hash")?;
+        fixture.write_project_review_with_package_hash("mismatched-package-hash")?;
 
         let mut plan = review::dependency_plan::plan_for_project(
             fixture.project_root(),
@@ -998,17 +998,17 @@ mod tests {
             review::dependency_plan::DependencyProjectReviewSummary {
                 matching_reviews: 0,
                 covered_files: 0,
-                stale_reviews: 1,
+                mismatched_reviews: 1,
             }
         );
         assert_eq!(
             project_review_summary_lines(&summary),
-            vec!["1 committed project review is stale.".to_string()]
+            vec!["1 committed project review mismatch.".to_string()]
         );
 
         let selection = plan
             .select_next_review("current-user")?
-            .expect("stale review should not cover the package");
+            .expect("mismatched review should not cover the package");
         let mut target_files = selection.target_files;
         target_files.sort();
         assert_eq!(
@@ -1024,7 +1024,7 @@ mod tests {
             &review::dependency_plan::DependencyProjectReviewSummary {
                 matching_reviews: 2,
                 covered_files: 1,
-                stale_reviews: 3,
+                mismatched_reviews: 3,
             },
         );
 
@@ -1033,7 +1033,7 @@ mod tests {
             vec![
                 "Using 2 committed project reviews.".to_string(),
                 "Skipping 1 file already covered by committed reviews.".to_string(),
-                "3 committed project reviews are stale.".to_string(),
+                "3 committed project review mismatches.".to_string(),
             ]
         );
     }
