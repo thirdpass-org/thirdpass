@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{format_err, Result};
 use structopt::{self, StructOpt};
 
 mod check;
@@ -9,7 +9,41 @@ mod review_any;
 mod review_deps;
 mod setup;
 
+/// Environment variable that enables debug-only CLI surfaces.
+pub(crate) const DEBUG_CLI_ENV_VAR: &str = "THIRDPASS_DEBUG_CLI";
+
+/// Return true when debug-only CLI surfaces should be available.
+pub(crate) fn debug_cli_enabled() -> bool {
+    std::env::var(DEBUG_CLI_ENV_VAR)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// Return true when debug-only CLI options should stay hidden from help.
+pub(crate) fn debug_cli_hidden() -> bool {
+    !debug_cli_enabled()
+}
+
+/// Reject use of a debug-only CLI surface unless explicitly enabled.
+pub(crate) fn require_debug_cli(feature_name: &str) -> Result<()> {
+    if debug_cli_enabled() {
+        Ok(())
+    } else {
+        Err(format_err!(
+            "{} requires {}=1.",
+            feature_name,
+            DEBUG_CLI_ENV_VAR
+        ))
+    }
+}
+
 pub fn run_command(command: Command, extension_args: &[String]) -> Result<()> {
+    validate_debug_cli_usage(&command)?;
     setup::ensure()?;
     match command {
         Command::Review(args) => {
@@ -35,6 +69,15 @@ pub fn run_command(command: Command, extension_args: &[String]) -> Result<()> {
         Command::Extension(args) => {
             log::info!("Running command: extension");
             extension::run_subcommand(&args)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_debug_cli_usage(command: &Command) -> Result<()> {
+    if let Command::Review(args) = command {
+        if args.plan_only {
+            require_debug_cli("--plan-only")?;
         }
     }
     Ok(())
@@ -100,6 +143,31 @@ mod tests {
             assert!(
                 !help.contains("--manual"),
                 "manual review flag should stay hidden from CLI help:\n{}",
+                help
+            );
+        }
+    }
+
+    #[test]
+    fn cli_help_shows_plan_only_only_with_debug_cli_enabled() {
+        let _lock = crate::common::TEST_ENV_LOCK
+            .lock()
+            .expect("test env lock poisoned");
+        {
+            let _env = crate::test_support::ScopedEnv::remove_var(DEBUG_CLI_ENV_VAR);
+            let help = long_help_for::<review::Arguments>();
+            assert!(
+                !help.contains("--plan-only"),
+                "plan-only should stay hidden without debug CLI env:\n{}",
+                help
+            );
+        }
+        {
+            let _env = crate::test_support::ScopedEnv::set_var(DEBUG_CLI_ENV_VAR, "1");
+            let help = long_help_for::<review::Arguments>();
+            assert!(
+                help.contains("--plan-only"),
+                "plan-only should be visible with debug CLI env:\n{}",
                 help
             );
         }
@@ -200,6 +268,33 @@ mod tests {
                 assert_eq!(args.package_name, "axum");
                 assert_eq!(args.package_version.as_deref(), Some("0.8.9"));
                 assert!(args.deps);
+                assert!(!args.plan_only);
+            }
+            _ => panic!("Expected review command."),
+        }
+    }
+
+    #[test]
+    fn cli_parses_review_deps_plan_only_flag() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&[
+                "thirdpass",
+                "review",
+                "axum",
+                "0.8.9",
+                "--deps",
+                "--plan-only",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::Review(args) => {
+                assert_eq!(args.package_name, "axum");
+                assert_eq!(args.package_version.as_deref(), Some("0.8.9"));
+                assert!(args.deps);
+                assert!(args.plan_only);
             }
             _ => panic!("Expected review command."),
         }

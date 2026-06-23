@@ -122,6 +122,7 @@ fn run_assigned_target(
             extension_names: Some(vec![extension_name]),
             target_files,
             deps: false,
+            plan_only: false,
             manual: args.manual,
             agent: args.agent.clone(),
             agent_model: args.agent_model.clone(),

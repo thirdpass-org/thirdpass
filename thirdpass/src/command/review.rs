@@ -44,6 +44,10 @@ pub struct Arguments {
     #[structopt(long = "deps")]
     pub deps: bool,
 
+    /// Resolve and prepare the dependency review plan without running reviews.
+    #[structopt(long = "plan-only", hidden = crate::command::debug_cli_hidden())]
+    pub plan_only: bool,
+
     /// Run manual review in VS Code instead of an automated agent review.
     #[structopt(long = "manual", hidden = true)]
     pub manual: bool,
@@ -132,6 +136,13 @@ pub(crate) struct ReviewCommandResult {
 }
 
 pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
+    if args.plan_only {
+        crate::command::require_debug_cli("--plan-only")?;
+        if !args.deps {
+            return Err(format_err!("--plan-only requires --deps."));
+        }
+    }
+
     if args.deps {
         if !args.target_files.is_empty() {
             return Err(format_err!("--deps cannot be combined with --file."));
@@ -165,6 +176,9 @@ pub(crate) fn run_command_with_result(
         return Err(format_err!(
             "--deps can only be used through the review command entry point."
         ));
+    }
+    if args.plan_only {
+        return Err(format_err!("--plan-only requires --deps."));
     }
     if args.submit_existing && args.local_only {
         return Err(format_err!(
@@ -1136,6 +1150,38 @@ mod tests {
     }
 
     #[test]
+    fn plan_only_requires_debug_cli_env() {
+        let _lock = crate::common::TEST_ENV_LOCK
+            .lock()
+            .expect("test env lock poisoned");
+        let _env = crate::test_support::ScopedEnv::remove_var(crate::command::DEBUG_CLI_ENV_VAR);
+        let mut args = review_args("axum", Some("0.8.9"));
+        args.deps = true;
+        args.plan_only = true;
+
+        let error = run_command(&args, &[]).expect_err("expected --plan-only to require debug CLI");
+
+        assert_eq!(
+            error.to_string(),
+            "--plan-only requires THIRDPASS_DEBUG_CLI=1."
+        );
+    }
+
+    #[test]
+    fn plan_only_requires_deps() {
+        let _lock = crate::common::TEST_ENV_LOCK
+            .lock()
+            .expect("test env lock poisoned");
+        let _env = crate::test_support::ScopedEnv::set_var(crate::command::DEBUG_CLI_ENV_VAR, "1");
+        let mut args = review_args("axum", Some("0.8.9"));
+        args.plan_only = true;
+
+        let error = run_command(&args, &[]).expect_err("expected --plan-only to require --deps");
+
+        assert_eq!(error.to_string(), "--plan-only requires --deps.");
+    }
+
+    #[test]
     fn validate_agent_comments_accepts_target_relative_path() -> Result<()> {
         let comments = validate_agent_comments_for_target(
             [agent_comment("src/index.js")],
@@ -1255,6 +1301,7 @@ mod tests {
             extension_names: None,
             target_files: Vec::new(),
             deps: false,
+            plan_only: false,
             manual: false,
             agent: None,
             agent_model: None,

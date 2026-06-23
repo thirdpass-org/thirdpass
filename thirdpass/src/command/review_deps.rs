@@ -78,9 +78,13 @@ pub(crate) fn run_package_command(
     args: &crate::command::review::Arguments,
     extension_args: &[String],
 ) -> Result<()> {
+    if args.plan_only {
+        crate::command::require_debug_cli("--plan-only")?;
+    }
+
     let mut config = common::config::Config::load()?;
     extension::manage::update_config(&mut config)?;
-    let submitter = if args.local_only {
+    let submitter = if args.local_only || args.plan_only {
         None
     } else {
         Some(review::submission::Submitter::start()?)
@@ -133,6 +137,10 @@ fn run_package_command_with_runner(
         agent_reasoning_effort: args.agent_reasoning_effort.clone(),
         local_only: args.local_only,
     };
+
+    if args.plan_only {
+        return run_discovered_dependency_review_plan(extensions, working_directory, discovery);
+    }
 
     run_discovered_dependency_reviews_with_runner(
         &dependency_args,
@@ -266,6 +274,33 @@ fn run_discovered_dependency_reviews(
     )
 }
 
+fn run_discovered_dependency_review_plan(
+    extensions: &[Box<dyn thirdpass_core::extension::Extension>],
+    working_directory: &std::path::Path,
+    discovery: DependencyReviewDiscovery,
+) -> Result<()> {
+    let review_packages = discovery
+        .candidates
+        .iter()
+        .map(DependencyReviewCandidate::review_package)
+        .collect::<Vec<_>>();
+    println!(
+        "Preparing dependency review plan for {} dependencies.",
+        review_packages.len()
+    );
+    let mut plan = review::dependency_plan::plan_for_project(
+        working_directory,
+        &discovery.dependency_files,
+        &review_packages,
+    )?;
+    print_plan_summary(&plan);
+
+    while prepare_next_dependency(&mut plan, extensions)?.is_some() {}
+
+    print_plan_only_summary(&plan);
+    Ok(())
+}
+
 fn run_discovered_dependency_reviews_with_runner(
     args: &Arguments,
     extensions: &[Box<dyn thirdpass_core::extension::Extension>],
@@ -339,6 +374,7 @@ fn run_discovered_dependency_reviews_with_runner(
                 extension_names: Some(vec![selection.extension_name]),
                 target_files: selection.target_files,
                 deps: false,
+                plan_only: false,
                 manual: args.manual,
                 agent: args.agent.clone(),
                 agent_model: args.agent_model.clone(),
@@ -355,6 +391,35 @@ fn run_discovered_dependency_reviews_with_runner(
         session.record(&result.outcome);
         session.track_submission(result.submission);
         print_review_deps_progress(&plan, &session);
+    }
+}
+
+fn print_plan_only_summary(plan: &review::dependency_plan::DependencyReviewPlan) {
+    let file_count = plan
+        .packages
+        .iter()
+        .flat_map(|package| &package.batches)
+        .flat_map(|batch| &batch.files)
+        .count();
+
+    println!();
+    println!("Dependency review plan prepared.");
+    println!("Prepared dependencies: {}.", plan.packages.len());
+    println!("Skipped dependencies: {}.", plan.skipped_packages.len());
+    println!("Review batches: {}.", plan.batch_count());
+    println!("Review files: {}.", file_count);
+
+    if !plan.skipped_packages.is_empty() {
+        println!("Skipped dependency details:");
+        for skipped in &plan.skipped_packages {
+            println!(
+                "- {}@{} ({}): {}",
+                skipped.package_name,
+                skipped.package_version,
+                skipped.registry_host,
+                skipped.reason
+            );
+        }
     }
 }
 
@@ -1018,6 +1083,56 @@ mod tests {
     }
 
     #[test]
+    fn review_deps_package_plan_only_does_not_run_reviews() -> Result<()> {
+        let _lock = common::TEST_ENV_LOCK
+            .lock()
+            .expect("test env lock poisoned");
+        let _debug_env =
+            crate::test_support::ScopedEnv::set_var(crate::command::DEBUG_CLI_ENV_VAR, "1");
+        let case = PackageDependencyCliCase {
+            extension_name: "py",
+            registry_host_name: "pypi.org",
+            package_name: "sample-package",
+            package_version: "1.2.3",
+            dependency_name: "sample-dependency",
+            dependency_version: "0.4.5",
+        };
+        let fixture = DependencyReviewFixture::new("thirdpass-review-deps-plan-only-")?;
+        let _env = fixture.enter_client_environment();
+        prepare_cached_package_workspace(
+            case.registry_host_name,
+            case.package_name,
+            case.package_version,
+        )?;
+        prepare_cached_package_workspace(
+            case.registry_host_name,
+            case.dependency_name,
+            case.dependency_version,
+        )?;
+
+        let args = parse_package_review_deps_args(case, true);
+        let mut config = common::config::Config::default();
+        config.core.public_user_id = "current-user".to_string();
+        let extensions: Vec<Box<dyn thirdpass_core::extension::Extension>> =
+            vec![Box::new(PackageDependencyExtension { case })];
+        let runner = RecordingPackageCommandRunner::new(case);
+
+        run_package_command_with_runner(
+            &args,
+            &[],
+            &extensions,
+            fixture.project_root(),
+            &config,
+            None,
+            &runner,
+        )?;
+
+        assert!(runner.calls().is_empty());
+        assert!(review::project::list_dependency_reviews(fixture.project_root())?.is_empty());
+        Ok(())
+    }
+
+    #[test]
     fn review_deps_reports_mismatched_committed_project_reviews() -> Result<()> {
         let _lock = common::TEST_ENV_LOCK
             .lock()
@@ -1202,8 +1317,9 @@ mod tests {
             case.dependency_version,
         )?;
 
-        let args = parse_package_review_deps_args(case);
+        let args = parse_package_review_deps_args(case, false);
         assert!(args.deps);
+        assert!(!args.plan_only);
         let extension_names = args
             .extension_names
             .as_ref()
@@ -1242,19 +1358,23 @@ mod tests {
 
     fn parse_package_review_deps_args(
         case: PackageDependencyCliCase,
+        plan_only: bool,
     ) -> crate::command::review::Arguments {
-        let parsed = std::panic::catch_unwind(|| {
-            crate::command::Opts::from_iter_safe(&[
-                "thirdpass",
-                "review",
-                case.package_name,
-                case.package_version,
-                "--deps",
-                "--extension",
-                case.extension_name,
-                "--local-only",
-            ])
-        });
+        let mut argv = vec![
+            "thirdpass",
+            "review",
+            case.package_name,
+            case.package_version,
+            "--deps",
+            "--extension",
+            case.extension_name,
+            "--local-only",
+        ];
+        if plan_only {
+            argv.push("--plan-only");
+        }
+
+        let parsed = std::panic::catch_unwind(|| crate::command::Opts::from_iter_safe(&argv));
 
         assert!(parsed.is_ok(), "CLI parsing panicked.");
         let parsed = parsed.unwrap().expect("CLI parsing failed.");
@@ -1371,6 +1491,7 @@ mod tests {
         extension_names: Option<Vec<String>>,
         target_files: Vec<String>,
         deps: bool,
+        plan_only: bool,
         local_only: bool,
         submit_existing: bool,
     }
@@ -1413,6 +1534,7 @@ mod tests {
                 extension_names: args.extension_names.clone(),
                 target_files: args.target_files.clone(),
                 deps: args.deps,
+                plan_only: args.plan_only,
                 local_only: args.local_only,
                 submit_existing: args.submit_existing,
             });
@@ -1453,6 +1575,7 @@ mod tests {
             extension_names: Some(vec![case.extension_name.to_string()]),
             target_files: vec!["README.md".to_string()],
             deps: false,
+            plan_only: false,
             local_only: true,
             submit_existing: false,
         }

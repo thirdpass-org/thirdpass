@@ -23,6 +23,20 @@ impl ScopedEnv {
         }
         Self { previous }
     }
+
+    /// Set one environment variable and restore its previous value on drop.
+    pub(crate) fn set_var(name: &'static str, value: impl Into<OsString>) -> Self {
+        let previous = vec![(name, std::env::var_os(name))];
+        std::env::set_var(name, value.into());
+        Self { previous }
+    }
+
+    /// Remove one environment variable and restore its previous value on drop.
+    pub(crate) fn remove_var(name: &'static str) -> Self {
+        let previous = vec![(name, std::env::var_os(name))];
+        std::env::remove_var(name);
+        Self { previous }
+    }
 }
 
 impl Drop for ScopedEnv {
