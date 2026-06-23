@@ -89,10 +89,31 @@ pub(crate) fn run_package_command(
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
     let extensions = extension::manage::get_enabled(&extension_names, &config)?;
     let working_directory = std::env::current_dir()?;
+
+    run_package_command_with_runner(
+        args,
+        extension_args,
+        &extensions,
+        &working_directory,
+        &config,
+        submitter.as_ref(),
+        &CommandDependencyReviewRunner,
+    )
+}
+
+fn run_package_command_with_runner(
+    args: &crate::command::review::Arguments,
+    extension_args: &[String],
+    extensions: &[Box<dyn thirdpass_core::extension::Extension>],
+    working_directory: &std::path::Path,
+    config: &common::config::Config,
+    submitter: Option<&review::submission::Submitter>,
+    runner: &dyn DependencyReviewRunner,
+) -> Result<()> {
     let discovery = discover_package_review_dependencies(
         &args.package_name,
         &args.package_version,
-        &extensions,
+        extensions,
         extension_args,
         &config,
     )?;
@@ -113,13 +134,14 @@ pub(crate) fn run_package_command(
         local_only: args.local_only,
     };
 
-    run_discovered_dependency_reviews(
+    run_discovered_dependency_reviews_with_runner(
         &dependency_args,
-        &extensions,
-        &working_directory,
+        extensions,
+        working_directory,
         discovery,
         &config.core.public_user_id,
-        submitter.as_ref(),
+        submitter,
+        runner,
     )
 }
 
@@ -968,6 +990,34 @@ mod tests {
     }
 
     #[test]
+    fn review_deps_package_command_reaches_plan_for_py_and_ansible() -> Result<()> {
+        let _lock = common::TEST_ENV_LOCK
+            .lock()
+            .expect("test env lock poisoned");
+        for case in [
+            PackageDependencyCliCase {
+                extension_name: "py",
+                registry_host_name: "pypi.org",
+                package_name: "sample-package",
+                package_version: "1.2.3",
+                dependency_name: "sample-dependency",
+                dependency_version: "0.4.5",
+            },
+            PackageDependencyCliCase {
+                extension_name: "ansible",
+                registry_host_name: "galaxy.ansible.com",
+                package_name: "sample.collection",
+                package_version: "2.0.0",
+                dependency_name: "sample.dependency",
+                dependency_version: "3.0.0",
+            },
+        ] {
+            assert_package_deps_command_reaches_plan(case)?;
+        }
+        Ok(())
+    }
+
+    #[test]
     fn review_deps_reports_mismatched_committed_project_reviews() -> Result<()> {
         let _lock = common::TEST_ENV_LOCK
             .lock()
@@ -1126,6 +1176,363 @@ mod tests {
                 submission: None,
             })
         }
+    }
+
+    #[derive(Clone, Copy)]
+    struct PackageDependencyCliCase {
+        extension_name: &'static str,
+        registry_host_name: &'static str,
+        package_name: &'static str,
+        package_version: &'static str,
+        dependency_name: &'static str,
+        dependency_version: &'static str,
+    }
+
+    fn assert_package_deps_command_reaches_plan(case: PackageDependencyCliCase) -> Result<()> {
+        let fixture = DependencyReviewFixture::new("thirdpass-review-deps-package-cli-")?;
+        let _env = fixture.enter_client_environment();
+        prepare_cached_package_workspace(
+            case.registry_host_name,
+            case.package_name,
+            case.package_version,
+        )?;
+        prepare_cached_package_workspace(
+            case.registry_host_name,
+            case.dependency_name,
+            case.dependency_version,
+        )?;
+
+        let args = parse_package_review_deps_args(case);
+        assert!(args.deps);
+        let extension_names = args
+            .extension_names
+            .as_ref()
+            .expect("package review args should include one extension");
+        assert_eq!(
+            extension_names.as_slice(),
+            &[case.extension_name.to_string()]
+        );
+
+        let mut config = common::config::Config::default();
+        config.core.public_user_id = "current-user".to_string();
+        let extensions: Vec<Box<dyn thirdpass_core::extension::Extension>> =
+            vec![Box::new(PackageDependencyExtension { case })];
+        let runner = RecordingPackageCommandRunner::new(case);
+
+        run_package_command_with_runner(
+            &args,
+            &[],
+            &extensions,
+            fixture.project_root(),
+            &config,
+            None,
+            &runner,
+        )?;
+
+        let mut calls = runner.calls();
+        calls.sort_by(|left, right| left.package_name.cmp(&right.package_name));
+        let mut expected = vec![
+            expected_package_review_call(case, case.package_name, case.package_version),
+            expected_package_review_call(case, case.dependency_name, case.dependency_version),
+        ];
+        expected.sort_by(|left, right| left.package_name.cmp(&right.package_name));
+        assert_eq!(calls, expected);
+        Ok(())
+    }
+
+    fn parse_package_review_deps_args(
+        case: PackageDependencyCliCase,
+    ) -> crate::command::review::Arguments {
+        let parsed = std::panic::catch_unwind(|| {
+            crate::command::Opts::from_iter_safe(&[
+                "thirdpass",
+                "review",
+                case.package_name,
+                case.package_version,
+                "--deps",
+                "--extension",
+                case.extension_name,
+                "--local-only",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            crate::command::Command::Review(args) => args,
+            _ => panic!("Expected review command."),
+        }
+    }
+
+    fn prepare_cached_package_workspace(
+        registry_host_name: &str,
+        package_name: &str,
+        package_version: &str,
+    ) -> Result<()> {
+        let data_paths = common::fs::DataPaths::new()?;
+        let package_path = thirdpass_core::package::unique_package_path(
+            package_name,
+            package_version,
+            registry_host_name,
+        )?;
+        let package_directory = data_paths.ongoing_reviews_directory.join(package_path);
+        let workspace_name = format!(
+            "{}-{}",
+            package_name.replace('/', "_").replace('\\', "_"),
+            package_version
+        );
+        let workspace_path = package_directory.join(workspace_name);
+        std::fs::create_dir_all(&workspace_path)?;
+        std::fs::write(
+            workspace_path.join("README.md"),
+            package_file_contents(package_name),
+        )?;
+
+        let archive_path = package_directory.join("archive.tar.gz");
+        std::fs::write(
+            &archive_path,
+            package_archive_contents(package_name, package_version),
+        )?;
+        let manifest = thirdpass_core::package::Manifest {
+            workspace_path,
+            manifest_path: package_directory.join("manifest.json"),
+            artifact_path: archive_path,
+            package_hash: package_hash_for(package_name, package_version),
+        };
+        std::fs::write(
+            &manifest.manifest_path,
+            serde_json::to_string_pretty(&manifest)?,
+        )?;
+        Ok(())
+    }
+
+    struct PackageDependencyExtension {
+        case: PackageDependencyCliCase,
+    }
+
+    impl thirdpass_core::extension::Extension for PackageDependencyExtension {
+        fn name(&self) -> String {
+            self.case.extension_name.to_string()
+        }
+
+        fn registries(&self) -> Vec<String> {
+            vec![self.case.registry_host_name.to_string()]
+        }
+
+        fn identify_package_dependencies(
+            &self,
+            _package_name: &str,
+            package_version: &Option<&str>,
+            _extension_args: &[String],
+        ) -> Result<Vec<thirdpass_core::extension::PackageDependencies>> {
+            Ok(vec![thirdpass_core::extension::PackageDependencies {
+                package_version: Ok(package_version
+                    .unwrap_or(self.case.package_version)
+                    .to_string()),
+                registry_host_name: self.case.registry_host_name.to_string(),
+                dependencies: vec![thirdpass_core::extension::Dependency {
+                    name: self.case.dependency_name.to_string(),
+                    version: Ok(self.case.dependency_version.to_string()),
+                }],
+            }])
+        }
+
+        fn identify_file_defined_dependencies(
+            &self,
+            _working_directory: &std::path::Path,
+            _extension_args: &[String],
+        ) -> Result<Vec<thirdpass_core::extension::FileDefinedDependencies>> {
+            Ok(Vec::new())
+        }
+
+        fn registries_package_metadata(
+            &self,
+            package_name: &str,
+            package_version: &Option<&str>,
+        ) -> Result<Vec<thirdpass_core::extension::RegistryPackageMetadata>> {
+            let package_version = package_version.unwrap_or(self.case.package_version);
+            Ok(vec![thirdpass_core::extension::RegistryPackageMetadata {
+                registry_host_name: self.case.registry_host_name.to_string(),
+                human_url: format!("https://{}/{}", self.case.registry_host_name, package_name),
+                artifact_url: format!(
+                    "https://{}/{}/{}.tar.gz",
+                    self.case.registry_host_name, package_name, package_version
+                ),
+                is_primary: true,
+                package_version: package_version.to_string(),
+            }])
+        }
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq)]
+    struct RecordedPackageCommandCall {
+        package_name: String,
+        package_version: String,
+        extension_names: Option<Vec<String>>,
+        target_files: Vec<String>,
+        deps: bool,
+        local_only: bool,
+        submit_existing: bool,
+    }
+
+    struct RecordingPackageCommandRunner {
+        case: PackageDependencyCliCase,
+        calls: RefCell<Vec<RecordedPackageCommandCall>>,
+    }
+
+    impl RecordingPackageCommandRunner {
+        fn new(case: PackageDependencyCliCase) -> Self {
+            Self {
+                case,
+                calls: RefCell::new(Vec::new()),
+            }
+        }
+
+        fn calls(&self) -> Vec<RecordedPackageCommandCall> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    impl DependencyReviewRunner for RecordingPackageCommandRunner {
+        fn run(
+            &self,
+            args: &crate::command::review::Arguments,
+            submitter: Option<&review::submission::Submitter>,
+        ) -> Result<crate::command::review::ReviewCommandResult> {
+            assert!(submitter.is_none());
+            assert!(args.agent.is_none());
+            assert!(args.agent_model.is_none());
+            assert!(args.agent_reasoning_effort.is_none());
+            let package_version = args
+                .package_version
+                .as_deref()
+                .expect("dependency planner should pass a concrete package version");
+            self.calls.borrow_mut().push(RecordedPackageCommandCall {
+                package_name: args.package_name.clone(),
+                package_version: package_version.to_string(),
+                extension_names: args.extension_names.clone(),
+                target_files: args.target_files.clone(),
+                deps: args.deps,
+                local_only: args.local_only,
+                submit_existing: args.submit_existing,
+            });
+
+            let review = package_review_for_runner(
+                self.case,
+                &args.package_name,
+                package_version,
+                &args.target_files,
+            )?;
+            let outcome = crate::command::review::ReviewCommandOutcome {
+                package_name: review.package.name.clone(),
+                package_version: review.package.version.clone(),
+                target_file_count: review.targets.len(),
+                comment_count: 0,
+                critical_comment_count: 0,
+                medium_comment_count: 0,
+                low_comment_count: 0,
+                submitted: false,
+            };
+
+            Ok(crate::command::review::ReviewCommandResult {
+                review,
+                outcome,
+                submission: None,
+            })
+        }
+    }
+
+    fn expected_package_review_call(
+        case: PackageDependencyCliCase,
+        package_name: &str,
+        package_version: &str,
+    ) -> RecordedPackageCommandCall {
+        RecordedPackageCommandCall {
+            package_name: package_name.to_string(),
+            package_version: package_version.to_string(),
+            extension_names: Some(vec![case.extension_name.to_string()]),
+            target_files: vec!["README.md".to_string()],
+            deps: false,
+            local_only: true,
+            submit_existing: false,
+        }
+    }
+
+    fn package_review_for_runner(
+        case: PackageDependencyCliCase,
+        package_name: &str,
+        package_version: &str,
+        target_files: &[String],
+    ) -> Result<review::Review> {
+        let mut registries = std::collections::BTreeSet::new();
+        registries.insert(registry::Registry {
+            id: 0,
+            host_name: case.registry_host_name.to_string(),
+            human_url: url::Url::parse(&format!(
+                "https://{}/{}",
+                case.registry_host_name, package_name
+            ))?,
+            artifact_url: url::Url::parse(&format!(
+                "https://{}/{}/{}.tar.gz",
+                case.registry_host_name, package_name, package_version
+            ))?,
+        });
+
+        let targets = target_files
+            .iter()
+            .map(|path| review::ReviewTarget {
+                file_path: path.into(),
+                file_hash: Some(package_file_hash(package_name)),
+                agent_summary: None,
+                security_summary: Some(review::SecuritySummary::None),
+                confidence: None,
+                comments: std::collections::BTreeSet::new(),
+            })
+            .collect::<Vec<_>>();
+
+        Ok(review::Review {
+            id: 0,
+            peer: peer::Peer::default(),
+            package: package::Package {
+                id: 0,
+                name: package_name.to_string(),
+                version: package_version.to_string(),
+                registries,
+                package_hash: package_hash_for(package_name, package_version),
+            },
+            targets,
+            reviewer_details: review::ReviewerDetails {
+                public_user_id: "current-user".to_string(),
+                ..review::ReviewerDetails::default()
+            },
+            agent_summary: String::new(),
+            overall_security_summary: review::SecuritySummary::None,
+            overall_security_confidence: None,
+        })
+    }
+
+    fn package_file_contents(package_name: &str) -> Vec<u8> {
+        format!("# {}\n", package_name).into_bytes()
+    }
+
+    fn package_file_hash(package_name: &str) -> thirdpass_core::schema::FileHash {
+        thirdpass_core::schema::FileHash::blake3(
+            blake3::hash(&package_file_contents(package_name))
+                .to_hex()
+                .as_str()
+                .to_string(),
+        )
+    }
+
+    fn package_archive_contents(package_name: &str, package_version: &str) -> Vec<u8> {
+        format!("archive for {}@{}\n", package_name, package_version).into_bytes()
+    }
+
+    fn package_hash_for(package_name: &str, package_version: &str) -> String {
+        blake3::hash(&package_archive_contents(package_name, package_version))
+            .to_hex()
+            .as_str()
+            .to_string()
     }
 
     fn stored_review(
