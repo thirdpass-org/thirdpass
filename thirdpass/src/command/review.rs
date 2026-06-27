@@ -135,6 +135,26 @@ pub(crate) struct ReviewCommandResult {
     pub(crate) submission: Option<review::submission::Ticket>,
 }
 
+/// Local file coverage status for one package review target.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct LocalPackageReviewStatus {
+    /// Package name.
+    pub(crate) package_name: String,
+    /// Package version.
+    pub(crate) package_version: String,
+    /// Number of locally reviewable package files already covered.
+    pub(crate) reviewed_file_count: usize,
+    /// Number of locally reviewable package files.
+    pub(crate) reviewable_file_count: usize,
+}
+
+impl LocalPackageReviewStatus {
+    /// Return true when there are no remaining local package files to review.
+    pub(crate) fn is_complete(&self) -> bool {
+        self.reviewed_file_count >= self.reviewable_file_count
+    }
+}
+
 pub fn run_command(args: &Arguments, extension_args: &[String]) -> Result<()> {
     if args.plan_only {
         crate::command::require_debug_cli("--plan-only")?;
@@ -549,6 +569,62 @@ pub(crate) fn run_command_with_result(
         review,
         outcome,
         submission,
+    })
+}
+
+pub(crate) fn local_package_review_status(
+    package_name: &str,
+    package_version: &str,
+    extension_names: &std::collections::BTreeSet<String>,
+    config: &common::config::Config,
+) -> Result<LocalPackageReviewStatus> {
+    let package_version = Some(package_version.to_string());
+    let (review, workspace_manifest) =
+        setup_review(package_name, &package_version, extension_names, config)?;
+    let result = local_package_review_status_for_workspace(
+        &review,
+        &workspace_manifest.workspace_path,
+        config,
+    );
+    let cleanup_result = review::workspace::remove(&workspace_manifest);
+    match (result, cleanup_result) {
+        (Ok(status), Ok(())) => Ok(status),
+        (Err(err), _) => Err(err),
+        (Ok(_), Err(err)) => Err(err),
+    }
+}
+
+fn local_package_review_status_for_workspace(
+    review: &review::Review,
+    workspace_path: &std::path::Path,
+    config: &common::config::Config,
+) -> Result<LocalPackageReviewStatus> {
+    let analysis = review::workspace::analyse(workspace_path)?;
+    let registry = review
+        .package
+        .registries
+        .iter()
+        .next()
+        .ok_or(format_err!("Package does not have associated registries."))?;
+    let locally_reviewed_paths =
+        get_locally_reviewed_target_paths(review, config, &registry.host_name)?;
+    let mut target_policies = review::remote::review_target_policies(config)?;
+    let target_policy = target_policies
+        .remove(&registry.host_name)
+        .unwrap_or_default();
+    let candidates = thirdpass_core::package::candidate_files_with_policy(
+        &analysis,
+        &locally_reviewed_paths,
+        &target_policy,
+    );
+    Ok(LocalPackageReviewStatus {
+        package_name: review.package.name.clone(),
+        package_version: review.package.version.clone(),
+        reviewed_file_count: candidates
+            .iter()
+            .filter(|candidate| candidate.already_reviewed)
+            .count(),
+        reviewable_file_count: candidates.len(),
     })
 }
 
@@ -1121,6 +1197,24 @@ mod tests {
             ),
             "codex-gpt-5.4-high"
         );
+    }
+
+    #[test]
+    fn local_package_review_status_is_complete_when_all_files_reviewed() {
+        assert!(LocalPackageReviewStatus {
+            package_name: "pkg".to_string(),
+            package_version: "1.0.0".to_string(),
+            reviewed_file_count: 2,
+            reviewable_file_count: 2,
+        }
+        .is_complete());
+        assert!(!LocalPackageReviewStatus {
+            package_name: "pkg".to_string(),
+            package_version: "1.0.0".to_string(),
+            reviewed_file_count: 1,
+            reviewable_file_count: 2,
+        }
+        .is_complete());
     }
 
     #[test]
