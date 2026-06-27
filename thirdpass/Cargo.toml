@@ -29,6 +29,7 @@ dialoguer = "0.8.0"
 indicatif = "0.17"
 console = "0.15"
 tempfile = "3"
+csv = "1.4.0"
 
 directories = "3.0.1"
 

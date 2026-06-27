@@ -7,6 +7,7 @@ mod extension;
 mod review;
 mod review_any;
 mod review_deps;
+mod review_queue;
 mod setup;
 
 /// Environment variable that enables debug-only CLI surfaces.
@@ -54,6 +55,10 @@ pub fn run_command(command: Command, extension_args: &[String]) -> Result<()> {
             log::info!("Running command: review-deps");
             review_deps::run_command(&args, extension_args)?;
         }
+        Command::ReviewQueue(args) => {
+            log::info!("Running command: review-queue");
+            review_queue::run_command(&args)?;
+        }
         Command::ReviewAny(args) => {
             log::info!("Running command: review-any");
             review_any::run_command(&args)?;
@@ -75,10 +80,14 @@ pub fn run_command(command: Command, extension_args: &[String]) -> Result<()> {
 }
 
 fn validate_debug_cli_usage(command: &Command) -> Result<()> {
-    if let Command::Review(args) = command {
-        if args.plan_only {
-            require_debug_cli("--plan-only")?;
+    match command {
+        Command::Review(args) => {
+            if args.plan_only {
+                require_debug_cli("--plan-only")?;
+            }
         }
+        Command::ReviewQueue(_) => require_debug_cli("review-queue")?,
+        _ => {}
     }
     Ok(())
 }
@@ -92,6 +101,13 @@ pub enum Command {
     /// Review a dependency discovered from the current project.
     #[structopt(name = "review-deps")]
     ReviewDeps(review_deps::Arguments),
+
+    /// Review package-version rows from a CSV queue locally.
+    #[structopt(
+        name = "review-queue",
+        setting = structopt::clap::AppSettings::Hidden
+    )]
+    ReviewQueue(review_queue::Arguments),
 
     /// Review any assigned high-priority target.
     #[structopt(name = "review-any")]
@@ -139,6 +155,8 @@ mod tests {
             long_help_for::<review_any::Arguments>(),
             short_help_for::<review_deps::Arguments>(),
             long_help_for::<review_deps::Arguments>(),
+            short_help_for::<review_queue::Arguments>(),
+            long_help_for::<review_queue::Arguments>(),
         ] {
             assert!(
                 !help.contains("--manual"),
@@ -171,6 +189,16 @@ mod tests {
                 help
             );
         }
+    }
+
+    #[test]
+    fn cli_help_hides_review_queue_command() {
+        let help = long_help_for::<Opts>();
+        assert!(
+            !help.contains("review-queue"),
+            "review-queue should stay hidden from CLI help:\n{}",
+            help
+        );
     }
 
     #[test]
@@ -298,6 +326,55 @@ mod tests {
             }
             _ => panic!("Expected review command."),
         }
+    }
+
+    #[test]
+    fn cli_parses_review_queue_command() {
+        let parsed = std::panic::catch_unwind(|| {
+            Opts::from_iter_safe(&[
+                "thirdpass",
+                "review-queue",
+                "queue.csv",
+                "--extension",
+                "py",
+                "--plan-only",
+            ])
+        });
+
+        assert!(parsed.is_ok(), "CLI parsing panicked.");
+        let parsed = parsed.unwrap().expect("CLI parsing failed.");
+        match parsed.command {
+            Command::ReviewQueue(args) => {
+                assert_eq!(args.csv_path, std::path::PathBuf::from("queue.csv"));
+                assert_eq!(args.extension_names, Some(vec!["py".to_string()]));
+                assert!(args.plan_only);
+            }
+            _ => panic!("Expected review-queue command."),
+        }
+    }
+
+    #[test]
+    fn review_queue_requires_debug_cli_env() {
+        let _lock = crate::common::TEST_ENV_LOCK
+            .lock()
+            .expect("test env lock poisoned");
+        let _env = crate::test_support::ScopedEnv::remove_var(DEBUG_CLI_ENV_VAR);
+        let command = Command::ReviewQueue(review_queue::Arguments {
+            csv_path: std::path::PathBuf::from("queue.csv"),
+            extension_names: Some(vec!["py".to_string()]),
+            plan_only: true,
+            agent: None,
+            agent_model: None,
+            agent_reasoning_effort: None,
+        });
+
+        let error =
+            validate_debug_cli_usage(&command).expect_err("review-queue should require debug CLI");
+
+        assert_eq!(
+            error.to_string(),
+            "review-queue requires THIRDPASS_DEBUG_CLI=1."
+        );
     }
 
     #[test]

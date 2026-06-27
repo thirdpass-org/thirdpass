@@ -2567,6 +2567,7 @@ dependencies = [
  "console 0.15.11",
  "crossbeam",
  "crossbeam-utils",
+ "csv",
  "dialoguer",
  "directories",
  "env_logger",
