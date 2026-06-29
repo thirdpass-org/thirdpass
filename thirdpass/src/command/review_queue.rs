@@ -57,12 +57,13 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     let mut completed_rows = 0usize;
     for row in queue {
         loop {
-            let status = review_command::local_package_review_status(
+            let batch = review_command::local_package_review_batch(
                 &row.package_name,
                 &row.package_version,
                 &extension_names,
                 &config,
             )?;
+            let status = &batch.status;
             if status.is_complete() {
                 completed_rows += 1;
                 println!(
@@ -78,29 +79,38 @@ pub fn run_command(args: &Arguments) -> Result<()> {
 
             if args.plan_only {
                 println!(
-                    "Would review row {}: {} {} ({}/{} files reviewed)",
+                    "Would review row {}: {} {} ({}/{} files reviewed); next batch: {}",
                     row.row_number,
                     row.package_name,
                     row.package_version,
                     status.reviewed_file_count,
-                    status.reviewable_file_count
+                    status.reviewable_file_count,
+                    format_target_files(&batch.target_files)
                 );
                 return Ok(());
             }
 
+            if batch.target_files.is_empty() {
+                return Err(format_err!(
+                    "Row {} has no selected target files but is not complete.",
+                    row.row_number
+                ));
+            }
+
             println!(
-                "Reviewing row {}: {} {} ({}/{} files reviewed)",
+                "Reviewing row {}: {} {} ({}/{} files reviewed); batch: {}",
                 row.row_number,
                 row.package_name,
                 row.package_version,
                 status.reviewed_file_count,
-                status.reviewable_file_count
+                status.reviewable_file_count,
+                format_target_files(&batch.target_files)
             );
             let review_args = review_command::Arguments {
                 package_name: row.package_name.clone(),
                 package_version: Some(row.package_version.clone()),
                 extension_names: args.extension_names.clone(),
-                target_files: Vec::new(),
+                target_files: batch.target_files,
                 deps: false,
                 plan_only: false,
                 manual: false,
@@ -120,6 +130,13 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         reviewed_now, completed_rows
     );
     Ok(())
+}
+
+fn format_target_files(target_files: &[String]) -> String {
+    if target_files.is_empty() {
+        return "no files".to_string();
+    }
+    target_files.join(", ")
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

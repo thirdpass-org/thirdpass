@@ -148,6 +148,15 @@ pub(crate) struct LocalPackageReviewStatus {
     pub(crate) reviewable_file_count: usize,
 }
 
+/// Local target batch selected for one package review run.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct LocalPackageReviewBatch {
+    /// Local file coverage status before this batch is reviewed.
+    pub(crate) status: LocalPackageReviewStatus,
+    /// Package-relative target files selected for the next review.
+    pub(crate) target_files: Vec<String>,
+}
+
 impl LocalPackageReviewStatus {
     /// Return true when there are no remaining local package files to review.
     pub(crate) fn is_complete(&self) -> bool {
@@ -572,33 +581,52 @@ pub(crate) fn run_command_with_result(
     })
 }
 
-pub(crate) fn local_package_review_status(
+/// Select the next bounded local review batch for one package.
+pub(crate) fn local_package_review_batch(
     package_name: &str,
     package_version: &str,
     extension_names: &std::collections::BTreeSet<String>,
     config: &common::config::Config,
-) -> Result<LocalPackageReviewStatus> {
+) -> Result<LocalPackageReviewBatch> {
     let package_version = Some(package_version.to_string());
     let (review, workspace_manifest) =
         setup_review(package_name, &package_version, extension_names, config)?;
-    let result = local_package_review_status_for_workspace(
+    let result = local_package_review_batch_for_workspace(
         &review,
         &workspace_manifest.workspace_path,
         config,
     );
     let cleanup_result = review::workspace::remove(&workspace_manifest);
     match (result, cleanup_result) {
-        (Ok(status), Ok(())) => Ok(status),
+        (Ok(batch), Ok(())) => Ok(batch),
         (Err(err), _) => Err(err),
         (Ok(_), Err(err)) => Err(err),
     }
 }
 
-fn local_package_review_status_for_workspace(
+fn local_package_review_batch_for_workspace(
     review: &review::Review,
     workspace_path: &std::path::Path,
     config: &common::config::Config,
-) -> Result<LocalPackageReviewStatus> {
+) -> Result<LocalPackageReviewBatch> {
+    let candidates = local_candidate_files_for_workspace(review, workspace_path, config)?;
+    let status = status_for_candidates(review, &candidates);
+    let target_files = if status.is_complete() {
+        Vec::new()
+    } else {
+        select_local_candidate_batch(&candidates)
+    };
+    Ok(LocalPackageReviewBatch {
+        status,
+        target_files,
+    })
+}
+
+fn local_candidate_files_for_workspace(
+    review: &review::Review,
+    workspace_path: &std::path::Path,
+    config: &common::config::Config,
+) -> Result<Vec<thirdpass_core::package::CandidateFile>> {
     let analysis = review::workspace::analyse(workspace_path)?;
     let registry = review
         .package
@@ -612,12 +640,18 @@ fn local_package_review_status_for_workspace(
     let target_policy = target_policies
         .remove(&registry.host_name)
         .unwrap_or_default();
-    let candidates = thirdpass_core::package::candidate_files_with_policy(
+    Ok(thirdpass_core::package::candidate_files_with_policy(
         &analysis,
         &locally_reviewed_paths,
         &target_policy,
-    );
-    Ok(LocalPackageReviewStatus {
+    ))
+}
+
+fn status_for_candidates(
+    review: &review::Review,
+    candidates: &[thirdpass_core::package::CandidateFile],
+) -> LocalPackageReviewStatus {
+    LocalPackageReviewStatus {
         package_name: review.package.name.clone(),
         package_version: review.package.version.clone(),
         reviewed_file_count: candidates
@@ -625,7 +659,35 @@ fn local_package_review_status_for_workspace(
             .filter(|candidate| candidate.already_reviewed)
             .count(),
         reviewable_file_count: candidates.len(),
-    })
+    }
+}
+
+fn select_local_candidate_batch(
+    candidates: &[thirdpass_core::package::CandidateFile],
+) -> Vec<String> {
+    let mut selected = Vec::new();
+    let mut selected_lines = 0usize;
+    for candidate in candidates
+        .iter()
+        .filter(|candidate| !candidate.already_reviewed)
+    {
+        if selected.len() >= thirdpass_core::package::DEFAULT_REVIEW_BATCH_MAX_FILES {
+            break;
+        }
+        if !selected.is_empty()
+            && selected_lines + candidate.line_count
+                > thirdpass_core::package::DEFAULT_REVIEW_BATCH_MAX_LINES
+        {
+            break;
+        }
+
+        selected.push(candidate.relative_path.display().to_string());
+        selected_lines += candidate.line_count;
+        if selected_lines >= thirdpass_core::package::DEFAULT_REVIEW_BATCH_MAX_LINES {
+            break;
+        }
+    }
+    selected
 }
 
 /// Parse user comments from active review file and insert into index.
@@ -1218,6 +1280,48 @@ mod tests {
     }
 
     #[test]
+    fn select_local_candidate_batch_skips_reviewed_files_and_caps_lines() {
+        let candidates = vec![
+            candidate_file("src/large.rs", 800, false),
+            candidate_file("src/medium.rs", 250, false),
+            candidate_file("src/over-limit.rs", 200, false),
+            candidate_file("src/reviewed.rs", 1, true),
+        ];
+
+        let batch = select_local_candidate_batch(&candidates);
+
+        assert_eq!(
+            batch,
+            vec!["src/large.rs".to_string(), "src/medium.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn select_local_candidate_batch_caps_file_count() {
+        let candidates = (1..=6)
+            .map(|index| candidate_file(&format!("src/file-{index}.rs"), 1, false))
+            .collect::<Vec<_>>();
+
+        let batch = select_local_candidate_batch(&candidates);
+
+        assert_eq!(batch.len(), 5);
+        assert_eq!(batch[0], "src/file-1.rs");
+        assert_eq!(batch[4], "src/file-5.rs");
+    }
+
+    #[test]
+    fn select_local_candidate_batch_allows_oversized_first_file() {
+        let candidates = vec![
+            candidate_file("src/huge.rs", 2_000, false),
+            candidate_file("src/small.rs", 10, false),
+        ];
+
+        let batch = select_local_candidate_batch(&candidates);
+
+        assert_eq!(batch, vec!["src/huge.rs".to_string()]);
+    }
+
+    #[test]
     fn deps_review_rejects_file_targets() {
         let mut args = review_args("axum", Some("0.8.9"));
         args.deps = true;
@@ -1402,6 +1506,18 @@ mod tests {
             agent_reasoning_effort: None,
             submit_existing: false,
             local_only: false,
+        }
+    }
+
+    fn candidate_file(
+        path: &str,
+        line_count: usize,
+        already_reviewed: bool,
+    ) -> thirdpass_core::package::CandidateFile {
+        thirdpass_core::package::CandidateFile {
+            relative_path: std::path::PathBuf::from(path),
+            line_count,
+            already_reviewed,
         }
     }
 }
