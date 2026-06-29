@@ -483,6 +483,7 @@ struct CodexJsonEvent {
     #[serde(rename = "type")]
     event_type: String,
     payload: Option<CodexJsonPayload>,
+    usage: Option<CodexJsonUsage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -499,8 +500,29 @@ struct CodexTokenInfo {
     model_context_window: Option<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+struct CodexJsonUsage {
+    input_tokens: u64,
+    cached_input_tokens: u64,
+    output_tokens: u64,
+    reasoning_output_tokens: u64,
+}
+
+impl CodexJsonUsage {
+    fn into_agent_token_usage(self) -> thirdpass_core::schema::AgentTokenUsage {
+        let total_tokens = self.input_tokens.saturating_add(self.output_tokens);
+        thirdpass_core::schema::AgentTokenUsage {
+            input_tokens: self.input_tokens,
+            cached_input_tokens: self.cached_input_tokens,
+            output_tokens: self.output_tokens,
+            reasoning_output_tokens: self.reasoning_output_tokens,
+            total_tokens,
+        }
+    }
+}
+
 fn parse_codex_token_info(stdout_jsonl: &str) -> Option<CodexTokenInfo> {
-    let mut last = None;
+    let mut last: Option<CodexTokenInfo> = None;
     for line in stdout_jsonl
         .lines()
         .map(str::trim)
@@ -509,6 +531,18 @@ fn parse_codex_token_info(stdout_jsonl: &str) -> Option<CodexTokenInfo> {
         let Ok(event) = serde_json::from_str::<CodexJsonEvent>(line) else {
             continue;
         };
+        if event.event_type == "turn.completed" {
+            if let Some(usage) = event.usage {
+                let model_context_window = last.as_ref().and_then(|info| info.model_context_window);
+                let token_usage = usage.into_agent_token_usage();
+                last = Some(CodexTokenInfo {
+                    total_token_usage: Some(token_usage.clone()),
+                    last_token_usage: Some(token_usage),
+                    model_context_window,
+                });
+            }
+            continue;
+        }
         if event.event_type != "event_msg" {
             continue;
         }
@@ -1209,6 +1243,26 @@ mod tests {
                 .input_tokens,
             5
         );
+    }
+
+    #[test]
+    fn parse_codex_token_info_reads_turn_completed_usage() {
+        let stdout = r#"{"type":"thread.started","thread_id":"019f13d6-10a1-7680-ae98-a4f4cb4e5788"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"OK"}}
+{"type":"turn.completed","usage":{"input_tokens":12021,"cached_input_tokens":9600,"output_tokens":22,"reasoning_output_tokens":15}}"#;
+
+        let info = parse_codex_token_info(stdout).expect("expected token info");
+        let total = info.total_token_usage.expect("expected total usage");
+        let last = info.last_token_usage.expect("expected last usage");
+
+        assert_eq!(total.input_tokens, 12021);
+        assert_eq!(total.cached_input_tokens, 9600);
+        assert_eq!(total.output_tokens, 22);
+        assert_eq!(total.reasoning_output_tokens, 15);
+        assert_eq!(total.total_tokens, 12043);
+        assert_eq!(last, total);
+        assert_eq!(info.model_context_window, None);
     }
 
     #[test]
