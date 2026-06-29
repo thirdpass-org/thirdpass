@@ -1,4 +1,4 @@
-use anyhow::{format_err, Result};
+use anyhow::{format_err, Context, Result};
 use dialoguer::Input;
 use serde::Deserialize;
 use serde_json::Value;
@@ -308,9 +308,10 @@ fn run_codex_exec(
     agent_model: Option<&str>,
     agent_reasoning_effort: Option<&str>,
 ) -> Result<AgentRunResult> {
+    let command_log = build_agent_log(AgentKind::Codex, agent_model, agent_reasoning_effort);
     log::debug!(
         "Launching agent: {} (cwd: {})",
-        build_agent_log(AgentKind::Codex, agent_model, agent_reasoning_effort),
+        command_log,
         workspace_path.display()
     );
 
@@ -341,6 +342,17 @@ fn run_codex_exec(
     let stdout_raw = String::from_utf8_lossy(&output.stdout);
 
     if !output.status.success() {
+        let output_payload = std::fs::read_to_string(&output_path).unwrap_or_default();
+        let diagnostic_note = codex_failure_diagnostic_note(CodexFailureDiagnostic {
+            phase: "process-exit",
+            status: Some(output.status.to_string()),
+            command_log: command_log.as_str(),
+            workspace_path,
+            prompt,
+            stdout: stdout_raw.as_ref(),
+            stderr: stderr.as_str(),
+            output_payload: output_payload.as_str(),
+        });
         let mut details = Vec::new();
         if stderr.is_empty() {
             details.push("stderr: <empty>".to_string());
@@ -355,9 +367,10 @@ fn run_codex_exec(
             ));
         }
         return Err(format_err!(
-            "codex exited with status {}. {}",
+            "codex exited with status {}. {}{}",
             output.status,
-            details.join(" ")
+            details.join(" "),
+            diagnostic_note
         ));
     }
 
@@ -369,14 +382,25 @@ fn run_codex_exec(
     };
 
     let output = parse_agent_output(&output_payload).map_err(|err| {
+        let diagnostic_note = codex_failure_diagnostic_note(CodexFailureDiagnostic {
+            phase: "parse-output",
+            status: None,
+            command_log: command_log.as_str(),
+            workspace_path,
+            prompt,
+            stdout: stdout_raw.as_ref(),
+            stderr: stderr.as_str(),
+            output_payload: output_payload.as_str(),
+        });
         let stdout_trimmed = stdout_raw.trim();
         if stdout_trimmed.is_empty() {
-            err
+            format_err!("{}{}", err, diagnostic_note)
         } else {
             format_err!(
-                "{}; stdout: {}",
+                "{}; stdout: {}{}",
                 err,
-                truncate_for_log(stdout_trimmed, 4000)
+                truncate_for_log(stdout_trimmed, 4000),
+                diagnostic_note
             )
         }
     })?;
@@ -417,6 +441,83 @@ fn truncate_for_log(value: &str, max_len: usize) -> String {
     }
     truncated.push_str("…<truncated>");
     truncated
+}
+
+struct CodexFailureDiagnostic<'a> {
+    phase: &'a str,
+    status: Option<String>,
+    command_log: &'a str,
+    workspace_path: &'a std::path::Path,
+    prompt: &'a str,
+    stdout: &'a str,
+    stderr: &'a str,
+    output_payload: &'a str,
+}
+
+fn codex_failure_diagnostic_note(diagnostic: CodexFailureDiagnostic<'_>) -> String {
+    match save_codex_failure_diagnostic(diagnostic) {
+        Ok(path) => format!(" Diagnostic written to {}.", path.display()),
+        Err(error) => format!(" Failed to write diagnostic: {}.", error),
+    }
+}
+
+fn save_codex_failure_diagnostic(
+    diagnostic: CodexFailureDiagnostic<'_>,
+) -> Result<std::path::PathBuf> {
+    let data_paths = crate::common::fs::DataPaths::new()?;
+    save_codex_failure_diagnostic_in(&data_paths.root_directory, diagnostic)
+}
+
+fn save_codex_failure_diagnostic_in(
+    root_directory: &std::path::Path,
+    diagnostic: CodexFailureDiagnostic<'_>,
+) -> Result<std::path::PathBuf> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("Failed to read system time.")?
+        .as_secs();
+    let directory = root_directory
+        .join("diagnostics")
+        .join("agent-failures")
+        .join(format!(
+            "{}-{}",
+            timestamp,
+            uuid::Uuid::new_v4().to_simple()
+        ));
+    std::fs::create_dir_all(&directory).with_context(|| {
+        format!(
+            "Failed to create diagnostic directory {}",
+            directory.display()
+        )
+    })?;
+
+    let metadata = format!(
+        "agent: codex\nphase: {}\nstatus: {}\ncommand: {}\nworkspace: {}\n",
+        diagnostic.phase,
+        diagnostic.status.as_deref().unwrap_or("success"),
+        diagnostic.command_log,
+        diagnostic.workspace_path.display()
+    );
+    write_diagnostic_file(&directory, "metadata.txt", &metadata)?;
+    write_diagnostic_file(&directory, "prompt.txt", diagnostic.prompt)?;
+    write_diagnostic_file(&directory, "stdout.txt", diagnostic.stdout)?;
+    write_diagnostic_file(&directory, "stderr.txt", diagnostic.stderr)?;
+    write_diagnostic_file(
+        &directory,
+        "output-last-message.txt",
+        diagnostic.output_payload,
+    )?;
+    Ok(directory)
+}
+
+fn write_diagnostic_file(
+    directory: &std::path::Path,
+    file_name: &str,
+    contents: &str,
+) -> Result<()> {
+    let path = directory.join(file_name);
+    std::fs::write(&path, contents)
+        .with_context(|| format!("Failed to write diagnostic file {}", path.display()))
 }
 
 fn apply_codex_args(
@@ -896,8 +997,8 @@ mod tests {
     use super::{
         apply_claude_args, apply_claude_environment_from, apply_codex_args,
         apply_codex_environment_from, build_agent_log, build_prompt, recorded_codex_model,
-        review_strategy, truncate_for_log, AgentKind, CLAUDE_PERMISSION_MODE,
-        CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
+        review_strategy, save_codex_failure_diagnostic_in, truncate_for_log, AgentKind,
+        CodexFailureDiagnostic, CLAUDE_PERMISSION_MODE, CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
     };
 
     #[test]
@@ -948,6 +1049,47 @@ mod tests {
             truncate_for_log("\u{05d0}\u{05d1}\u{05d2}", 3),
             "\u{05d0}\u{05d1}\u{05d2}"
         );
+    }
+
+    #[test]
+    fn save_codex_failure_diagnostic_writes_outputs() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let diagnostic_path = save_codex_failure_diagnostic_in(
+            temp.path(),
+            CodexFailureDiagnostic {
+                phase: "parse-output",
+                status: None,
+                command_log: "codex exec --sandbox read-only",
+                workspace_path: std::path::Path::new("/tmp/workspace"),
+                prompt: "review this file",
+                stdout: "stdout payload",
+                stderr: "stderr payload",
+                output_payload: "last message payload",
+            },
+        )?;
+
+        assert!(diagnostic_path.starts_with(temp.path()));
+        assert_eq!(
+            std::fs::read_to_string(diagnostic_path.join("stdout.txt"))?,
+            "stdout payload"
+        );
+        assert_eq!(
+            std::fs::read_to_string(diagnostic_path.join("stderr.txt"))?,
+            "stderr payload"
+        );
+        assert_eq!(
+            std::fs::read_to_string(diagnostic_path.join("output-last-message.txt"))?,
+            "last message payload"
+        );
+        assert_eq!(
+            std::fs::read_to_string(diagnostic_path.join("prompt.txt"))?,
+            "review this file"
+        );
+        let metadata = std::fs::read_to_string(diagnostic_path.join("metadata.txt"))?;
+        assert!(metadata.contains("phase: parse-output"));
+        assert!(metadata.contains("status: success"));
+        assert!(metadata.contains("workspace: /tmp/workspace"));
+        Ok(())
     }
 
     #[test]
