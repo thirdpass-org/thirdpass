@@ -253,6 +253,7 @@ impl DependencyReviewFixture {
                     agent_summary: None,
                     security_summary: Some(review::SecuritySummary::None),
                     confidence: None,
+                    agent_run_metrics: None,
                     comments: std::collections::BTreeSet::new(),
                 })
             })

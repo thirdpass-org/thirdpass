@@ -516,6 +516,7 @@ pub(crate) fn run_command_with_result(
                 agent_summary: file_agent_summary,
                 security_summary: Some(security_summary),
                 confidence: file_confidence,
+                agent_run_metrics: agent_run.run_metrics,
                 comments,
             });
         }
@@ -823,6 +824,7 @@ fn build_targets_from_comments(
             agent_summary: None,
             security_summary: Some(review::security_summary_for_comments(&comments)),
             confidence: None,
+            agent_run_metrics: None,
             comments,
         });
     }
@@ -835,6 +837,7 @@ fn build_targets_from_comments(
             agent_summary: None,
             security_summary: Some(security_summary),
             confidence: None,
+            agent_run_metrics: None,
             comments,
         }
     }));

@@ -38,8 +38,48 @@ pub struct ReviewFile {
     /// Agent confidence for this individual file review.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<ReviewConfidence>,
+    /// Reviewer-reported metrics for the agent invocation that reviewed this file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_run_metrics: Option<AgentRunMetrics>,
     /// Specific comments reported for the reviewed file.
     pub comments: Vec<ReviewComment>,
+}
+
+/// Reviewer-reported runtime and token metrics for one agent invocation.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct AgentRunMetrics {
+    /// Wall-clock duration for the agent invocation.
+    pub duration_ms: u64,
+    /// Unix timestamp in milliseconds when the invocation started.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at_unix_ms: Option<u64>,
+    /// Unix timestamp in milliseconds when the invocation completed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at_unix_ms: Option<u64>,
+    /// Cumulative token usage for the full invocation, when reported by the agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_token_usage: Option<AgentTokenUsage>,
+    /// Token usage for the final model turn, when reported by the agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_token_usage: Option<AgentTokenUsage>,
+    /// Model context window reported by the agent, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_context_window: Option<u64>,
+}
+
+/// Token counters reported by an agent invocation.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct AgentTokenUsage {
+    /// Input tokens sent to the model.
+    pub input_tokens: u64,
+    /// Input tokens served from cache.
+    pub cached_input_tokens: u64,
+    /// Output tokens produced by the model.
+    pub output_tokens: u64,
+    /// Output tokens used for model reasoning.
+    pub reasoning_output_tokens: u64,
+    /// Total tokens reported for this usage record.
+    pub total_tokens: u64,
 }
 
 /// File inventory for a package archive.
@@ -403,6 +443,26 @@ mod tests {
             summary: Some("Reviewed the entrypoint.".to_string()),
             security_summary: Some(SecuritySummary::Low),
             confidence: Some(ReviewConfidence::High),
+            agent_run_metrics: Some(AgentRunMetrics {
+                duration_ms: 1_234,
+                started_at_unix_ms: Some(1_800_000_000_000),
+                finished_at_unix_ms: Some(1_800_000_001_234),
+                total_token_usage: Some(AgentTokenUsage {
+                    input_tokens: 100,
+                    cached_input_tokens: 80,
+                    output_tokens: 20,
+                    reasoning_output_tokens: 5,
+                    total_tokens: 120,
+                }),
+                last_token_usage: Some(AgentTokenUsage {
+                    input_tokens: 40,
+                    cached_input_tokens: 30,
+                    output_tokens: 10,
+                    reasoning_output_tokens: 2,
+                    total_tokens: 50,
+                }),
+                model_context_window: Some(258_400),
+            }),
             comments: vec![],
         };
 
@@ -419,6 +479,26 @@ mod tests {
                 "summary": "Reviewed the entrypoint.",
                 "security_summary": "low",
                 "confidence": "high",
+                "agent_run_metrics": {
+                    "duration_ms": 1234,
+                    "started_at_unix_ms": 1800000000000u64,
+                    "finished_at_unix_ms": 1800000001234u64,
+                    "total_token_usage": {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 80,
+                        "output_tokens": 20,
+                        "reasoning_output_tokens": 5,
+                        "total_tokens": 120
+                    },
+                    "last_token_usage": {
+                        "input_tokens": 40,
+                        "cached_input_tokens": 30,
+                        "output_tokens": 10,
+                        "reasoning_output_tokens": 2,
+                        "total_tokens": 50
+                    },
+                    "model_context_window": 258400
+                },
                 "comments": []
             })
         );
@@ -436,6 +516,7 @@ mod tests {
         assert_eq!(file.summary, None);
         assert_eq!(file.security_summary, None);
         assert_eq!(file.confidence, None);
+        assert_eq!(file.agent_run_metrics, None);
     }
 
     #[test]

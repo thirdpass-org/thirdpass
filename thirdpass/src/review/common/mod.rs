@@ -15,6 +15,8 @@ pub struct ReviewTarget {
     pub security_summary: Option<SecuritySummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<ReviewConfidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_run_metrics: Option<thirdpass_core::schema::AgentRunMetrics>,
     pub comments: std::collections::BTreeSet<crate::review::comment::Comment>,
 }
 

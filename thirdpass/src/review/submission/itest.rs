@@ -122,6 +122,7 @@ impl RealServerHarness {
             agent_summary: Some("Fixture target summary.".to_string()),
             security_summary: Some(review::SecuritySummary::Medium),
             confidence: None,
+            agent_run_metrics: None,
             comments,
         }];
 

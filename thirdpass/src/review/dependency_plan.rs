@@ -936,6 +936,7 @@ mod tests {
                 agent_summary: None,
                 security_summary: Some(crate::review::SecuritySummary::None),
                 confidence: None,
+                agent_run_metrics: None,
                 comments: BTreeSet::new(),
             }],
             reviewer_details: crate::review::ReviewerDetails {

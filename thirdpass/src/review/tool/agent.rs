@@ -2,6 +2,7 @@ use anyhow::{format_err, Context, Result};
 use dialoguer::Input;
 use serde::Deserialize;
 use serde_json::Value;
+use std::convert::TryFrom;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -97,6 +98,7 @@ pub struct AgentRunResult {
     pub comments: Vec<Comment>,
     pub summary: Option<String>,
     pub confidence: Option<ReviewConfidence>,
+    pub run_metrics: Option<thirdpass_core::schema::AgentRunMetrics>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -299,6 +301,7 @@ pub fn run(
             }
         }),
         confidence: output.confidence,
+        run_metrics: None,
     })
 }
 
@@ -326,6 +329,8 @@ fn run_codex_exec(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    let started_at_unix_ms = unix_time_ms().ok();
+    let started_at = std::time::Instant::now();
     let mut child = cmd
         .spawn()
         .map_err(|err| format_err!("Failed to start codex: {}", err))?;
@@ -338,8 +343,16 @@ fn run_codex_exec(
     drop(stdin);
 
     let output = child.wait_with_output()?;
+    let duration_ms = duration_millis_u64(started_at.elapsed());
+    let finished_at_unix_ms = unix_time_ms().ok();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let stdout_raw = String::from_utf8_lossy(&output.stdout);
+    let run_metrics = codex_run_metrics(
+        stdout_raw.as_ref(),
+        duration_ms,
+        started_at_unix_ms,
+        finished_at_unix_ms,
+    );
 
     if !output.status.success() {
         let output_payload = std::fs::read_to_string(&output_path).unwrap_or_default();
@@ -422,6 +435,7 @@ fn run_codex_exec(
             }
         }),
         confidence: output.confidence,
+        run_metrics: Some(run_metrics),
     })
 }
 
@@ -441,6 +455,85 @@ fn truncate_for_log(value: &str, max_len: usize) -> String {
     }
     truncated.push_str("…<truncated>");
     truncated
+}
+
+fn codex_run_metrics(
+    stdout_jsonl: &str,
+    duration_ms: u64,
+    started_at_unix_ms: Option<u64>,
+    finished_at_unix_ms: Option<u64>,
+) -> thirdpass_core::schema::AgentRunMetrics {
+    let token_info = parse_codex_token_info(stdout_jsonl);
+    thirdpass_core::schema::AgentRunMetrics {
+        duration_ms,
+        started_at_unix_ms,
+        finished_at_unix_ms,
+        total_token_usage: token_info
+            .as_ref()
+            .and_then(|info| info.total_token_usage.clone()),
+        last_token_usage: token_info
+            .as_ref()
+            .and_then(|info| info.last_token_usage.clone()),
+        model_context_window: token_info.and_then(|info| info.model_context_window),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexJsonEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    payload: Option<CodexJsonPayload>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexJsonPayload {
+    #[serde(rename = "type")]
+    payload_type: Option<String>,
+    info: Option<CodexTokenInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CodexTokenInfo {
+    total_token_usage: Option<thirdpass_core::schema::AgentTokenUsage>,
+    last_token_usage: Option<thirdpass_core::schema::AgentTokenUsage>,
+    model_context_window: Option<u64>,
+}
+
+fn parse_codex_token_info(stdout_jsonl: &str) -> Option<CodexTokenInfo> {
+    let mut last = None;
+    for line in stdout_jsonl
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let Ok(event) = serde_json::from_str::<CodexJsonEvent>(line) else {
+            continue;
+        };
+        if event.event_type != "event_msg" {
+            continue;
+        }
+        let Some(payload) = event.payload else {
+            continue;
+        };
+        if payload.payload_type.as_deref() != Some("token_count") {
+            continue;
+        }
+        if let Some(info) = payload.info {
+            last = Some(info);
+        }
+    }
+    last
+}
+
+fn unix_time_ms() -> Result<u64> {
+    let duration = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("Failed to read system time.")?;
+    u64::try_from(duration.as_millis()).map_err(|_| format_err!("System time overflowed u64."))
+}
+
+fn duration_millis_u64(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 struct CodexFailureDiagnostic<'a> {
@@ -616,6 +709,7 @@ fn apply_codex_exec_args(
     cmd.arg("--ignore-rules");
     cmd.arg("--ephemeral");
     cmd.arg("--skip-git-repo-check");
+    cmd.arg("--json");
     cmd.arg("--output-last-message");
     cmd.arg(output_path);
 }
@@ -642,6 +736,7 @@ fn build_agent_log(
         parts.push(CODEX_SANDBOX_MODE.to_string());
         parts.push("--ignore-rules".to_string());
         parts.push("--ephemeral".to_string());
+        parts.push("--json".to_string());
     } else if agent == AgentKind::Claude {
         parts.push("-p".to_string());
         parts.push("--input-format".to_string());
@@ -996,9 +1091,10 @@ fn parse_selection(entry: &Value) -> Option<Selection> {
 mod tests {
     use super::{
         apply_claude_args, apply_claude_environment_from, apply_codex_args,
-        apply_codex_environment_from, build_agent_log, build_prompt, recorded_codex_model,
-        review_strategy, save_codex_failure_diagnostic_in, truncate_for_log, AgentKind,
-        CodexFailureDiagnostic, CLAUDE_PERMISSION_MODE, CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
+        apply_codex_environment_from, build_agent_log, build_prompt, codex_run_metrics,
+        parse_codex_token_info, recorded_codex_model, review_strategy,
+        save_codex_failure_diagnostic_in, truncate_for_log, AgentKind, CodexFailureDiagnostic,
+        CLAUDE_PERMISSION_MODE, CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
     };
 
     #[test]
@@ -1093,6 +1189,48 @@ mod tests {
     }
 
     #[test]
+    fn parse_codex_token_info_reads_last_non_null_token_count() {
+        let stdout = r#"{"type":"event_msg","payload":{"type":"token_count","info":null}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":2,"reasoning_output_tokens":1,"total_tokens":12},"last_token_usage":{"input_tokens":10,"cached_input_tokens":4,"output_tokens":2,"reasoning_output_tokens":1,"total_tokens":12},"model_context_window":1000}}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":20,"cached_input_tokens":8,"output_tokens":3,"reasoning_output_tokens":2,"total_tokens":23},"last_token_usage":{"input_tokens":5,"cached_input_tokens":2,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":6},"model_context_window":2000}}}"#;
+
+        let info = parse_codex_token_info(stdout).expect("expected token info");
+
+        assert_eq!(info.model_context_window, Some(2000));
+        assert_eq!(
+            info.total_token_usage
+                .expect("expected total usage")
+                .total_tokens,
+            23
+        );
+        assert_eq!(
+            info.last_token_usage
+                .expect("expected last usage")
+                .input_tokens,
+            5
+        );
+    }
+
+    #[test]
+    fn codex_run_metrics_combines_timing_and_token_usage() {
+        let stdout = r#"{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":20,"cached_input_tokens":8,"output_tokens":3,"reasoning_output_tokens":2,"total_tokens":23},"last_token_usage":{"input_tokens":5,"cached_input_tokens":2,"output_tokens":1,"reasoning_output_tokens":0,"total_tokens":6},"model_context_window":2000}}}"#;
+
+        let metrics = codex_run_metrics(stdout, 123, Some(1000), Some(1123));
+
+        assert_eq!(metrics.duration_ms, 123);
+        assert_eq!(metrics.started_at_unix_ms, Some(1000));
+        assert_eq!(metrics.finished_at_unix_ms, Some(1123));
+        assert_eq!(metrics.model_context_window, Some(2000));
+        assert_eq!(
+            metrics
+                .total_token_usage
+                .expect("expected total usage")
+                .cached_input_tokens,
+            8
+        );
+    }
+
+    #[test]
     fn codex_args_force_review_isolation() {
         let mut cmd = std::process::Command::new("codex");
         apply_codex_args(
@@ -1116,13 +1254,14 @@ mod tests {
             .any(|window| window == ["--sandbox", CODEX_SANDBOX_MODE]));
         assert!(args.iter().any(|arg| arg == "--ignore-rules"));
         assert!(args.iter().any(|arg| arg == "--ephemeral"));
+        assert!(args.iter().any(|arg| arg == "--json"));
         assert!(
             build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
                 .contains("--ask-for-approval never exec")
         );
         assert!(
             build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
-                .contains("--sandbox read-only --ignore-rules --ephemeral")
+                .contains("--sandbox read-only --ignore-rules --ephemeral --json")
         );
     }
 

@@ -379,6 +379,7 @@ fn store_record(
                 summary,
                 security_summary,
                 confidence,
+                agent_run_metrics,
                 comments,
             } = file;
             let comments = comments
@@ -391,6 +392,7 @@ fn store_record(
                 agent_summary: summary,
                 security_summary,
                 confidence,
+                agent_run_metrics,
                 comments,
             }
         })
@@ -420,6 +422,7 @@ fn to_api_review_files(targets: &[review::ReviewTarget]) -> Vec<api::ReviewFile>
             summary: target.agent_summary.clone(),
             security_summary: target.security_summary,
             confidence: target.confidence,
+            agent_run_metrics: target.agent_run_metrics.clone(),
             comments: target
                 .comments
                 .iter()
@@ -494,6 +497,7 @@ mod tests {
             agent_summary: Some("Reviewed the file.".to_string()),
             security_summary: Some(api::SecuritySummary::Low),
             confidence: Some(api::ReviewConfidence::High),
+            agent_run_metrics: None,
             comments: std::collections::BTreeSet::new(),
         }];
 
