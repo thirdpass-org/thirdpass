@@ -58,6 +58,9 @@ const CLAUDE_ALLOWED_ENV: &[&str] = &[
 ];
 const CLAUDE_PERMISSION_MODE: &str = "dontAsk";
 const REVIEW_STRATEGY: &str = "package-release/v1";
+const CODEX_MAX_ATTEMPTS: u64 = 4;
+const CODEX_RETRY_BACKOFF_MS: &[u64] = &[15_000, 45_000, 120_000];
+const CODEX_RETRY_JITTER_MS: u64 = 1_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentKind {
@@ -311,6 +314,61 @@ fn run_codex_exec(
     agent_model: Option<&str>,
     agent_reasoning_effort: Option<&str>,
 ) -> Result<AgentRunResult> {
+    let mut retry_metrics = CodexRetryMetrics::default();
+    for attempt in 1..=CODEX_MAX_ATTEMPTS {
+        let attempt_started_at = std::time::Instant::now();
+        match run_codex_exec_once(workspace_path, prompt, agent_model, agent_reasoning_effort) {
+            Ok(mut result) => {
+                if let Some(metrics) = result.run_metrics.as_mut() {
+                    metrics.attempts = attempt;
+                    metrics.failed_attempt_duration_ms = retry_metrics.failed_attempt_duration_ms;
+                    metrics.retry_wait_ms = retry_metrics.retry_wait_ms;
+                    metrics.retry_reasons = retry_metrics.retry_reasons;
+                }
+                return Ok(result);
+            }
+            Err(error) => {
+                let failed_duration_ms = duration_millis_u64(attempt_started_at.elapsed());
+                let error_message = error.to_string();
+                let Some(reason) = retryable_codex_failure_reason(&error_message) else {
+                    return Err(error);
+                };
+                if attempt == CODEX_MAX_ATTEMPTS {
+                    return Err(error);
+                }
+                retry_metrics.failed_attempt_duration_ms = retry_metrics
+                    .failed_attempt_duration_ms
+                    .saturating_add(failed_duration_ms);
+                retry_metrics.retry_reasons.push(reason.clone());
+                let wait_ms = codex_retry_delay_ms(attempt);
+                retry_metrics.retry_wait_ms = retry_metrics.retry_wait_ms.saturating_add(wait_ms);
+                println!(
+                    "Codex transient failure: {}; retrying in {:.1}s (attempt {}/{})",
+                    reason,
+                    wait_ms as f64 / 1000.0,
+                    attempt + 1,
+                    CODEX_MAX_ATTEMPTS
+                );
+                std::thread::sleep(std::time::Duration::from_millis(wait_ms));
+            }
+        }
+    }
+    Err(format_err!("codex retry loop exited unexpectedly"))
+}
+
+#[derive(Debug, Default)]
+struct CodexRetryMetrics {
+    failed_attempt_duration_ms: u64,
+    retry_wait_ms: u64,
+    retry_reasons: Vec<String>,
+}
+
+fn run_codex_exec_once(
+    workspace_path: &std::path::PathBuf,
+    prompt: &str,
+    agent_model: Option<&str>,
+    agent_reasoning_effort: Option<&str>,
+) -> Result<AgentRunResult> {
     let command_log = build_agent_log(AgentKind::Codex, agent_model, agent_reasoning_effort);
     log::debug!(
         "Launching agent: {} (cwd: {})",
@@ -439,6 +497,71 @@ fn run_codex_exec(
     })
 }
 
+fn retryable_codex_failure_reason(message: &str) -> Option<String> {
+    let message = message.trim();
+    let lower = message.to_ascii_lowercase();
+    if !(lower.starts_with("codex exited")
+        || lower.contains("turn.failed")
+        || lower.contains("\"type\":\"error\"")
+        || lower.contains("response stream")
+        || lower.contains("connection failed")
+        || lower.contains("timed out")
+        || lower.contains("timeout"))
+    {
+        return None;
+    }
+
+    let retryable_patterns = [
+        (
+            "selected model is at capacity",
+            "selected model is at capacity",
+        ),
+        ("at capacity", "selected model is at capacity"),
+        ("rate limit", "rate limit"),
+        ("server overloaded", "server overloaded"),
+        ("overloaded", "server overloaded"),
+        ("temporarily unavailable", "temporarily unavailable"),
+        ("http connection failed", "http connection failed"),
+        ("connection failed", "connection failed"),
+        (
+            "response stream disconnected",
+            "response stream disconnected",
+        ),
+        (
+            "response stream connection failed",
+            "response stream connection failed",
+        ),
+        ("timed out", "timeout"),
+        ("timeout", "timeout"),
+    ];
+
+    retryable_patterns
+        .iter()
+        .find(|(pattern, _)| lower.contains(pattern))
+        .map(|(_, reason)| reason.to_string())
+}
+
+fn codex_retry_delay_ms(failed_attempt: u64) -> u64 {
+    base_codex_retry_delay_ms(failed_attempt).saturating_add(codex_retry_jitter_ms())
+}
+
+fn base_codex_retry_delay_ms(failed_attempt: u64) -> u64 {
+    CODEX_RETRY_BACKOFF_MS
+        .get(failed_attempt.saturating_sub(1) as usize)
+        .copied()
+        .unwrap_or_else(|| *CODEX_RETRY_BACKOFF_MS.last().unwrap_or(&120_000))
+}
+
+fn codex_retry_jitter_ms() -> u64 {
+    if CODEX_RETRY_JITTER_MS == 0 {
+        return 0;
+    }
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| u64::from(duration.subsec_nanos()) % CODEX_RETRY_JITTER_MS)
+        .unwrap_or(0)
+}
+
 fn recorded_codex_model(requested_model: Option<&str>, reported_model: String) -> String {
     requested_model
         .map(str::trim)
@@ -466,6 +589,7 @@ fn codex_run_metrics(
     let token_info = parse_codex_token_info(stdout_jsonl);
     thirdpass_core::schema::AgentRunMetrics {
         duration_ms,
+        attempts: 1,
         started_at_unix_ms,
         finished_at_unix_ms,
         total_token_usage: token_info
@@ -475,6 +599,9 @@ fn codex_run_metrics(
             .as_ref()
             .and_then(|info| info.last_token_usage.clone()),
         model_context_window: token_info.and_then(|info| info.model_context_window),
+        failed_attempt_duration_ms: 0,
+        retry_wait_ms: 0,
+        retry_reasons: Vec::new(),
     }
 }
 
@@ -1125,10 +1252,11 @@ fn parse_selection(entry: &Value) -> Option<Selection> {
 mod tests {
     use super::{
         apply_claude_args, apply_claude_environment_from, apply_codex_args,
-        apply_codex_environment_from, build_agent_log, build_prompt, codex_run_metrics,
-        parse_codex_token_info, recorded_codex_model, review_strategy,
-        save_codex_failure_diagnostic_in, truncate_for_log, AgentKind, CodexFailureDiagnostic,
-        CLAUDE_PERMISSION_MODE, CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
+        apply_codex_environment_from, base_codex_retry_delay_ms, build_agent_log, build_prompt,
+        codex_run_metrics, parse_codex_token_info, recorded_codex_model,
+        retryable_codex_failure_reason, review_strategy, save_codex_failure_diagnostic_in,
+        truncate_for_log, AgentKind, CodexFailureDiagnostic, CLAUDE_PERMISSION_MODE,
+        CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
     };
 
     #[test]
@@ -1272,9 +1400,13 @@ mod tests {
         let metrics = codex_run_metrics(stdout, 123, Some(1000), Some(1123));
 
         assert_eq!(metrics.duration_ms, 123);
+        assert_eq!(metrics.attempts, 1);
         assert_eq!(metrics.started_at_unix_ms, Some(1000));
         assert_eq!(metrics.finished_at_unix_ms, Some(1123));
         assert_eq!(metrics.model_context_window, Some(2000));
+        assert_eq!(metrics.failed_attempt_duration_ms, 0);
+        assert_eq!(metrics.retry_wait_ms, 0);
+        assert!(metrics.retry_reasons.is_empty());
         assert_eq!(
             metrics
                 .total_token_usage
@@ -1282,6 +1414,34 @@ mod tests {
                 .cached_input_tokens,
             8
         );
+    }
+
+    #[test]
+    fn retryable_codex_failure_reason_detects_capacity_errors() {
+        let message = r#"codex exited with status exit status: 1. stderr: <empty> stdout: {"type":"thread.started","thread_id":"019f1402-16a8-7ad3-bef0-ab3aa1bd9259"}
+{"type":"turn.started"}
+{"type":"error","message":"Selected model is at capacity. Please try a different model."}
+{"type":"turn.failed","error":{"message":"Selected model is at capacity. Please try a different model."}}"#;
+
+        assert_eq!(
+            retryable_codex_failure_reason(message).as_deref(),
+            Some("selected model is at capacity")
+        );
+    }
+
+    #[test]
+    fn retryable_codex_failure_reason_ignores_unknown_exit_errors() {
+        let message = "codex exited with status exit status: 1. stderr: invalid option";
+
+        assert_eq!(retryable_codex_failure_reason(message), None);
+    }
+
+    #[test]
+    fn base_codex_retry_delay_uses_bounded_backoff() {
+        assert_eq!(base_codex_retry_delay_ms(1), 15_000);
+        assert_eq!(base_codex_retry_delay_ms(2), 45_000);
+        assert_eq!(base_codex_retry_delay_ms(3), 120_000);
+        assert_eq!(base_codex_retry_delay_ms(10), 120_000);
     }
 
     #[test]

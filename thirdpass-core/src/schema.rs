@@ -50,6 +50,9 @@ pub struct ReviewFile {
 pub struct AgentRunMetrics {
     /// Wall-clock duration for the agent invocation.
     pub duration_ms: u64,
+    /// Total agent invocation attempts needed to produce this review.
+    #[serde(default = "default_agent_run_attempts")]
+    pub attempts: u64,
     /// Unix timestamp in milliseconds when the invocation started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at_unix_ms: Option<u64>,
@@ -65,6 +68,23 @@ pub struct AgentRunMetrics {
     /// Model context window reported by the agent, when available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_context_window: Option<u64>,
+    /// Wall-clock duration spent in failed attempts before the successful attempt.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub failed_attempt_duration_ms: u64,
+    /// Wall-clock duration spent waiting before retry attempts.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub retry_wait_ms: u64,
+    /// Retryable failure reasons observed before the successful attempt.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retry_reasons: Vec<String>,
+}
+
+fn default_agent_run_attempts() -> u64 {
+    1
+}
+
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
 }
 
 /// Token counters reported by an agent invocation.
@@ -445,6 +465,7 @@ mod tests {
             confidence: Some(ReviewConfidence::High),
             agent_run_metrics: Some(AgentRunMetrics {
                 duration_ms: 1_234,
+                attempts: 3,
                 started_at_unix_ms: Some(1_800_000_000_000),
                 finished_at_unix_ms: Some(1_800_000_001_234),
                 total_token_usage: Some(AgentTokenUsage {
@@ -462,6 +483,12 @@ mod tests {
                     total_tokens: 50,
                 }),
                 model_context_window: Some(258_400),
+                failed_attempt_duration_ms: 4_000,
+                retry_wait_ms: 60_000,
+                retry_reasons: vec![
+                    "selected model is at capacity".to_string(),
+                    "response stream disconnected".to_string(),
+                ],
             }),
             comments: vec![],
         };
@@ -481,6 +508,7 @@ mod tests {
                 "confidence": "high",
                 "agent_run_metrics": {
                     "duration_ms": 1234,
+                    "attempts": 3,
                     "started_at_unix_ms": 1800000000000u64,
                     "finished_at_unix_ms": 1800000001234u64,
                     "total_token_usage": {
@@ -497,7 +525,13 @@ mod tests {
                         "reasoning_output_tokens": 2,
                         "total_tokens": 50
                     },
-                    "model_context_window": 258400
+                    "model_context_window": 258400,
+                    "failed_attempt_duration_ms": 4000,
+                    "retry_wait_ms": 60000,
+                    "retry_reasons": [
+                        "selected model is at capacity",
+                        "response stream disconnected"
+                    ]
                 },
                 "comments": []
             })
@@ -517,6 +551,24 @@ mod tests {
         assert_eq!(file.security_summary, None);
         assert_eq!(file.confidence, None);
         assert_eq!(file.agent_run_metrics, None);
+    }
+
+    #[test]
+    fn agent_run_metrics_defaults_missing_retry_metadata() {
+        let file: ReviewFile = serde_json::from_value(json!({
+            "file_path": "src/index.js",
+            "agent_run_metrics": {
+                "duration_ms": 1234
+            },
+            "comments": []
+        }))
+        .expect("failed to deserialize review file");
+
+        let metrics = file.agent_run_metrics.expect("expected agent run metrics");
+        assert_eq!(metrics.attempts, 1);
+        assert_eq!(metrics.failed_attempt_duration_ms, 0);
+        assert_eq!(metrics.retry_wait_ms, 0);
+        assert!(metrics.retry_reasons.is_empty());
     }
 
     #[test]
