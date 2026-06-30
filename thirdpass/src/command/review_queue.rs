@@ -5,6 +5,7 @@ use structopt::{self, StructOpt};
 use super::review as review_command;
 use crate::common;
 use crate::extension;
+use crate::review;
 
 const PACKAGE_NAME_COLUMN: &str = "package_name";
 const PACKAGE_VERSION_COLUMN: &str = "package_version";
@@ -14,7 +15,7 @@ const PACKAGE_VERSION_COLUMN: &str = "package_version";
     name = "no_version",
     no_version,
     global_settings = &[structopt::clap::AppSettings::DisableVersion],
-    about = "Review package-version rows from a CSV queue locally."
+    about = "Review package-version rows from a CSV queue."
 )]
 pub struct Arguments {
     /// CSV file containing package_name and package_version columns.
@@ -29,6 +30,10 @@ pub struct Arguments {
     /// Print remaining queue rows without running reviews.
     #[structopt(long = "plan-only")]
     pub plan_only: bool,
+
+    /// Save reviews locally without submitting them.
+    #[structopt(long = "local-only")]
+    pub local_only: bool,
 
     /// Select review agent (`codex` or `claude`). Persists as default.
     #[structopt(long = "agent", value_name = "agent")]
@@ -50,12 +55,25 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     extension::manage::update_config(&mut config)?;
     let extension_names =
         extension::manage::handle_extension_names_arg(&args.extension_names, &config)?;
+    let submitter = if args.local_only || args.plan_only {
+        None
+    } else {
+        Some(review::submission::Submitter::start_without_pending_scan()?)
+    };
     let queue = read_queue(&args.csv_path)?;
     println!("Queue rows: {}", queue.len());
 
     let mut reviewed_now = 0usize;
     let mut completed_rows = 0usize;
+    let mut queued_submissions = 0usize;
+    let mut submission_tickets = Vec::new();
     for row in queue {
+        let pending_before_row = if submitter.is_some() {
+            pending_review_paths_for_row(&row, &config)?
+        } else {
+            Vec::new()
+        };
+
         loop {
             let batch = review_command::local_package_review_batch(
                 &row.package_name,
@@ -74,6 +92,22 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                     status.reviewed_file_count,
                     status.reviewable_file_count
                 );
+                if let Some(submitter) = submitter.as_ref() {
+                    let queued = queue_pending_paths_for_submission(
+                        submitter,
+                        &pending_before_row,
+                        &mut submission_tickets,
+                    );
+                    if queued > 0 {
+                        println!(
+                            "Queued {} pending review submission{} for row {}.",
+                            queued,
+                            plural_suffix(queued),
+                            row.row_number
+                        );
+                    }
+                    queued_submissions += queued;
+                }
                 break;
             }
 
@@ -118,18 +152,69 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                 agent_model: args.agent_model.clone(),
                 agent_reasoning_effort: args.agent_reasoning_effort.clone(),
                 submit_existing: false,
-                local_only: true,
+                local_only: args.local_only,
             };
-            review_command::run_command_with_result(&review_args, None)?;
+            let mut result =
+                review_command::run_command_with_result(&review_args, submitter.as_ref())?;
+            if let Some(ticket) = result.submission.take() {
+                submission_tickets.push(ticket);
+                queued_submissions += 1;
+            }
             reviewed_now += 1;
         }
     }
 
+    let submission_summary = review::submission::wait_for_submissions(submission_tickets)?;
+
     println!(
-        "Review queue complete: {} reviews run, {} rows complete.",
-        reviewed_now, completed_rows
+        "Review queue complete: {} reviews run, {} submission{} queued, {} submitted, {} pending, {} rows complete.",
+        reviewed_now,
+        queued_submissions,
+        plural_suffix(queued_submissions),
+        submission_summary.submitted,
+        submission_summary.failed,
+        completed_rows
     );
     Ok(())
+}
+
+fn pending_review_paths_for_row(
+    row: &QueueRow,
+    config: &common::config::Config,
+) -> Result<Vec<PathBuf>> {
+    let mut pending = review::fs::list_with_status()?
+        .into_iter()
+        .filter(|stored| stored.status == review::fs::ReviewStorageStatus::Pending)
+        .filter(|stored| review_matches_row(&stored.review, row, &config.core.public_user_id))
+        .map(|stored| stored.path)
+        .collect::<Vec<_>>();
+    pending.sort();
+    Ok(pending)
+}
+
+fn review_matches_row(review: &review::Review, row: &QueueRow, public_user_id: &str) -> bool {
+    review.package.name == row.package_name
+        && review.package.version == row.package_version
+        && review_matches_public_user(review, public_user_id)
+}
+
+fn review_matches_public_user(review: &review::Review, public_user_id: &str) -> bool {
+    let review_public_user = review.reviewer_details.public_user_id.as_str();
+    if public_user_id.is_empty() {
+        return review_public_user.is_empty();
+    }
+    review_public_user.is_empty() || review_public_user == public_user_id
+}
+
+fn queue_pending_paths_for_submission(
+    submitter: &review::submission::Submitter,
+    pending_paths: &[PathBuf],
+    submission_tickets: &mut Vec<review::submission::Ticket>,
+) -> usize {
+    for path in pending_paths {
+        submission_tickets.push(submitter.submit_pending_path(path.clone()));
+    }
+    pending_paths.len()
 }
 
 fn format_target_files(target_files: &[String]) -> String {
@@ -137,6 +222,14 @@ fn format_target_files(target_files: &[String]) -> String {
         return "no files".to_string();
     }
     target_files.join(", ")
+}
+
+fn plural_suffix(count: usize) -> &'static str {
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

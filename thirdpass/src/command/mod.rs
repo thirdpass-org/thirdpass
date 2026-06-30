@@ -102,7 +102,7 @@ pub enum Command {
     #[structopt(name = "review-deps")]
     ReviewDeps(review_deps::Arguments),
 
-    /// Review package-version rows from a CSV queue locally.
+    /// Review package-version rows from a CSV queue.
     #[structopt(
         name = "review-queue",
         setting = structopt::clap::AppSettings::Hidden
@@ -338,6 +338,7 @@ mod tests {
                 "--extension",
                 "py",
                 "--plan-only",
+                "--local-only",
             ])
         });
 
@@ -348,6 +349,7 @@ mod tests {
                 assert_eq!(args.csv_path, std::path::PathBuf::from("queue.csv"));
                 assert_eq!(args.extension_names, Some(vec!["py".to_string()]));
                 assert!(args.plan_only);
+                assert!(args.local_only);
             }
             _ => panic!("Expected review-queue command."),
         }
@@ -363,6 +365,7 @@ mod tests {
             csv_path: std::path::PathBuf::from("queue.csv"),
             extension_names: Some(vec!["py".to_string()]),
             plan_only: true,
+            local_only: false,
             agent: None,
             agent_model: None,
             agent_reasoning_effort: None,

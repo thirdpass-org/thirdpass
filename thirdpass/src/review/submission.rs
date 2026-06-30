@@ -55,6 +55,7 @@ pub(crate) struct WaitSummary {
 struct Worker {
     receiver: mpsc::Receiver<Job>,
     next_retry_at: BTreeMap<PathBuf, Instant>,
+    scan_pending_reviews: bool,
 }
 
 impl Worker {
@@ -62,7 +63,11 @@ impl Worker {
         loop {
             match self.receiver.recv_timeout(PENDING_REVIEW_SCAN_INTERVAL) {
                 Ok(job) => self.run_job(job),
-                Err(mpsc::RecvTimeoutError::Timeout) => self.scan_pending_reviews(),
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if self.scan_pending_reviews {
+                        self.scan_pending_reviews()
+                    }
+                }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
@@ -118,6 +123,7 @@ fn scan_pending_reviews_once_for_test(min_age: Duration) {
     let mut worker = Worker {
         receiver,
         next_retry_at: BTreeMap::new(),
+        scan_pending_reviews: true,
     };
     worker.scan_pending_reviews_older_than(min_age);
 }
@@ -125,6 +131,15 @@ fn scan_pending_reviews_once_for_test(min_age: Duration) {
 impl Submitter {
     /// Start a background submission worker for this command invocation.
     pub(crate) fn start() -> Result<Self> {
+        Self::start_with_pending_scan(true)
+    }
+
+    /// Start a background worker that only submits explicitly queued reviews.
+    pub(crate) fn start_without_pending_scan() -> Result<Self> {
+        Self::start_with_pending_scan(false)
+    }
+
+    fn start_with_pending_scan(scan_pending_reviews: bool) -> Result<Self> {
         let (sender, receiver) = mpsc::channel::<Job>();
         std::thread::Builder::new()
             .name("thirdpass-review-submitter".to_string())
@@ -132,6 +147,7 @@ impl Submitter {
                 Worker {
                     receiver,
                     next_retry_at: BTreeMap::new(),
+                    scan_pending_reviews,
                 }
                 .run();
             })
@@ -163,6 +179,37 @@ impl Submitter {
                 error: format!("submission worker is unavailable: {error}"),
             });
         }
+
+        Ticket {
+            package_label,
+            receiver,
+        }
+    }
+
+    /// Queue an already saved pending review for background submission.
+    pub(crate) fn submit_pending_path(&self, pending_path: PathBuf) -> Ticket {
+        let (result_tx, receiver) = mpsc::channel();
+        let job = pending_submission_job(&pending_path, Some(result_tx.clone()));
+        let package_label = match job {
+            Ok(job) => {
+                let package_label = package_target_label(&job.review);
+                if let Err(error) = self.sender.send(job) {
+                    let _ = result_tx.send(Status::Failed {
+                        package_label: package_label.clone(),
+                        error: format!("submission worker is unavailable: {error}"),
+                    });
+                }
+                package_label
+            }
+            Err(error) => {
+                let package_label = pending_path.display().to_string();
+                let _ = result_tx.send(Status::Failed {
+                    package_label: package_label.clone(),
+                    error: error.to_string(),
+                });
+                package_label
+            }
+        };
 
         Ticket {
             package_label,
@@ -228,6 +275,10 @@ fn submit_review_job(job: Job) -> Result<String> {
 }
 
 fn build_scanned_submission_job(path: &Path) -> Result<Job> {
+    pending_submission_job(path, None)
+}
+
+fn pending_submission_job(path: &Path, result_tx: Option<mpsc::Sender<Status>>) -> Result<Job> {
     let mut review = read_pending_review(path)?;
     review.overall_security_summary = review::overall_security_summary(&review)?;
     Ok(Job {
@@ -235,7 +286,7 @@ fn build_scanned_submission_job(path: &Path) -> Result<Job> {
         review,
         package_manifest: scanned_retry_package_manifest(),
         config: common::config::Config::load()?,
-        result_tx: None,
+        result_tx,
     })
 }
 
