@@ -58,7 +58,6 @@ const CLAUDE_ALLOWED_ENV: &[&str] = &[
 ];
 const CLAUDE_PERMISSION_MODE: &str = "dontAsk";
 const REVIEW_STRATEGY: &str = "package-release/v1";
-const CODEX_MAX_ATTEMPTS: u64 = 4;
 const CODEX_RETRY_BACKOFF_MS: &[u64] = &[15_000, 45_000, 120_000];
 const CODEX_RETRY_JITTER_MS: u64 = 1_000;
 
@@ -315,7 +314,8 @@ fn run_codex_exec(
     agent_reasoning_effort: Option<&str>,
 ) -> Result<AgentRunResult> {
     let mut retry_metrics = CodexRetryMetrics::default();
-    for attempt in 1..=CODEX_MAX_ATTEMPTS {
+    let mut attempt = 1u64;
+    loop {
         let attempt_started_at = std::time::Instant::now();
         match run_codex_exec_once(workspace_path, prompt, agent_model, agent_reasoning_effort) {
             Ok(mut result) => {
@@ -333,14 +333,6 @@ fn run_codex_exec(
                 let Some(reason) = retryable_codex_failure_reason(&error_message) else {
                     return Err(error);
                 };
-                if attempt == CODEX_MAX_ATTEMPTS {
-                    return Err(error).with_context(|| {
-                        format!(
-                            "Codex transient failure persisted after {} attempts: {}",
-                            CODEX_MAX_ATTEMPTS, reason
-                        )
-                    });
-                }
                 retry_metrics.failed_attempt_duration_ms = retry_metrics
                     .failed_attempt_duration_ms
                     .saturating_add(failed_duration_ms);
@@ -348,17 +340,16 @@ fn run_codex_exec(
                 let wait_ms = codex_retry_delay_ms(attempt);
                 retry_metrics.retry_wait_ms = retry_metrics.retry_wait_ms.saturating_add(wait_ms);
                 println!(
-                    "Codex transient failure: {}; retrying in {:.1}s (attempt {}/{})",
+                    "Codex transient failure: {}; retrying in {:.1}s (next attempt {})",
                     reason,
                     wait_ms as f64 / 1000.0,
-                    attempt + 1,
-                    CODEX_MAX_ATTEMPTS
+                    attempt.saturating_add(1)
                 );
                 std::thread::sleep(std::time::Duration::from_millis(wait_ms));
+                attempt = attempt.saturating_add(1);
             }
         }
     }
-    Err(format_err!("codex retry loop exited unexpectedly"))
 }
 
 #[derive(Debug, Default)]
