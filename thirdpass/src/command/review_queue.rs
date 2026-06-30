@@ -61,13 +61,15 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         Some(review::submission::Submitter::start_without_pending_scan()?)
     };
     let queue = read_queue(&args.csv_path)?;
-    println!("Queue rows: {}", queue.len());
+    let queue_total = queue.len();
+    println!("Queue rows: {}", queue_total);
 
     let mut reviewed_now = 0usize;
     let mut completed_rows = 0usize;
     let mut queued_submissions = 0usize;
     let mut submission_tickets = Vec::new();
-    for row in queue {
+    for (queue_index, row) in queue.into_iter().enumerate() {
+        let queue_position = queue_index + 1;
         let pending_before_row = if submitter.is_some() {
             pending_review_paths_for_row(&row, &config)?
         } else {
@@ -85,8 +87,9 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             if status.is_complete() {
                 completed_rows += 1;
                 println!(
-                    "Row {} complete: {} {} ({}/{} files reviewed)",
-                    row.row_number,
+                    "Row {}/{} complete: {} {} ({}/{} files reviewed)",
+                    queue_position,
+                    queue_total,
                     row.package_name,
                     row.package_version,
                     status.reviewed_file_count,
@@ -100,10 +103,11 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                     );
                     if queued > 0 {
                         println!(
-                            "Queued {} pending review submission{} for row {}.",
+                            "Queued {} pending review submission{} for row {}/{}.",
                             queued,
                             plural_suffix(queued),
-                            row.row_number
+                            queue_position,
+                            queue_total
                         );
                     }
                     queued_submissions += queued;
@@ -113,8 +117,9 @@ pub fn run_command(args: &Arguments) -> Result<()> {
 
             if args.plan_only {
                 println!(
-                    "Would review row {}: {} {} ({}/{} files reviewed); next batch: {}",
-                    row.row_number,
+                    "Would review row {}/{}: {} {} ({}/{} files reviewed); next batch: {}",
+                    queue_position,
+                    queue_total,
                     row.package_name,
                     row.package_version,
                     status.reviewed_file_count,
@@ -132,8 +137,9 @@ pub fn run_command(args: &Arguments) -> Result<()> {
             }
 
             println!(
-                "Reviewing row {}: {} {} ({}/{} files reviewed); batch: {}",
-                row.row_number,
+                "Reviewing row {}/{}: {} {} ({}/{} files reviewed); batch: {}",
+                queue_position,
+                queue_total,
                 row.package_name,
                 row.package_version,
                 status.reviewed_file_count,
