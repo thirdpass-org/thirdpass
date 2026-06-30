@@ -24,10 +24,24 @@ fn main() {
     match command::run_command(commands.command, &extension_args) {
         Ok(_) => {}
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{}", format_error_chain(&e));
             std::process::exit(-2)
         }
     }
+}
+
+fn format_error_chain(error: &anyhow::Error) -> String {
+    let mut chain = error.chain();
+    let Some(root) = chain.next() else {
+        return error.to_string();
+    };
+
+    let mut message = root.to_string();
+    for cause in chain {
+        message.push_str("\nCaused by: ");
+        message.push_str(&cause.to_string());
+    }
+    message
 }
 
 /// Arguments after -- are passed to extensions.
@@ -49,4 +63,23 @@ fn split_extension_args(args: &Vec<String>) -> (Vec<String>, Vec<String>) {
         }
     }
     (pre_split, post_split)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Context;
+
+    #[test]
+    fn format_error_chain_includes_causes() {
+        let error = std::fs::read_to_string("/definitely/not/a/thirdpass/file")
+            .context("outer context")
+            .expect_err("missing file should fail");
+
+        let formatted = format_error_chain(&error);
+
+        assert!(formatted.starts_with("outer context"));
+        assert!(formatted.contains("Caused by:"));
+        assert!(formatted.contains("No such file or directory"));
+    }
 }

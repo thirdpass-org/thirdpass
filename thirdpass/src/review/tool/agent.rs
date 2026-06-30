@@ -334,7 +334,12 @@ fn run_codex_exec(
                     return Err(error);
                 };
                 if attempt == CODEX_MAX_ATTEMPTS {
-                    return Err(error);
+                    return Err(error).with_context(|| {
+                        format!(
+                            "Codex transient failure persisted after {} attempts: {}",
+                            CODEX_MAX_ATTEMPTS, reason
+                        )
+                    });
                 }
                 retry_metrics.failed_attempt_duration_ms = retry_metrics
                     .failed_attempt_duration_ms
