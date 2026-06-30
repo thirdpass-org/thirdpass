@@ -279,13 +279,17 @@ fn build_scanned_submission_job(path: &Path) -> Result<Job> {
 }
 
 fn pending_submission_job(path: &Path, result_tx: Option<mpsc::Sender<Status>>) -> Result<Job> {
-    let mut review = read_pending_review(path)?;
-    review.overall_security_summary = review::overall_security_summary(&review)?;
+    let mut review = read_pending_review(path)
+        .with_context(|| format!("Failed to read pending review {}.", path.display()))?;
+    review.overall_security_summary = review::overall_security_summary(&review)
+        .with_context(|| format!("Failed to summarize pending review {}.", path.display()))?;
+    let config = common::config::Config::load()
+        .context("Failed to load thirdpass config for pending review submission.")?;
     Ok(Job {
         pending_path: path.to_path_buf(),
         review,
         package_manifest: scanned_retry_package_manifest(),
-        config: common::config::Config::load()?,
+        config,
         result_tx,
     })
 }

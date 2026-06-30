@@ -117,27 +117,51 @@ pub fn list_with_status() -> Result<Vec<StoredReview>> {
 
     let mut reviews = Vec::new();
     for file in files {
-        let reader = std::io::BufReader::new(std::fs::File::open(&file)?);
-        match serde_json::from_reader::<_, review::Review>(reader) {
-            Ok(mut review) => {
-                review.overall_security_summary = crate::review::overall_security_summary(&review)?;
-                let status = if file.starts_with(&paths.pending_reviews_directory) {
-                    ReviewStorageStatus::Pending
-                } else {
-                    ReviewStorageStatus::Submitted
-                };
-                reviews.push(StoredReview {
-                    path: file,
-                    status,
-                    review,
-                });
-            }
-            Err(err) => {
-                log::warn!("Failed to parse review file {}: {}", file.display(), err);
-            }
+        if let Some(stored) = read_stored_review_file(&file, &paths.pending_reviews_directory)? {
+            reviews.push(stored);
         }
     }
     Ok(reviews)
+}
+
+fn read_stored_review_file(
+    file: &std::path::Path,
+    pending_reviews_directory: &std::path::Path,
+) -> Result<Option<StoredReview>> {
+    let file_handle = match std::fs::File::open(file) {
+        Ok(file_handle) => file_handle,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            log::debug!(
+                "Skipping review file that disappeared while listing: {}",
+                file.display()
+            );
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("Failed to open review file {}.", file.display()));
+        }
+    };
+    let reader = std::io::BufReader::new(file_handle);
+    match serde_json::from_reader::<_, review::Review>(reader) {
+        Ok(mut review) => {
+            review.overall_security_summary = crate::review::overall_security_summary(&review)?;
+            let status = if file.starts_with(pending_reviews_directory) {
+                ReviewStorageStatus::Pending
+            } else {
+                ReviewStorageStatus::Submitted
+            };
+            Ok(Some(StoredReview {
+                path: file.to_path_buf(),
+                status,
+                review,
+            }))
+        }
+        Err(err) => {
+            log::warn!("Failed to parse review file {}: {}", file.display(), err);
+            Ok(None)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -250,6 +274,17 @@ mod tests {
         assert!(err
             .to_string()
             .contains("requires exactly one registry for demo@1.0.0; found 2"));
+        Ok(())
+    }
+
+    #[test]
+    fn read_stored_review_file_skips_disappeared_files() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let missing = temp.path().join("review-missing.json");
+
+        let stored = read_stored_review_file(&missing, temp.path())?;
+
+        assert!(stored.is_none());
         Ok(())
     }
 

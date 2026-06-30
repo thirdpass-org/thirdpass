@@ -71,7 +71,12 @@ pub fn run_command(args: &Arguments) -> Result<()> {
     for (queue_index, row) in queue.into_iter().enumerate() {
         let queue_position = queue_index + 1;
         let pending_before_row = if submitter.is_some() {
-            pending_review_paths_for_row(&row, &config)?
+            pending_review_paths_for_row(&row, &config).with_context(|| {
+                format!(
+                    "Failed to inspect pending reviews for queue row {}/{}: {} {}.",
+                    queue_position, queue_total, row.package_name, row.package_version
+                )
+            })?
         } else {
             Vec::new()
         };
@@ -82,7 +87,13 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                 &row.package_version,
                 &extension_names,
                 &config,
-            )?;
+            )
+            .with_context(|| {
+                format!(
+                    "Failed to prepare review batch for queue row {}/{}: {} {}.",
+                    queue_position, queue_total, row.package_name, row.package_version
+                )
+            })?;
             let status = &batch.status;
             if status.is_complete() {
                 completed_rows += 1;
@@ -161,7 +172,13 @@ pub fn run_command(args: &Arguments) -> Result<()> {
                 local_only: args.local_only,
             };
             let mut result =
-                review_command::run_command_with_result(&review_args, submitter.as_ref())?;
+                review_command::run_command_with_result(&review_args, submitter.as_ref())
+                    .with_context(|| {
+                        format!(
+                            "Failed while reviewing queue row {}/{}: {} {}.",
+                            queue_position, queue_total, row.package_name, row.package_version
+                        )
+                    })?;
             if let Some(ticket) = result.submission.take() {
                 submission_tickets.push(ticket);
                 queued_submissions += 1;
@@ -170,7 +187,8 @@ pub fn run_command(args: &Arguments) -> Result<()> {
         }
     }
 
-    let submission_summary = review::submission::wait_for_submissions(submission_tickets)?;
+    let submission_summary = review::submission::wait_for_submissions(submission_tickets)
+        .context("Failed while waiting for queued review submissions.")?;
 
     println!(
         "Review queue complete: {} reviews run, {} submission{} queued, {} submitted, {} pending, {} rows complete.",
