@@ -60,6 +60,55 @@ const CLAUDE_PERMISSION_MODE: &str = "dontAsk";
 const REVIEW_STRATEGY: &str = "package-release/v1";
 const CODEX_RETRY_BACKOFF_MS: &[u64] = &[15_000, 45_000, 120_000];
 const CODEX_RETRY_JITTER_MS: u64 = 1_000;
+const CODEX_OUTPUT_SCHEMA: &str = r#"{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["model", "summary", "confidence", "comments"],
+  "properties": {
+    "model": { "type": "string" },
+    "summary": { "type": "string" },
+    "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+    "comments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["comment", "security", "complexity", "file", "selection"],
+        "properties": {
+          "comment": { "type": "string" },
+          "security": { "type": "string", "enum": ["critical", "medium", "low"] },
+          "complexity": { "type": "string", "enum": ["critical", "medium", "low"] },
+          "file": { "type": "string" },
+          "selection": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["start", "end"],
+            "properties": {
+              "start": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["line", "character"],
+                "properties": {
+                  "line": { "type": "integer", "minimum": 1 },
+                  "character": { "type": "integer", "minimum": 1 }
+                }
+              },
+              "end": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["line", "character"],
+                "properties": {
+                  "line": { "type": "integer", "minimum": 1 },
+                  "character": { "type": "integer", "minimum": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}"#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentKind {
@@ -374,10 +423,19 @@ fn run_codex_exec_once(
 
     let output_file = tempfile::NamedTempFile::new()?;
     let output_path = output_file.path().to_path_buf();
+    let schema_file = tempfile::NamedTempFile::new()?;
+    std::fs::write(schema_file.path(), CODEX_OUTPUT_SCHEMA)
+        .context("Failed to write codex output schema.")?;
 
     let mut cmd = Command::new(AgentKind::Codex.binary_name());
     apply_codex_environment(&mut cmd);
-    apply_codex_args(&mut cmd, agent_model, agent_reasoning_effort, &output_path);
+    apply_codex_args(
+        &mut cmd,
+        agent_model,
+        agent_reasoning_effort,
+        &output_path,
+        schema_file.path(),
+    );
     cmd.arg("-");
     cmd.current_dir(workspace_path)
         .stdin(Stdio::piped())
@@ -775,11 +833,18 @@ fn apply_codex_args(
     agent_model: Option<&str>,
     agent_reasoning_effort: Option<&str>,
     output_path: &std::path::Path,
+    schema_path: &std::path::Path,
 ) {
     cmd.arg("--ask-for-approval");
     cmd.arg(CODEX_APPROVAL_POLICY);
     cmd.arg("exec");
-    apply_codex_exec_args(cmd, agent_model, agent_reasoning_effort, output_path);
+    apply_codex_exec_args(
+        cmd,
+        agent_model,
+        agent_reasoning_effort,
+        output_path,
+        schema_path,
+    );
 }
 
 fn apply_codex_environment(cmd: &mut Command) {
@@ -852,6 +917,7 @@ fn apply_codex_exec_args(
     agent_model: Option<&str>,
     agent_reasoning_effort: Option<&str>,
     output_path: &std::path::Path,
+    schema_path: &std::path::Path,
 ) {
     if let Some(model) = agent_model {
         cmd.arg("--model");
@@ -866,6 +932,8 @@ fn apply_codex_exec_args(
     cmd.arg("--ignore-rules");
     cmd.arg("--ephemeral");
     cmd.arg("--skip-git-repo-check");
+    cmd.arg("--output-schema");
+    cmd.arg(schema_path);
     cmd.arg("--json");
     cmd.arg("--output-last-message");
     cmd.arg(output_path);
@@ -893,7 +961,12 @@ fn build_agent_log(
         parts.push(CODEX_SANDBOX_MODE.to_string());
         parts.push("--ignore-rules".to_string());
         parts.push("--ephemeral".to_string());
+        parts.push("--skip-git-repo-check".to_string());
+        parts.push("--output-schema".to_string());
+        parts.push("<schema>".to_string());
         parts.push("--json".to_string());
+        parts.push("--output-last-message".to_string());
+        parts.push("<file>".to_string());
     } else if agent == AgentKind::Claude {
         parts.push("-p".to_string());
         parts.push("--input-format".to_string());
@@ -997,7 +1070,7 @@ Rules:
 - Do not report a comment if the suspicious behavior is only present in another file.
 - For binary or unreadable target files, only report when another package file uses the target as an opaque executable,
   loadable payload, unpacked artifact, or surprising runtime asset.
-- Each comment's file field and selection must point to the target file.
+- Each comment's file field and non-null selection must point to the target file.
 - Bundled/minified code is in scope, but only report when behavior is clearly malicious or suspicious-by-default.
 - Do NOT flag common patterns (eval/new Function/dynamic require) unless tied to executing
   encoded/remote/untrusted input or concealing a payload.
@@ -1006,7 +1079,7 @@ Rules:
 - Do flag misleading, hidden, or insecure-by-default behavior, including security-sensitive actions that are implicit,
   surprising, or not opt-in.
 - Prefer false negatives over low-confidence findings; if uncertain, return no comments.
-- Use selection only when you can point to exact lines; otherwise omit it.
+- Use selection only when you can point to exact lines; otherwise set it to null.
 - Line/character numbers are 1-based.
 - Do not speculate about other files.
 
@@ -1252,7 +1325,7 @@ mod tests {
         codex_run_metrics, parse_codex_token_info, recorded_codex_model,
         retryable_codex_failure_reason, review_strategy, save_codex_failure_diagnostic_in,
         truncate_for_log, AgentKind, CodexFailureDiagnostic, CLAUDE_PERMISSION_MODE,
-        CODEX_APPROVAL_POLICY, CODEX_SANDBOX_MODE,
+        CODEX_APPROVAL_POLICY, CODEX_OUTPUT_SCHEMA, CODEX_SANDBOX_MODE,
     };
 
     #[test]
@@ -1344,6 +1417,15 @@ mod tests {
         assert!(metadata.contains("status: success"));
         assert!(metadata.contains("workspace: /tmp/workspace"));
         Ok(())
+    }
+
+    #[test]
+    fn codex_output_schema_is_valid_json() {
+        let schema: serde_json::Value =
+            serde_json::from_str(CODEX_OUTPUT_SCHEMA).expect("schema should be valid JSON");
+
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["properties"]["comments"]["type"], "array");
     }
 
     #[test]
@@ -1448,6 +1530,7 @@ mod tests {
             Some("gpt-5.4"),
             Some("high"),
             std::path::Path::new("output.json"),
+            std::path::Path::new("schema.json"),
         );
 
         let args = cmd
@@ -1464,6 +1547,9 @@ mod tests {
             .any(|window| window == ["--sandbox", CODEX_SANDBOX_MODE]));
         assert!(args.iter().any(|arg| arg == "--ignore-rules"));
         assert!(args.iter().any(|arg| arg == "--ephemeral"));
+        assert!(args
+            .windows(2)
+            .any(|window| window == ["--output-schema", "schema.json"]));
         assert!(args.iter().any(|arg| arg == "--json"));
         assert!(
             build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
@@ -1471,7 +1557,11 @@ mod tests {
         );
         assert!(
             build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
-                .contains("--sandbox read-only --ignore-rules --ephemeral --json")
+                .contains("--sandbox read-only --ignore-rules --ephemeral --skip-git-repo-check")
+        );
+        assert!(
+            build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
+                .contains("--output-schema <schema> --json --output-last-message <file>")
         );
     }
 
