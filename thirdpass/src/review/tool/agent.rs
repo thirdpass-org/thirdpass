@@ -60,6 +60,29 @@ const CLAUDE_PERMISSION_MODE: &str = "dontAsk";
 const REVIEW_STRATEGY: &str = "package-release/v1";
 const CODEX_RETRY_BACKOFF_MS: &[u64] = &[15_000, 45_000, 120_000];
 const CODEX_RETRY_JITTER_MS: u64 = 1_000;
+const CODEX_RETRYABLE_FAILURE_PATTERNS: &[(&str, &str)] = &[
+    (
+        "selected model is at capacity",
+        "selected model is at capacity",
+    ),
+    ("at capacity", "selected model is at capacity"),
+    ("rate limit", "rate limit"),
+    ("server overloaded", "server overloaded"),
+    ("overloaded", "server overloaded"),
+    ("temporarily unavailable", "temporarily unavailable"),
+    ("http connection failed", "http connection failed"),
+    ("connection failed", "connection failed"),
+    (
+        "response stream disconnected",
+        "response stream disconnected",
+    ),
+    (
+        "response stream connection failed",
+        "response stream connection failed",
+    ),
+    ("timed out", "timeout"),
+    ("timeout", "timeout"),
+];
 const CODEX_OUTPUT_SCHEMA: &str = r#"{
   "type": "object",
   "additionalProperties": false,
@@ -379,7 +402,11 @@ fn run_codex_exec(
             Err(error) => {
                 let failed_duration_ms = duration_millis_u64(attempt_started_at.elapsed());
                 let error_message = error.to_string();
-                let Some(reason) = retryable_codex_failure_reason(&error_message) else {
+                let reason = error
+                    .downcast_ref::<CodexExecError>()
+                    .and_then(|error| error.retryable_reason.clone())
+                    .or_else(|| retryable_codex_failure_reason(&error_message));
+                let Some(reason) = reason else {
                     return Err(error);
                 };
                 retry_metrics.failed_attempt_duration_ms = retry_metrics
@@ -407,6 +434,20 @@ struct CodexRetryMetrics {
     retry_wait_ms: u64,
     retry_reasons: Vec<String>,
 }
+
+#[derive(Debug)]
+struct CodexExecError {
+    message: String,
+    retryable_reason: Option<String>,
+}
+
+impl std::fmt::Display for CodexExecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for CodexExecError {}
 
 fn run_codex_exec_once(
     workspace_path: &std::path::PathBuf,
@@ -468,6 +509,11 @@ fn run_codex_exec_once(
 
     if !output.status.success() {
         let output_payload = std::fs::read_to_string(&output_path).unwrap_or_default();
+        let retryable_reason = retryable_codex_failure_reason_from_output(
+            stdout_raw.as_ref(),
+            stderr.as_str(),
+            output_payload.as_str(),
+        );
         let diagnostic_note = codex_failure_diagnostic_note(CodexFailureDiagnostic {
             phase: "process-exit",
             status: Some(output.status.to_string()),
@@ -491,12 +537,16 @@ fn run_codex_exec_once(
                 truncate_for_log(stdout_trimmed, 4000)
             ));
         }
-        return Err(format_err!(
-            "codex exited with status {}. {}{}",
-            output.status,
-            details.join(" "),
-            diagnostic_note
-        ));
+        return Err(CodexExecError {
+            message: format!(
+                "codex exited with status {}. {}{}",
+                output.status,
+                details.join(" "),
+                diagnostic_note
+            ),
+            retryable_reason,
+        }
+        .into());
     }
 
     let output_payload = std::fs::read_to_string(&output_path).unwrap_or_default();
@@ -565,31 +615,22 @@ fn retryable_codex_failure_reason(message: &str) -> Option<String> {
         return None;
     }
 
-    let retryable_patterns = [
-        (
-            "selected model is at capacity",
-            "selected model is at capacity",
-        ),
-        ("at capacity", "selected model is at capacity"),
-        ("rate limit", "rate limit"),
-        ("server overloaded", "server overloaded"),
-        ("overloaded", "server overloaded"),
-        ("temporarily unavailable", "temporarily unavailable"),
-        ("http connection failed", "http connection failed"),
-        ("connection failed", "connection failed"),
-        (
-            "response stream disconnected",
-            "response stream disconnected",
-        ),
-        (
-            "response stream connection failed",
-            "response stream connection failed",
-        ),
-        ("timed out", "timeout"),
-        ("timeout", "timeout"),
-    ];
+    retryable_codex_failure_reason_in_text(&lower)
+}
 
-    retryable_patterns
+fn retryable_codex_failure_reason_from_output(
+    stdout: &str,
+    stderr: &str,
+    output_payload: &str,
+) -> Option<String> {
+    [stdout, output_payload]
+        .iter()
+        .find_map(|value| retryable_codex_failure_reason(value))
+        .or_else(|| retryable_codex_failure_reason_in_text(&stderr.trim().to_ascii_lowercase()))
+}
+
+fn retryable_codex_failure_reason_in_text(lower: &str) -> Option<String> {
+    CODEX_RETRYABLE_FAILURE_PATTERNS
         .iter()
         .find(|(pattern, _)| lower.contains(pattern))
         .map(|(_, reason)| reason.to_string())
@@ -1323,9 +1364,10 @@ mod tests {
         apply_claude_args, apply_claude_environment_from, apply_codex_args,
         apply_codex_environment_from, base_codex_retry_delay_ms, build_agent_log, build_prompt,
         codex_run_metrics, parse_codex_token_info, recorded_codex_model,
-        retryable_codex_failure_reason, review_strategy, save_codex_failure_diagnostic_in,
-        truncate_for_log, AgentKind, CodexFailureDiagnostic, CLAUDE_PERMISSION_MODE,
-        CODEX_APPROVAL_POLICY, CODEX_OUTPUT_SCHEMA, CODEX_SANDBOX_MODE,
+        retryable_codex_failure_reason, retryable_codex_failure_reason_from_output,
+        review_strategy, save_codex_failure_diagnostic_in, truncate_for_log, AgentKind,
+        CodexFailureDiagnostic, CLAUDE_PERMISSION_MODE, CODEX_APPROVAL_POLICY, CODEX_OUTPUT_SCHEMA,
+        CODEX_SANDBOX_MODE,
     };
 
     #[test]
@@ -1504,6 +1546,35 @@ mod tests {
         assert_eq!(
             retryable_codex_failure_reason(message).as_deref(),
             Some("selected model is at capacity")
+        );
+    }
+
+    #[test]
+    fn retryable_codex_failure_reason_from_output_uses_untruncated_stdout() {
+        let stdout = format!(
+            "{}\n{}",
+            "x".repeat(5000),
+            r#"{"type":"error","message":"Selected model is at capacity. Please try a different model."}"#
+        );
+        let truncated_message = format!(
+            "codex exited with status exit status: 1. stderr: <empty> stdout: {}",
+            truncate_for_log(stdout.trim(), 4000)
+        );
+
+        assert_eq!(retryable_codex_failure_reason(&truncated_message), None);
+        assert_eq!(
+            retryable_codex_failure_reason_from_output(&stdout, "", "").as_deref(),
+            Some("selected model is at capacity")
+        );
+    }
+
+    #[test]
+    fn retryable_codex_failure_reason_from_output_ignores_plain_stdout_mentions() {
+        let stdout = "package fixture text mentioning rate limit without a Codex error event";
+
+        assert_eq!(
+            retryable_codex_failure_reason_from_output(stdout, "", ""),
+            None
         );
     }
 
