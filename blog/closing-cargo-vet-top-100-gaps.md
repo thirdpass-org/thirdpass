@@ -8,16 +8,18 @@ This is a GitHub-readable mirror of the canonical website post:
 In June, we looked at
 [`cargo-vet` coverage in the top 100 Rust crates](cargo-vet-popular-dependency-coverage.md).
 That post measured public cargo-vet coverage for the 100 most-downloaded
-crates and the crate versions selected by their Linux dependency graphs.
+crates and the crate versions selected by their Linux dependency graphs. The
+100 most-downloaded crate versions were the starting points for the dependency
+resolution.
 
-The roots were in decent shape: 73 of the 100 selected root crate versions
-were already covered by public cargo-vet data. The dependency graph had larger
-gaps. Across the resolved dependency versions, excluding the root crates, only
-145 of 281 unique dependency versions were covered.
+Those starting crate versions were in decent shape: 73 of 100 were already
+covered by public cargo-vet data. The dependency graph had larger gaps. Across
+the resolved dependency versions, excluding the starting crates, only 145 of
+281 unique dependency versions were covered.
 
-That left 136 uncovered dependency versions. Counting root crate gaps as well,
-the top-100 run had 148 unique crate/version pairs with no matched public
-cargo-vet coverage.
+That left 136 uncovered dependency versions. Counting the uncovered starting
+crate versions as well, the top-100 run had 148 unique crate/version pairs
+with no matched public cargo-vet coverage.
 
 We used that list as a target.
 
@@ -39,11 +41,11 @@ The current export contains 176 crate/version audits. Those entries cover all
 With the new Thirdpass audit repo added to the public cargo-vet sources from
 the June analysis, the sampled graph is fully covered:
 
-| Scope                                      | Before | After |
-| ------------------------------------------ | ------ | ----- |
-| Top-100 root crate versions                | 73/100 | 100/100 |
-| Unique dependency versions, excluding roots | 145/281 | 281/281 |
-| Unique crate/version pairs, including roots | 166/314 | 314/314 |
+| Scope                                                 | Before  | After   |
+| ----------------------------------------------------- | ------- | ------- |
+| Top-100 starting crate versions                       | 73/100  | 100/100 |
+| Unique dependency versions, excluding starting crates  | 145/281 | 281/281 |
+| Unique crate/version pairs, including starting crates  | 166/314 | 314/314 |
 
 The "after" column is the union of the original public cargo-vet sources and
 the new Thirdpass audits. The Thirdpass repo by itself does not cover every
@@ -209,7 +211,7 @@ Result:
 ## Notes
 
 The original top-100 analysis used the crates.io dump from 2026-06-17 and
-resolved dependencies for `x86_64-unknown-linux-gnu` with all root crate
+resolved dependencies for `x86_64-unknown-linux-gnu` with all starting crate
 features enabled.
 
 The result here should be read against that same sample. Different targets,
