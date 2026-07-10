@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="460" viewBox="0 0 960 460" role="img" aria-labelledby="title desc">
+<title id="title">Uncovered Dependency Versions Across Popular Crates</title>
+<desc id="desc">Each bar is one top-100 crate with dependencies, ordered by uncovered dependency count.</desc>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="72" y="30" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#27272a">Uncovered Dependency Versions Across Popular Crates</text>
+<text x="72" y="52" font-family="Arial, sans-serif" font-size="13" fill="#71717a">Uncovered dependency versions</text>
+<g font-family="Arial, sans-serif"><line x1="72" y1="64" x2="928" y2="64" stroke="#d4d4d8"/><text x="60" y="68" text-anchor="end" font-size="13" fill="#71717a">30</text>
+<line x1="72" y1="115.33333333333331" x2="928" y2="115.33333333333331" stroke="#d4d4d8"/><text x="60" y="119.33333333333331" text-anchor="end" font-size="13" fill="#71717a">25</text>
+<line x1="72" y1="166.66666666666669" x2="928" y2="166.66666666666669" stroke="#d4d4d8"/><text x="60" y="170.66666666666669" text-anchor="end" font-size="13" fill="#71717a">20</text>
+<line x1="72" y1="218" x2="928" y2="218" stroke="#d4d4d8"/><text x="60" y="222" text-anchor="end" font-size="13" fill="#71717a">15</text>
+<line x1="72" y1="269.33333333333337" x2="928" y2="269.33333333333337" stroke="#d4d4d8"/><text x="60" y="273.33333333333337" text-anchor="end" font-size="13" fill="#71717a">10</text>
+<line x1="72" y1="320.6666666666667" x2="928" y2="320.6666666666667" stroke="#d4d4d8"/><text x="60" y="324.6666666666667" text-anchor="end" font-size="13" fill="#71717a">5</text>
+<line x1="72" y1="372" x2="928" y2="372" stroke="#d4d4d8"/><text x="60" y="376" text-anchor="end" font-size="13" fill="#71717a">0</text></g>
+<line x1="72" y1="64" x2="72" y2="372" stroke="#27272a"/>
+<line x1="72" y1="372" x2="928" y2="372" stroke="#27272a"/>
+<rect x="73.00" y="105.07" width="10.78" height="266.93" fill="#64748b"><title>rustls 0.23.40: 26 uncovered (23/49 covered)</title></rect>
+<rect x="85.78" y="166.67" width="10.78" height="205.33" fill="#64748b"><title>idna 1.1.0: 20 uncovered (8/28 covered)</title></rect>
+<rect x="98.55" y="166.67" width="10.78" height="205.33" fill="#64748b"><title>url 2.5.8: 20 uncovered (14/34 covered)</title></rect>
+<rect x="111.33" y="187.20" width="10.78" height="184.80" fill="#64748b"><title>chrono 0.4.45: 18 uncovered (21/39 covered)</title></rect>
+<rect x="124.10" y="197.47" width="10.78" height="174.53" fill="#64748b"><title>generic-array 1.4.3: 17 uncovered (10/27 covered)</title></rect>
+<rect x="136.88" y="248.80" width="10.78" height="123.20" fill="#64748b"><title>log 0.4.32: 12 uncovered (5/17 covered)</title></rect>
+<rect x="149.66" y="259.07" width="10.78" height="112.93" fill="#64748b"><title>digest 0.11.3: 11 uncovered (2/13 covered)</title></rect>
+<rect x="162.43" y="289.87" width="10.78" height="82.13" fill="#64748b"><title>futures-util 0.3.32: 8 uncovered (13/21 covered)</title></rect>
+<rect x="175.21" y="300.13" width="10.78" height="71.87" fill="#64748b"><title>sha2 0.11.0: 7 uncovered (2/9 covered)</title></rect>
+<rect x="187.99" y="300.13" width="10.78" height="71.87" fill="#64748b"><title>ahash 0.8.12: 7 uncovered (6/13 covered)</title></rect>
+<rect x="200.76" y="300.13" width="10.78" height="71.87" fill="#64748b"><title>time 0.3.49: 7 uncovered (10/17 covered)</title></rect>
+<rect x="213.54" y="300.13" width="10.78" height="71.87" fill="#64748b"><title>typenum 1.20.1: 7 uncovered (16/23 covered)</title></rect>
+<rect x="226.31" y="330.93" width="10.78" height="41.07" fill="#64748b"><title>tracing 0.1.44: 4 uncovered (5/9 covered)</title></rect>
+<rect x="239.09" y="330.93" width="10.78" height="41.07" fill="#64748b"><title>hyper 1.10.1: 4 uncovered (24/28 covered)</title></rect>
+<rect x="251.87" y="341.20" width="10.78" height="30.80" fill="#64748b"><title>cc 1.2.64: 3 uncovered (1/4 covered)</title></rect>
+<rect x="264.64" y="341.20" width="10.78" height="30.80" fill="#64748b"><title>rustix 1.1.4: 3 uncovered (4/7 covered)</title></rect>
+<rect x="277.42" y="341.20" width="10.78" height="30.80" fill="#64748b"><title>tempfile 3.27.0: 3 uncovered (6/9 covered)</title></rect>
+<rect x="290.19" y="341.20" width="10.78" height="30.80" fill="#64748b"><title>miniz_oxide 0.9.1: 3 uncovered (8/11 covered)</title></rect>
+<rect x="302.97" y="341.20" width="10.78" height="30.80" fill="#64748b"><title>rand 0.10.1: 3 uncovered (10/13 covered)</title></rect>
+<rect x="315.75" y="341.20" width="10.78" height="30.80" fill="#64748b"><title>h2 0.4.15: 3 uncovered (14/17 covered)</title></rect>
+<rect x="328.52" y="341.20" width="10.78" height="30.80" fill="#64748b"><title>parking_lot 0.12.5: 3 uncovered (20/23 covered)</title></rect>
+<rect x="341.30" y="341.20" width="10.78" height="30.80" fill="#64748b"><title>clap 4.6.1: 3 uncovered (31/34 covered)</title></rect>
+<rect x="354.07" y="351.47" width="10.78" height="20.53" fill="#64748b"><title>memchr 2.8.2: 2 uncovered (0/2 covered)</title></rect>
+<rect x="366.85" y="351.47" width="10.78" height="20.53" fill="#64748b"><title>smallvec 1.15.2: 2 uncovered (0/2 covered)</title></rect>
+<rect x="379.63" y="351.47" width="10.78" height="20.53" fill="#64748b"><title>block-buffer 0.12.1: 2 uncovered (0/2 covered)</title></rect>
+<rect x="392.40" y="351.47" width="10.78" height="20.53" fill="#64748b"><title>unicode-width 0.2.2: 2 uncovered (0/2 covered)</title></rect>
+<rect x="405.18" y="351.47" width="10.78" height="20.53" fill="#64748b"><title>regex-automata 0.4.14: 2 uncovered (2/4 covered)</title></rect>
+<rect x="417.96" y="351.47" width="10.78" height="20.53" fill="#64748b"><title>regex 1.12.4: 2 uncovered (3/5 covered)</title></rect>
+<rect x="430.73" y="351.47" width="10.78" height="20.53" fill="#64748b"><title>hashbrown 0.17.1: 2 uncovered (4/6 covered)</title></rect>
+<rect x="443.51" y="351.47" width="10.78" height="20.53" fill="#64748b"><title>rand_chacha 0.10.0: 2 uncovered (8/10 covered)</title></rect>
+<rect x="456.28" y="351.47" width="10.78" height="20.53" fill="#64748b"><title>parking_lot_core 0.9.12: 2 uncovered (14/16 covered)</title></rect>
+<rect x="469.06" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>libc 0.2.186: 1 uncovered (0/1 covered)</title></rect>
+<rect x="481.84" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>cfg-if 1.0.4: 1 uncovered (0/1 covered)</title></rect>
+<rect x="494.61" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>linux-raw-sys 0.12.1: 1 uncovered (0/1 covered)</title></rect>
+<rect x="507.39" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>ppv-lite86 0.2.21: 1 uncovered (0/1 covered)</title></rect>
+<rect x="520.16" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>aho-corasick 1.1.4: 1 uncovered (1/2 covered)</title></rect>
+<rect x="532.94" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>num-traits 0.2.19: 1 uncovered (1/2 covered)</title></rect>
+<rect x="545.72" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>mio 1.2.1: 1 uncovered (1/2 covered)</title></rect>
+<rect x="558.49" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>getrandom 0.4.2: 1 uncovered (2/3 covered)</title></rect>
+<rect x="571.27" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>zerocopy 0.8.52: 1 uncovered (4/5 covered)</title></rect>
+<rect x="584.04" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>once_cell 1.21.4: 1 uncovered (5/6 covered)</title></rect>
+<rect x="596.82" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>winnow 1.0.3: 1 uncovered (13/14 covered)</title></rect>
+<rect x="609.60" y="361.73" width="10.78" height="10.27" fill="#64748b"><title>tokio 1.52.3: 1 uncovered (17/18 covered)</title></rect>
+<rect x="622.37" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>syn 2.0.118: 0 uncovered (3/3 covered)</title></rect>
+<rect x="635.15" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>bitflags 2.13.0: 0 uncovered (1/1 covered)</title></rect>
+<rect x="647.93" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>proc-macro2 1.0.106: 0 uncovered (1/1 covered)</title></rect>
+<rect x="660.70" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>quote 1.0.45: 0 uncovered (2/2 covered)</title></rect>
+<rect x="673.48" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>indexmap 2.14.0: 0 uncovered (3/3 covered)</title></rect>
+<rect x="686.25" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>itertools 0.15.0: 0 uncovered (1/1 covered)</title></rect>
+<rect x="699.03" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>regex-syntax 0.8.11: 0 uncovered (6/6 covered)</title></rect>
+<rect x="711.81" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>windows-sys 0.61.2: 0 uncovered (1/1 covered)</title></rect>
+<rect x="724.58" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>thiserror-impl 2.0.18: 0 uncovered (4/4 covered)</title></rect>
+<rect x="737.36" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>thiserror 2.0.18: 0 uncovered (5/5 covered)</title></rect>
+<rect x="750.13" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>serde 1.0.228: 0 uncovered (6/6 covered)</title></rect>
+<rect x="762.91" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>serde_derive 1.0.228: 0 uncovered (4/4 covered)</title></rect>
+<rect x="775.69" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>serde_json 1.0.150: 0 uncovered (7/7 covered)</title></rect>
+<rect x="788.46" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>socket2 0.6.4: 0 uncovered (1/1 covered)</title></rect>
+<rect x="801.24" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>windows-targets 0.53.5: 0 uncovered (1/1 covered)</title></rect>
+<rect x="814.01" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>lazy_static 1.5.0: 0 uncovered (1/1 covered)</title></rect>
+<rect x="826.79" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>semver 1.0.28: 0 uncovered (1/1 covered)</title></rect>
+<rect x="839.57" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>http 1.4.2: 0 uncovered (2/2 covered)</title></rect>
+<rect x="852.34" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>lock_api 0.4.14: 0 uncovered (1/1 covered)</title></rect>
+<rect x="865.12" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>toml 1.1.2+spec-1.1.0: 0 uncovered (17/17 covered)</title></rect>
+<rect x="877.90" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>http-body 1.0.1: 0 uncovered (3/3 covered)</title></rect>
+<rect x="890.67" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>tracing-core 0.1.36: 0 uncovered (1/1 covered)</title></rect>
+<rect x="903.45" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>futures-channel 0.3.32: 0 uncovered (2/2 covered)</title></rect>
+<rect x="916.22" y="372.00" width="10.78" height="0.00" fill="#64748b"><title>errno 0.3.14: 0 uncovered (1/1 covered)</title></rect>
+<text x="72" y="422" font-family="Arial, sans-serif" font-size="13" fill="#71717a">Most uncovered</text>
+<text x="480" y="422" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#71717a">Median</text>
+<text x="928" y="422" text-anchor="end" font-family="Arial, sans-serif" font-size="13" fill="#71717a">None uncovered</text>
+<text x="480" y="446" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#71717a">Each bar is one top-100 crate with dependencies, ordered by uncovered dependency count.</text>
+</svg>

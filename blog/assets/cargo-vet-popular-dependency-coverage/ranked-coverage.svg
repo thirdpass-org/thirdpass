@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="460" viewBox="0 0 960 460" role="img" aria-labelledby="title desc">
+<title id="title">Dependency-Version Coverage Across Popular Crates</title>
+<desc id="desc">Each bar is one top-100 crate with at least one resolved dependency, ordered by dependency-version coverage.</desc>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="72" y="30" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#27272a">Dependency-Version Coverage Across Popular Crates</text>
+<text x="72" y="52" font-family="Arial, sans-serif" font-size="13" fill="#71717a">Dependency-version coverage</text>
+<g font-family="Arial, sans-serif"><line x1="72" y1="64" x2="928" y2="64" stroke="#d4d4d8"/><text x="60" y="68" text-anchor="end" font-size="13" fill="#71717a">100%</text>
+<line x1="72" y1="141" x2="928" y2="141" stroke="#d4d4d8"/><text x="60" y="145" text-anchor="end" font-size="13" fill="#71717a">75%</text>
+<line x1="72" y1="218" x2="928" y2="218" stroke="#d4d4d8"/><text x="60" y="222" text-anchor="end" font-size="13" fill="#71717a">50%</text>
+<line x1="72" y1="295" x2="928" y2="295" stroke="#d4d4d8"/><text x="60" y="299" text-anchor="end" font-size="13" fill="#71717a">25%</text>
+<line x1="72" y1="372" x2="928" y2="372" stroke="#d4d4d8"/><text x="60" y="376" text-anchor="end" font-size="13" fill="#71717a">0%</text></g>
+<line x1="72" y1="64" x2="72" y2="372" stroke="#27272a"/>
+<line x1="72" y1="372" x2="928" y2="372" stroke="#27272a"/>
+<rect x="73.00" y="372.00" width="10.78" height="0.00" fill="#2563eb"><title>memchr 2.8.2: 0% (0/2 dependency versions)</title></rect>
+<rect x="85.78" y="372.00" width="10.78" height="0.00" fill="#2563eb"><title>smallvec 1.15.2: 0% (0/2 dependency versions)</title></rect>
+<rect x="98.55" y="372.00" width="10.78" height="0.00" fill="#2563eb"><title>block-buffer 0.12.1: 0% (0/2 dependency versions)</title></rect>
+<rect x="111.33" y="372.00" width="10.78" height="0.00" fill="#2563eb"><title>unicode-width 0.2.2: 0% (0/2 dependency versions)</title></rect>
+<rect x="124.10" y="372.00" width="10.78" height="0.00" fill="#2563eb"><title>libc 0.2.186: 0% (0/1 dependency versions)</title></rect>
+<rect x="136.88" y="372.00" width="10.78" height="0.00" fill="#2563eb"><title>cfg-if 1.0.4: 0% (0/1 dependency versions)</title></rect>
+<rect x="149.66" y="372.00" width="10.78" height="0.00" fill="#2563eb"><title>linux-raw-sys 0.12.1: 0% (0/1 dependency versions)</title></rect>
+<rect x="162.43" y="372.00" width="10.78" height="0.00" fill="#2563eb"><title>ppv-lite86 0.2.21: 0% (0/1 dependency versions)</title></rect>
+<rect x="175.21" y="324.62" width="10.78" height="47.38" fill="#2563eb"><title>digest 0.11.3: 15.4% (2/13 dependency versions)</title></rect>
+<rect x="187.99" y="303.56" width="10.78" height="68.44" fill="#2563eb"><title>sha2 0.11.0: 22.2% (2/9 dependency versions)</title></rect>
+<rect x="200.76" y="295.00" width="10.78" height="77.00" fill="#2563eb"><title>cc 1.2.64: 25% (1/4 dependency versions)</title></rect>
+<rect x="213.54" y="284.00" width="10.78" height="88.00" fill="#2563eb"><title>idna 1.1.0: 28.6% (8/28 dependency versions)</title></rect>
+<rect x="226.31" y="281.41" width="10.78" height="90.59" fill="#2563eb"><title>log 0.4.32: 29.4% (5/17 dependency versions)</title></rect>
+<rect x="239.09" y="257.93" width="10.78" height="114.07" fill="#2563eb"><title>generic-array 1.4.3: 37% (10/27 dependency versions)</title></rect>
+<rect x="251.87" y="245.18" width="10.78" height="126.82" fill="#2563eb"><title>url 2.5.8: 41.2% (14/34 dependency versions)</title></rect>
+<rect x="264.64" y="229.85" width="10.78" height="142.15" fill="#2563eb"><title>ahash 0.8.12: 46.2% (6/13 dependency versions)</title></rect>
+<rect x="277.42" y="227.43" width="10.78" height="144.57" fill="#2563eb"><title>rustls 0.23.40: 46.9% (23/49 dependency versions)</title></rect>
+<rect x="290.19" y="218.00" width="10.78" height="154.00" fill="#2563eb"><title>regex-automata 0.4.14: 50% (2/4 dependency versions)</title></rect>
+<rect x="302.97" y="218.00" width="10.78" height="154.00" fill="#2563eb"><title>aho-corasick 1.1.4: 50% (1/2 dependency versions)</title></rect>
+<rect x="315.75" y="218.00" width="10.78" height="154.00" fill="#2563eb"><title>num-traits 0.2.19: 50% (1/2 dependency versions)</title></rect>
+<rect x="328.52" y="218.00" width="10.78" height="154.00" fill="#2563eb"><title>mio 1.2.1: 50% (1/2 dependency versions)</title></rect>
+<rect x="341.30" y="206.15" width="10.78" height="165.85" fill="#2563eb"><title>chrono 0.4.45: 53.8% (21/39 dependency versions)</title></rect>
+<rect x="354.07" y="200.89" width="10.78" height="171.11" fill="#2563eb"><title>tracing 0.1.44: 55.6% (5/9 dependency versions)</title></rect>
+<rect x="366.85" y="196.00" width="10.78" height="176.00" fill="#2563eb"><title>rustix 1.1.4: 57.1% (4/7 dependency versions)</title></rect>
+<rect x="379.63" y="190.82" width="10.78" height="181.18" fill="#2563eb"><title>time 0.3.49: 58.8% (10/17 dependency versions)</title></rect>
+<rect x="392.40" y="187.20" width="10.78" height="184.80" fill="#2563eb"><title>regex 1.12.4: 60% (3/5 dependency versions)</title></rect>
+<rect x="405.18" y="181.33" width="10.78" height="190.67" fill="#2563eb"><title>futures-util 0.3.32: 61.9% (13/21 dependency versions)</title></rect>
+<rect x="417.96" y="166.67" width="10.78" height="205.33" fill="#2563eb"><title>tempfile 3.27.0: 66.7% (6/9 dependency versions)</title></rect>
+<rect x="430.73" y="166.67" width="10.78" height="205.33" fill="#2563eb"><title>hashbrown 0.17.1: 66.7% (4/6 dependency versions)</title></rect>
+<rect x="443.51" y="166.67" width="10.78" height="205.33" fill="#2563eb"><title>getrandom 0.4.2: 66.7% (2/3 dependency versions)</title></rect>
+<rect x="456.28" y="157.74" width="10.78" height="214.26" fill="#2563eb"><title>typenum 1.20.1: 69.6% (16/23 dependency versions)</title></rect>
+<rect x="469.06" y="148.00" width="10.78" height="224.00" fill="#2563eb"><title>miniz_oxide 0.9.1: 72.7% (8/11 dependency versions)</title></rect>
+<rect x="481.84" y="135.08" width="10.78" height="236.92" fill="#2563eb"><title>rand 0.10.1: 76.9% (10/13 dependency versions)</title></rect>
+<rect x="494.61" y="125.60" width="10.78" height="246.40" fill="#2563eb"><title>rand_chacha 0.10.0: 80% (8/10 dependency versions)</title></rect>
+<rect x="507.39" y="125.60" width="10.78" height="246.40" fill="#2563eb"><title>zerocopy 0.8.52: 80% (4/5 dependency versions)</title></rect>
+<rect x="520.16" y="118.35" width="10.78" height="253.65" fill="#2563eb"><title>h2 0.4.15: 82.4% (14/17 dependency versions)</title></rect>
+<rect x="532.94" y="115.33" width="10.78" height="256.67" fill="#2563eb"><title>once_cell 1.21.4: 83.3% (5/6 dependency versions)</title></rect>
+<rect x="545.72" y="108.00" width="10.78" height="264.00" fill="#2563eb"><title>hyper 1.10.1: 85.7% (24/28 dependency versions)</title></rect>
+<rect x="558.49" y="104.17" width="10.78" height="267.83" fill="#2563eb"><title>parking_lot 0.12.5: 87% (20/23 dependency versions)</title></rect>
+<rect x="571.27" y="102.50" width="10.78" height="269.50" fill="#2563eb"><title>parking_lot_core 0.9.12: 87.5% (14/16 dependency versions)</title></rect>
+<rect x="584.04" y="91.18" width="10.78" height="280.82" fill="#2563eb"><title>clap 4.6.1: 91.2% (31/34 dependency versions)</title></rect>
+<rect x="596.82" y="86.00" width="10.78" height="286.00" fill="#2563eb"><title>winnow 1.0.3: 92.9% (13/14 dependency versions)</title></rect>
+<rect x="609.60" y="81.11" width="10.78" height="290.89" fill="#2563eb"><title>tokio 1.52.3: 94.4% (17/18 dependency versions)</title></rect>
+<rect x="622.37" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>syn 2.0.118: 100% (3/3 dependency versions)</title></rect>
+<rect x="635.15" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>bitflags 2.13.0: 100% (1/1 dependency versions)</title></rect>
+<rect x="647.93" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>proc-macro2 1.0.106: 100% (1/1 dependency versions)</title></rect>
+<rect x="660.70" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>quote 1.0.45: 100% (2/2 dependency versions)</title></rect>
+<rect x="673.48" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>indexmap 2.14.0: 100% (3/3 dependency versions)</title></rect>
+<rect x="686.25" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>itertools 0.15.0: 100% (1/1 dependency versions)</title></rect>
+<rect x="699.03" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>regex-syntax 0.8.11: 100% (6/6 dependency versions)</title></rect>
+<rect x="711.81" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>windows-sys 0.61.2: 100% (1/1 dependency versions)</title></rect>
+<rect x="724.58" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>thiserror-impl 2.0.18: 100% (4/4 dependency versions)</title></rect>
+<rect x="737.36" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>thiserror 2.0.18: 100% (5/5 dependency versions)</title></rect>
+<rect x="750.13" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>serde 1.0.228: 100% (6/6 dependency versions)</title></rect>
+<rect x="762.91" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>serde_derive 1.0.228: 100% (4/4 dependency versions)</title></rect>
+<rect x="775.69" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>serde_json 1.0.150: 100% (7/7 dependency versions)</title></rect>
+<rect x="788.46" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>socket2 0.6.4: 100% (1/1 dependency versions)</title></rect>
+<rect x="801.24" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>windows-targets 0.53.5: 100% (1/1 dependency versions)</title></rect>
+<rect x="814.01" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>lazy_static 1.5.0: 100% (1/1 dependency versions)</title></rect>
+<rect x="826.79" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>semver 1.0.28: 100% (1/1 dependency versions)</title></rect>
+<rect x="839.57" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>http 1.4.2: 100% (2/2 dependency versions)</title></rect>
+<rect x="852.34" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>lock_api 0.4.14: 100% (1/1 dependency versions)</title></rect>
+<rect x="865.12" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>toml 1.1.2+spec-1.1.0: 100% (17/17 dependency versions)</title></rect>
+<rect x="877.90" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>http-body 1.0.1: 100% (3/3 dependency versions)</title></rect>
+<rect x="890.67" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>tracing-core 0.1.36: 100% (1/1 dependency versions)</title></rect>
+<rect x="903.45" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>futures-channel 0.3.32: 100% (2/2 dependency versions)</title></rect>
+<rect x="916.22" y="64.00" width="10.78" height="308.00" fill="#2563eb"><title>errno 0.3.14: 100% (1/1 dependency versions)</title></rect>
+<text x="72" y="422" font-family="Arial, sans-serif" font-size="13" fill="#71717a">Lowest coverage</text>
+<text x="480" y="422" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#71717a">Median</text>
+<text x="928" y="422" text-anchor="end" font-family="Arial, sans-serif" font-size="13" fill="#71717a">Highest coverage</text>
+<text x="480" y="446" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" fill="#71717a">Each bar is one top-100 crate with at least one resolved dependency, ordered by dependency-version coverage.</text>
+</svg>

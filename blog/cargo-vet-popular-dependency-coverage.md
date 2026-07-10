@@ -62,9 +62,15 @@ Root crate coverage came through these cargo-vet paths:
 33 of the 100 crates had no resolved dependencies under these settings.
 The dependency analysis excludes those crates.
 
-The canonical website post includes ranked charts for dependency coverage and
-absolute uncovered dependency-version counts across the 67 crates with
-dependencies. This GitHub mirror keeps the tabular results below.
+The ranked chart below excludes dependency-free crates. Each bar is one of the
+67 crates with dependencies, ordered from least to most covered.
+
+![Dependency-version coverage across popular crates](assets/cargo-vet-popular-dependency-coverage/ranked-coverage.svg)
+
+The next chart shows the same 67 crates as absolute uncovered
+dependency-version counts.
+
+![Uncovered dependency versions across popular crates](assets/cargo-vet-popular-dependency-coverage/uncovered-counts.svg)
 
 ## Dependency Counts
 
@@ -85,6 +91,8 @@ version once, even if it appeared under more than one selected crate.
 
 The resolved dependency versions were not all new. The median dependency
 version age was 189.9 days at analysis time.
+
+![Dependency-version age buckets split by cargo-vet coverage](assets/cargo-vet-popular-dependency-coverage/dependency-age.svg)
 
 Fresh releases account for some missing coverage, but not all of it. Of the 136
 uncovered dependency versions, 73 were at least 90 days old, 56 were at least
@@ -202,4 +210,3 @@ version and feature set.
 
 Different feature choices, targets, lockfiles, or audit sources can change the
 resolved dependencies and the matching cargo-vet coverage.
-
