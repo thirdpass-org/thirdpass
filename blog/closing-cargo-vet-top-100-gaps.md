@@ -126,6 +126,47 @@ evidence files now include the same kind of review summaries shown on the
 Thirdpass website, so someone can see what the agent understood about each
 file and what kind of risk indicators it checked for.
 
+## Model and Token Spend
+
+The current export contains 3,935 accepted review records covering 10,618 file
+records across 176 crate versions.
+
+Those reviews were not all produced under the same telemetry setup. Runtime and
+token metrics are available for 2,583 of the 10,618 reviewed file records. The
+remaining 8,035 file records were submitted before or without metric reporting.
+
+The model mix in the exported evidence is:
+
+| Agent/model/effort             | Review records | File records | File records with metrics |
+| ------------------------------ | -------------- | ------------ | ------------------------- |
+| `codex/gpt-5.4-mini/high`      | 822            | 2,583        | 2,583                     |
+| `codex/gpt-5.4-mini/medium`    | 3,091          | 7,948        | 0                         |
+| `codex/gpt-5.5/high`           | 22             | 87           | 0                         |
+
+For the records with metrics, the measured agent runtime and token use were:
+
+| Metric | Value |
+| ------ | ----- |
+| File records with metrics | 2,583 |
+| Agent attempts | 2,584 |
+| Sum of measured agent wall-clock runtime | 12h 58m 22s |
+| Failed-attempt runtime | 48s |
+| Retry wait time | 15s |
+| Input tokens | 102,369,874 |
+| Cached input tokens | 84,852,224 |
+| Output tokens | 1,662,800 |
+| Reasoning output tokens | 787,212 |
+| Total tokens | 104,032,674 |
+
+The runtime number is the sum of measured agent run durations, not calendar
+time from the start of the whole project to the end. The token count is also a
+lower bound for the full project, because older records do not have metrics.
+
+Even with that caveat, the order of magnitude is useful. Closing the top-100
+sample gap was a bounded review workload: a few thousand measured file-focused
+agent runs, about 104 million measured tokens, plus older unmetered review
+records.
+
 ## The Token Budget Becomes the Main Question
 
 This changes the shape of the problem.
