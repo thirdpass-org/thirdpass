@@ -8,6 +8,5 @@ Canonical posts remain on the website:
 
 ## Posts
 
-- [cargo-vet Shows Weak Long-Tail Coverage](cargo-vet-weak-long-tail-coverage.md)
-- [cargo-vet Coverage in the Top 100 Rust Crates](cargo-vet-popular-dependency-coverage.md)
-
+- 2026-06-25 - [cargo-vet Coverage in the Top 100 Rust Crates](cargo-vet-popular-dependency-coverage.md)
+- 2026-06-24 - [cargo-vet Shows Weak Long-Tail Coverage](cargo-vet-weak-long-tail-coverage.md)
