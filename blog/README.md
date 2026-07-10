@@ -8,5 +8,6 @@ Canonical posts remain on the website:
 
 ## Posts
 
+- 2026-07-10 - [Closing the cargo-vet Gaps in the Top 100 Rust Crates](closing-cargo-vet-top-100-gaps.md)
 - 2026-06-25 - [cargo-vet Coverage in the Top 100 Rust Crates](cargo-vet-popular-dependency-coverage.md)
 - 2026-06-24 - [cargo-vet Shows Weak Long-Tail Coverage](cargo-vet-weak-long-tail-coverage.md)
