@@ -13,9 +13,9 @@ crates and the crate versions selected by their Linux dependency graphs. The
 resolution.
 
 Those starting crate versions were in decent shape: 73 of 100 were already
-covered by public cargo-vet data. The dependency graph had larger gaps. Across
-the resolved dependency versions, excluding the starting crates, only 145 of
-281 unique dependency versions were covered.
+covered by public cargo-vet data, or 73.0%. The dependency graph had larger
+gaps. Across the resolved dependency versions, excluding the starting crates,
+only 145 of 281 unique dependency versions were covered, or 51.6%.
 
 That left 136 uncovered dependency versions. Counting the uncovered starting
 crate versions as well, the top-100 run had 148 unique crate/version pairs
@@ -41,11 +41,11 @@ The current export contains 176 crate/version audits. Those entries cover all
 With the new Thirdpass audit repo added to the public cargo-vet sources from
 the June analysis, the sampled graph is fully covered:
 
-| Scope                                                 | Before  | After   |
-| ----------------------------------------------------- | ------- | ------- |
-| Top-100 starting crate versions                       | 73/100  | 100/100 |
-| Unique dependency versions, excluding starting crates  | 145/281 | 281/281 |
-| Unique crate/version pairs, including starting crates  | 166/314 | 314/314 |
+| Scope                                                 | Before         | After          |
+| ----------------------------------------------------- | -------------- | -------------- |
+| Top-100 starting crate versions                       | 73/100 (73.0%) | 100/100 (100%) |
+| Unique dependency versions, excluding starting crates  | 145/281 (51.6%) | 281/281 (100%) |
+| Unique crate/version pairs, including starting crates  | 166/314 (52.9%) | 314/314 (100%) |
 
 The "after" column is the union of the original public cargo-vet sources and
 the new Thirdpass audits. The Thirdpass repo by itself does not cover every
