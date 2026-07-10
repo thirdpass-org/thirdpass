@@ -21,11 +21,10 @@ That left 136 uncovered dependency versions. Counting the uncovered starting
 crate versions as well, the top-100 run had 148 unique crate/version pairs
 with no matched public cargo-vet coverage.
 
-We used that list as a target.
-
 ## What We Added
 
-We created a Thirdpass cargo-vet audit repository:
+We created a Thirdpass cargo-vet audit repository for those missing
+crate/version pairs:
 
 <https://github.com/thirdpass-org/cargo-vet-audits>
 
@@ -159,15 +158,14 @@ The runtime number is the sum of measured agent run durations, not calendar
 time from the start of the whole project to the end. The token count is also a
 lower bound for the full project, because older records do not have metrics.
 
-The order of magnitude matters. Closing the top-100 sample gap took a few
-thousand measured file-focused agent runs, about 104 million measured tokens,
-and older unmetered review records.
+Closing the top-100 sample gap took a few thousand measured file-focused agent
+runs, about 104 million measured tokens, and older unmetered review records.
 
 ## The Token Budget Becomes the Main Question
 
 The previous post showed a coverage gap. Some common dependency versions had
 no matched public cargo-vet evidence at all. For this sample, that gap was
-practical to close.
+small enough to close with the current review loop.
 
 The next question is how much review effort to spend:
 
@@ -200,7 +198,7 @@ Thirdpass `audits.toml`.
 The verification checked that every crate/version pair uncovered in the
 previous top-100 analysis now has a matching Thirdpass audit entry.
 
-Result:
+The result:
 
 | Check | Result |
 | ----- | ------ |
