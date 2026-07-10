@@ -7,11 +7,8 @@ This is a GitHub-readable mirror of the canonical website post:
 
 In June, we looked at
 [`cargo-vet` coverage in the top 100 Rust crates](cargo-vet-popular-dependency-coverage.md).
-That post asked a simple question: if you take the 100 most-downloaded crates
-and resolve their Linux dependency graphs, how much of that crate/version
-surface already has public cargo-vet coverage?
-
-The answer was mixed.
+That post measured public cargo-vet coverage for the 100 most-downloaded
+crates and the crate versions selected by their Linux dependency graphs.
 
 The roots were in decent shape: 73 of the 100 selected root crate versions
 were already covered by public cargo-vet data. The dependency graph had larger
@@ -39,8 +36,8 @@ Thirdpass review page.
 The current export contains 176 crate/version audits. Those entries cover all
 148 crate/version pairs that were uncovered in the previous top-100 analysis.
 
-Combining the original public cargo-vet coverage from the June analysis with
-the new Thirdpass audit repo gives full coverage for that sampled graph:
+With the new Thirdpass audit repo added to the public cargo-vet sources from
+the June analysis, the sampled graph is fully covered:
 
 | Scope                                      | Before | After |
 | ------------------------------------------ | ------ | ----- |
@@ -61,12 +58,12 @@ The Thirdpass criterion is:
 For each emitted audit, Thirdpass has 100% byte coverage of the crate archive
 according to the authoritative crates.io package archive manifest.
 
-That means every file in the crate archive was assigned to a review, and the
-accepted reviews together covered every byte in the package archive. The review
+Every file in the crate archive was assigned to a review, and the accepted
+reviews together covered every byte in the package archive. The review
 procedure is file-focused: an agent reviews one or more selected files, records
 what it looked at, and reports any concrete supply-chain indicators it found.
-The cargo-vet export then composes those file-focused reviews into a
-crate-level audit entry once the whole archive is covered.
+The cargo-vet export composes those file-focused reviews into a crate-level
+audit entry once the whole archive is covered.
 
 This is evidence toward safety in a narrow sense. It is especially aimed at
 supply-chain behavior that can be seen in the package contents:
@@ -83,17 +80,15 @@ is cryptographically correct, memory safe, or suitable for a particular
 production system. It is also not the same as a maintainer or domain expert
 reviewing the crate's design.
 
-The useful claim is narrower: for these crate archives, there is now recorded,
+The claim is narrower: for these crate archives, there is recorded,
 file-by-file evidence that the package contents were reviewed for concrete
 supply-chain risk indicators.
 
 ## Why Use cargo-vet
 
-cargo-vet already gives Rust projects a way to track audit evidence in source
-control. It also has an import model, so projects can choose whether to trust
-or ignore external audit sources.
-
-That makes it a good distribution format for this work.
+cargo-vet gives Rust projects a way to track audit evidence in source control.
+It also has an import model, so projects can choose whether to trust or ignore
+external audit sources.
 
 Thirdpass does not need to ask every project to use a new tool. Instead, the
 review results can be published as a cargo-vet audit repo. A project can then
@@ -121,10 +116,10 @@ For each audited crate version, the repository includes:
 - structured review comments, when comments were recorded
 - whether the reviewer was an official Thirdpass reviewer
 
-The summaries are important. A bare "reviewed" flag is hard to inspect. The
-evidence files now include the same kind of review summaries shown on the
-Thirdpass website, so someone can see what the agent understood about each
-file and what kind of risk indicators it checked for.
+A bare "reviewed" flag is hard to inspect. The evidence files now include the
+same kind of review summaries shown on the Thirdpass website, so someone can
+see what the agent understood about each file and what kind of risk indicators
+it checked for.
 
 ## Model and Token Spend
 
@@ -162,23 +157,17 @@ The runtime number is the sum of measured agent run durations, not calendar
 time from the start of the whole project to the end. The token count is also a
 lower bound for the full project, because older records do not have metrics.
 
-Even with that caveat, the order of magnitude is useful. Closing the top-100
-sample gap was a bounded review workload: a few thousand measured file-focused
-agent runs, about 104 million measured tokens, plus older unmetered review
-records.
+The order of magnitude matters. Closing the top-100 sample gap took a few
+thousand measured file-focused agent runs, about 104 million measured tokens,
+and older unmetered review records.
 
 ## The Token Budget Becomes the Main Question
 
-This changes the shape of the problem.
-
 The previous post showed a coverage gap. Some common dependency versions had
-no matched public cargo-vet evidence at all. The next question was whether that
-gap was practical to close.
+no matched public cargo-vet evidence at all. For this sample, that gap was
+practical to close.
 
-For this sample, it was.
-
-The work is now less about whether coverage can exist, and more about how much
-review effort we want to spend:
+The next question is how much review effort to spend:
 
 - How many agent runs should review each file?
 - Which models should be used?
@@ -187,14 +176,13 @@ review effort we want to spend:
 - Should comments be required even when the review finds no issue?
 - How much runtime and token spend is justified for different dependency tiers?
 
-The current repo is one point in that design space. It uses file-focused agent
-reviews and exports the resulting evidence. The same system could be extended
-with more runs, more advanced models, stricter review procedures, targeted
-human review, or different criteria for different kinds of crates.
+The current repo uses file-focused agent reviews and exports the resulting
+evidence. The same system could be extended with more runs, more advanced
+models, stricter review procedures, targeted human review, or different
+criteria for different kinds of crates.
 
-That is a more tractable problem. Instead of asking the Rust ecosystem to
-manually audit everything at once, we can ask where additional review tokens
-provide the most value.
+That turns the Rust audit backlog into a budgeting problem: where do additional
+review tokens provide the most value?
 
 ## Reproducing the Check
 
@@ -207,8 +195,8 @@ The comparison used the same data files from the previous top-100 post:
 We compared the unique crate/version pairs in those files with the generated
 Thirdpass `audits.toml`.
 
-The key verification was that every crate/version pair that was uncovered in
-the previous top-100 analysis now has a matching Thirdpass audit entry.
+The verification checked that every crate/version pair uncovered in the
+previous top-100 analysis now has a matching Thirdpass audit entry.
 
 Result:
 
@@ -228,6 +216,6 @@ The result here should be read against that same sample. Different targets,
 features, lockfiles, newer crate releases, or different cargo-vet sources can
 produce a different dependency graph and a different coverage result.
 
-The practical conclusion is still useful: a concrete cargo-vet coverage gap
-from a real popular-crate sample has been closed with a public, inspectable
-evidence bundle.
+The result is limited, but concrete: a cargo-vet coverage gap from a
+popular-crate sample has been closed with a public, inspectable evidence
+bundle.
