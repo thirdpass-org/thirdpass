@@ -58,7 +58,7 @@ const CLAUDE_ALLOWED_ENV: &[&str] = &[
     "TMPDIR",
 ];
 const CLAUDE_PERMISSION_MODE: &str = "dontAsk";
-const REVIEW_STRATEGY: &str = "package-release/v1";
+const REVIEW_STRATEGY: &str = "file-focused-review/v1";
 const REVIEW_PROCEDURE: &str = "file-focused-review/v1";
 const PROMPT_VERSION: &str = "thirdpass-file-focused-review-prompt/v1";
 const CODEX_TOOL_POLICY_VERSION: &str = "codex-readonly-review/v1";
@@ -1452,8 +1452,8 @@ mod tests {
     };
 
     #[test]
-    fn review_strategy_identifies_package_release_strategy() {
-        assert_eq!(review_strategy(), "package-release/v1");
+    fn review_strategy_identifies_file_focused_review() {
+        assert_eq!(review_strategy(), "file-focused-review/v1");
     }
 
     #[test]

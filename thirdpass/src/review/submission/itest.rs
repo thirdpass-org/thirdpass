@@ -136,7 +136,7 @@ impl RealServerHarness {
                 agent_name: "itest-agent".to_string(),
                 agent_model: "itest-model".to_string(),
                 agent_reasoning_effort: "default".to_string(),
-                review_strategy: "package-release/v1".to_string(),
+                review_strategy: "file-focused-review/v1".to_string(),
                 review_scope: review::ReviewScope::TargetFileFull,
                 created_at: "2026-06-11T00:00:00Z".to_string(),
                 thirdpass_version: "itest".to_string(),

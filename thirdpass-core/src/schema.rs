@@ -626,7 +626,7 @@ mod tests {
                 "agent_name": "codex",
                 "agent_model": "gpt-5.5",
                 "agent_reasoning_effort": "high",
-                "review_strategy": "package-release/v1",
+                "review_strategy": "file-focused-review/v1",
                 "review_scope": "target_file_full",
                 "created_at": "2026-05-04T00:00:00Z",
                 "thirdpass_version": "0.3.2"
@@ -653,7 +653,7 @@ mod tests {
                 "agent_name": "codex",
                 "agent_model": "gpt-5.4-mini",
                 "agent_reasoning_effort": "high",
-                "review_strategy": "package-release/v1",
+                "review_strategy": "file-focused-review/v1",
                 "review_scope": "target_file_full",
                 "created_at": "2026-05-04T00:00:00Z",
                 "thirdpass_version": "0.6.0"
