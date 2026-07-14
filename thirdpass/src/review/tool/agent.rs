@@ -14,6 +14,7 @@ use crate::review::comment::{Comment, Selection};
 use crate::review::common::{Priority, ReviewConfidence};
 
 const CODEX_APPROVAL_POLICY: &str = "never";
+const CODEX_COMMAND_ENV: &str = "THIRDPASS_CODEX_COMMAND";
 const CODEX_ALLOWED_ENV: &[&str] = &[
     "ALL_PROXY",
     "CODEX_HOME",
@@ -152,6 +153,15 @@ impl AgentKind {
         }
     }
 
+    fn command(&self) -> std::ffi::OsString {
+        match self {
+            AgentKind::Codex => std::env::var_os(CODEX_COMMAND_ENV)
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| self.binary_name().into()),
+            AgentKind::Claude => self.binary_name().into(),
+        }
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             AgentKind::Codex => "codex",
@@ -160,7 +170,7 @@ impl AgentKind {
     }
 
     pub fn is_installed(&self) -> bool {
-        is_command_available(self.binary_name())
+        is_command_available(&self.command())
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
@@ -296,10 +306,10 @@ fn claude_execution_environment() -> thirdpass_core::schema::ReviewExecutionEnvi
 
 pub fn select_installed_agent(preferred: Option<AgentKind>) -> Result<AgentKind> {
     let mut available = Vec::new();
-    if is_command_available("codex") {
+    if AgentKind::Codex.is_installed() {
         available.push(AgentKind::Codex);
     }
-    if is_command_available("claude") {
+    if AgentKind::Claude.is_installed() {
         available.push(AgentKind::Claude);
     }
 
@@ -355,7 +365,8 @@ pub fn run(
         build_agent_log(agent, agent_model, agent_reasoning_effort),
         workspace_path.display()
     );
-    let mut command = Command::new(agent.binary_name());
+    let agent_command = agent.command();
+    let mut command = Command::new(&agent_command);
     if agent == AgentKind::Claude {
         apply_claude_environment(&mut command);
         apply_claude_args(&mut command);
@@ -366,7 +377,13 @@ pub fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|err| format_err!("Failed to start {}: {}", agent.binary_name(), err))?;
+        .map_err(|err| {
+            format_err!(
+                "Failed to start {}: {}",
+                agent_command.to_string_lossy(),
+                err
+            )
+        })?;
 
     let stdin = child
         .stdin
@@ -549,7 +566,8 @@ fn run_codex_exec_once(
     std::fs::write(schema_file.path(), CODEX_OUTPUT_SCHEMA)
         .context("Failed to write codex output schema.")?;
 
-    let mut cmd = Command::new(AgentKind::Codex.binary_name());
+    let codex_command = AgentKind::Codex.command();
+    let mut cmd = Command::new(&codex_command);
     apply_codex_environment(&mut cmd);
     apply_codex_args(
         &mut cmd,
@@ -565,9 +583,13 @@ fn run_codex_exec_once(
         .stderr(Stdio::piped());
     let started_at_unix_ms = unix_time_ms().ok();
     let started_at = std::time::Instant::now();
-    let mut child = cmd
-        .spawn()
-        .map_err(|err| format_err!("Failed to start codex: {}", err))?;
+    let mut child = cmd.spawn().map_err(|err| {
+        format_err!(
+            "Failed to start {}: {}",
+            codex_command.to_string_lossy(),
+            err
+        )
+    })?;
 
     let mut stdin = child
         .stdin
@@ -1253,9 +1275,14 @@ fn parse_agent_output(raw: &str) -> Result<AgentOutput> {
     parse_agent_value(value)
 }
 
-fn is_command_available(name: &str) -> bool {
+fn is_command_available(command: &std::ffi::OsStr) -> bool {
+    let command_path = std::path::Path::new(command);
+    if command_path.components().count() > 1 {
+        return command_path.is_file();
+    }
+
     std::env::var_os("PATH")
-        .is_some_and(|paths| std::env::split_paths(&paths).any(|path| path.join(name).is_file()))
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|path| path.join(command).is_file()))
 }
 
 fn extract_json_payload(raw: &str) -> Option<String> {
@@ -1444,7 +1471,7 @@ mod tests {
     use super::{
         apply_claude_args, apply_claude_environment_from, apply_codex_args,
         apply_codex_environment_from, base_codex_retry_delay_ms, build_agent_log, build_prompt,
-        codex_run_metrics, parse_codex_token_info, recorded_codex_model,
+        codex_run_metrics, is_command_available, parse_codex_token_info, recorded_codex_model,
         retryable_codex_failure_reason, retryable_codex_failure_reason_from_output,
         review_configuration, review_strategy, save_codex_failure_diagnostic_in, truncate_for_log,
         AgentKind, CodexFailureDiagnostic, CLAUDE_PERMISSION_MODE, CODEX_APPROVAL_POLICY,
@@ -1747,6 +1774,20 @@ mod tests {
             build_agent_log(AgentKind::Codex, Some("gpt-5.4"), Some("high"))
                 .contains("--output-schema <schema> --json --output-last-message <file>")
         );
+    }
+
+    #[test]
+    fn command_available_accepts_explicit_path() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let command_path = dir.path().join("codex");
+        std::fs::write(&command_path, "")?;
+
+        assert!(is_command_available(command_path.as_os_str()));
+        assert!(!is_command_available(
+            dir.path().join("missing-codex").as_os_str()
+        ));
+
+        Ok(())
     }
 
     #[test]
