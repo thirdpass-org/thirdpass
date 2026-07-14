@@ -6,7 +6,7 @@
 //! without depending on CLI-only state.
 
 use serde::{Deserialize, Serialize};
-use std::{fmt, str::FromStr};
+use std::{collections::BTreeMap, fmt, str::FromStr};
 
 /// Package release that a review or assignment refers to.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
@@ -184,6 +184,9 @@ pub struct ReviewSubmission {
     pub target: ReviewTarget,
     /// Client and agent metadata for the reviewer.
     pub reviewer_details: ReviewerDetails,
+    /// Review procedure, prompt, agent, and execution metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_configuration: Option<ReviewConfiguration>,
     /// Files covered by this submission.
     pub files: Vec<ReviewFile>,
     /// Authoritative package file inventory, when supplied by trusted tooling.
@@ -209,6 +212,9 @@ pub struct ReviewRecord {
     pub target: ReviewTarget,
     /// Client and agent metadata for the reviewer.
     pub reviewer_details: ReviewerDetails,
+    /// Review procedure, prompt, agent, and execution metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_configuration: Option<ReviewConfiguration>,
     /// Files covered by this review.
     pub files: Vec<ReviewFile>,
     /// Agent-written package-level summary.
@@ -240,6 +246,41 @@ pub struct ReviewerDetails {
     pub created_at: String,
     /// Thirdpass client version that produced the review.
     pub thirdpass_version: String,
+}
+
+/// Configuration metadata describing how a review was produced.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct ReviewConfiguration {
+    /// Human-readable review procedure identifier.
+    pub review_procedure: String,
+    /// Prompt template and output contract identifier used by the client.
+    pub prompt_version: String,
+    /// Agent identity and model settings used for the review.
+    pub agent: ReviewConfigurationAgent,
+    /// Tool, sandbox, and process settings used while running the review.
+    pub execution_environment: ReviewExecutionEnvironment,
+}
+
+/// Agent identity and model-level settings for a review.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct ReviewConfigurationAgent {
+    /// Review agent executable or provider name.
+    pub name: String,
+    /// Review agent model identifier.
+    pub model: String,
+    /// Model settings intentionally selected by the review client.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub settings: BTreeMap<String, String>,
+}
+
+/// Execution environment settings for a review agent invocation.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct ReviewExecutionEnvironment {
+    /// Identifier for the tool policy used by the review client.
+    pub tool_policy: String,
+    /// Execution settings intentionally selected by the review client.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub settings: BTreeMap<String, String>,
 }
 
 /// Scope of source coverage represented by a review.
@@ -595,6 +636,61 @@ mod tests {
         .expect("failed to deserialize review submission");
 
         assert_eq!(submission.package_manifest, None);
+        assert_eq!(submission.review_configuration, None);
+    }
+
+    #[test]
+    fn review_submission_carries_review_configuration() {
+        let submission: ReviewSubmission = serde_json::from_value(json!({
+            "target": {
+                "registry_host": "crates.io",
+                "package_name": "hashbrown",
+                "package_version": "0.17.1",
+                "package_hash": "abc"
+            },
+            "reviewer_details": {
+                "public_user_id": "user-1",
+                "agent_name": "codex",
+                "agent_model": "gpt-5.4-mini",
+                "agent_reasoning_effort": "high",
+                "review_strategy": "package-release/v1",
+                "review_scope": "target_file_full",
+                "created_at": "2026-05-04T00:00:00Z",
+                "thirdpass_version": "0.6.0"
+            },
+            "review_configuration": {
+                "review_procedure": "file-focused-review/v1",
+                "prompt_version": "thirdpass-file-focused-review-prompt/v1",
+                "agent": {
+                    "name": "codex",
+                    "model": "gpt-5.4-mini",
+                    "settings": {
+                        "reasoning_effort": "high"
+                    }
+                },
+                "execution_environment": {
+                    "tool_policy": "codex-readonly-review/v1",
+                    "settings": {
+                        "sandbox": "read-only"
+                    }
+                }
+            },
+            "files": []
+        }))
+        .expect("failed to deserialize review submission");
+
+        let configuration = submission
+            .review_configuration
+            .expect("expected review configuration");
+        assert_eq!(configuration.review_procedure, "file-focused-review/v1");
+        assert_eq!(
+            configuration.agent.settings.get("reasoning_effort"),
+            Some(&"high".to_string())
+        );
+        assert_eq!(
+            configuration.execution_environment.settings.get("sandbox"),
+            Some(&"read-only".to_string())
+        );
     }
 
     #[test]

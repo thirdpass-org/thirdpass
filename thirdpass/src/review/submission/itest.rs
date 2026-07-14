@@ -141,6 +141,7 @@ impl RealServerHarness {
                 created_at: "2026-06-11T00:00:00Z".to_string(),
                 thirdpass_version: "itest".to_string(),
             },
+            review_configuration: None,
             agent_summary: "Fixture review summary.".to_string(),
             overall_security_summary: review::SecuritySummary::Medium,
             overall_security_confidence: None,

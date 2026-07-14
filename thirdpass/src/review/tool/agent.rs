@@ -2,6 +2,7 @@ use anyhow::{format_err, Context, Result};
 use dialoguer::Input;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::io::Write;
 use std::path::PathBuf;
@@ -58,6 +59,10 @@ const CLAUDE_ALLOWED_ENV: &[&str] = &[
 ];
 const CLAUDE_PERMISSION_MODE: &str = "dontAsk";
 const REVIEW_STRATEGY: &str = "package-release/v1";
+const REVIEW_PROCEDURE: &str = "file-focused-review/v1";
+const PROMPT_VERSION: &str = "thirdpass-file-focused-review-prompt/v1";
+const CODEX_TOOL_POLICY_VERSION: &str = "codex-readonly-review/v1";
+const CLAUDE_TOOL_POLICY_VERSION: &str = "claude-readonly-review/v1";
 const CODEX_RETRY_BACKOFF_MS: &[u64] = &[15_000, 45_000, 120_000];
 const CODEX_RETRY_JITTER_MS: u64 = 1_000;
 const CODEX_RETRYABLE_FAILURE_PATTERNS: &[(&str, &str)] = &[
@@ -211,6 +216,82 @@ impl AgentComment {
 
 pub fn review_strategy() -> &'static str {
     REVIEW_STRATEGY
+}
+
+pub fn review_procedure() -> &'static str {
+    REVIEW_PROCEDURE
+}
+
+pub fn prompt_version() -> &'static str {
+    PROMPT_VERSION
+}
+
+pub fn review_configuration(
+    agent: AgentKind,
+    agent_model: &str,
+    agent_reasoning_effort: &str,
+) -> thirdpass_core::schema::ReviewConfiguration {
+    let mut agent_settings = BTreeMap::new();
+    if !agent_reasoning_effort.trim().is_empty() {
+        agent_settings.insert(
+            "reasoning_effort".to_string(),
+            agent_reasoning_effort.to_string(),
+        );
+    }
+
+    thirdpass_core::schema::ReviewConfiguration {
+        review_procedure: review_procedure().to_string(),
+        prompt_version: prompt_version().to_string(),
+        agent: thirdpass_core::schema::ReviewConfigurationAgent {
+            name: agent.name().to_string(),
+            model: agent_model.to_string(),
+            settings: agent_settings,
+        },
+        execution_environment: execution_environment(agent),
+    }
+}
+
+fn execution_environment(agent: AgentKind) -> thirdpass_core::schema::ReviewExecutionEnvironment {
+    match agent {
+        AgentKind::Codex => codex_execution_environment(),
+        AgentKind::Claude => claude_execution_environment(),
+    }
+}
+
+fn codex_execution_environment() -> thirdpass_core::schema::ReviewExecutionEnvironment {
+    let mut settings = BTreeMap::new();
+    settings.insert(
+        "approval_policy".to_string(),
+        CODEX_APPROVAL_POLICY.to_string(),
+    );
+    settings.insert("sandbox".to_string(), CODEX_SANDBOX_MODE.to_string());
+    settings.insert("ephemeral".to_string(), "true".to_string());
+    settings.insert("ignore_rules".to_string(), "true".to_string());
+    settings.insert("skip_git_repo_check".to_string(), "true".to_string());
+
+    thirdpass_core::schema::ReviewExecutionEnvironment {
+        tool_policy: CODEX_TOOL_POLICY_VERSION.to_string(),
+        settings,
+    }
+}
+
+fn claude_execution_environment() -> thirdpass_core::schema::ReviewExecutionEnvironment {
+    let mut settings = BTreeMap::new();
+    settings.insert(
+        "permission_mode".to_string(),
+        CLAUDE_PERMISSION_MODE.to_string(),
+    );
+    settings.insert("allowed_tools".to_string(), "Read".to_string());
+    settings.insert("disable_slash_commands".to_string(), "true".to_string());
+    settings.insert("strict_mcp_config".to_string(), "true".to_string());
+    settings.insert("no_session_persistence".to_string(), "true".to_string());
+    settings.insert("no_chrome".to_string(), "true".to_string());
+    settings.insert("setting_sources".to_string(), "user".to_string());
+
+    thirdpass_core::schema::ReviewExecutionEnvironment {
+        tool_policy: CLAUDE_TOOL_POLICY_VERSION.to_string(),
+        settings,
+    }
 }
 
 pub fn select_installed_agent(preferred: Option<AgentKind>) -> Result<AgentKind> {
@@ -1365,14 +1446,46 @@ mod tests {
         apply_codex_environment_from, base_codex_retry_delay_ms, build_agent_log, build_prompt,
         codex_run_metrics, parse_codex_token_info, recorded_codex_model,
         retryable_codex_failure_reason, retryable_codex_failure_reason_from_output,
-        review_strategy, save_codex_failure_diagnostic_in, truncate_for_log, AgentKind,
-        CodexFailureDiagnostic, CLAUDE_PERMISSION_MODE, CODEX_APPROVAL_POLICY, CODEX_OUTPUT_SCHEMA,
-        CODEX_SANDBOX_MODE,
+        review_configuration, review_strategy, save_codex_failure_diagnostic_in, truncate_for_log,
+        AgentKind, CodexFailureDiagnostic, CLAUDE_PERMISSION_MODE, CODEX_APPROVAL_POLICY,
+        CODEX_OUTPUT_SCHEMA, CODEX_SANDBOX_MODE,
     };
 
     #[test]
     fn review_strategy_identifies_package_release_strategy() {
         assert_eq!(review_strategy(), "package-release/v1");
+    }
+
+    #[test]
+    fn review_configuration_records_codex_review_metadata() {
+        let configuration = review_configuration(AgentKind::Codex, "gpt-5.4-mini", "high");
+
+        assert_eq!(configuration.review_procedure, "file-focused-review/v1");
+        assert_eq!(
+            configuration.prompt_version,
+            "thirdpass-file-focused-review-prompt/v1"
+        );
+        assert_eq!(configuration.agent.name, "codex");
+        assert_eq!(configuration.agent.model, "gpt-5.4-mini");
+        assert_eq!(
+            configuration.agent.settings.get("reasoning_effort"),
+            Some(&"high".to_string())
+        );
+        assert_eq!(
+            configuration.execution_environment.tool_policy,
+            "codex-readonly-review/v1"
+        );
+        assert_eq!(
+            configuration.execution_environment.settings.get("sandbox"),
+            Some(&"read-only".to_string())
+        );
+        assert_eq!(
+            configuration
+                .execution_environment
+                .settings
+                .get("approval_policy"),
+            Some(&"never".to_string())
+        );
     }
 
     #[test]

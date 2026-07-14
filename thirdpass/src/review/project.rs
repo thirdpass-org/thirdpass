@@ -457,6 +457,7 @@ mod tests {
             },
             targets: Vec::new(),
             reviewer_details: review::ReviewerDetails::default(),
+            review_configuration: None,
             agent_summary: String::new(),
             overall_security_summary: review::SecuritySummary::default(),
             overall_security_confidence: None,

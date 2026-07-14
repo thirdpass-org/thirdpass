@@ -304,6 +304,7 @@ mod tests {
                 public_user_id: "user-1".to_string(),
                 ..Default::default()
             },
+            review_configuration: None,
             agent_summary: String::new(),
             overall_security_summary: review::SecuritySummary::default(),
             overall_security_confidence: None,

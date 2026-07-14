@@ -4,7 +4,7 @@ mod vscode;
 
 use crate::common;
 
-pub use agent::{review_strategy, AgentKind, AgentRunResult};
+pub use agent::{review_configuration, review_strategy, AgentKind, AgentRunResult};
 
 pub fn check_manual_install(config: &mut common::config::Config) -> Result<()> {
     // Skip check if previously passed.

@@ -412,109 +412,129 @@ pub(crate) fn run_command_with_result(
     let config_agent_model = config.review_tool.agent_model.clone();
     let config_agent_reasoning_effort = config.review_tool.agent_reasoning_effort.clone();
 
-    let (targets, agent_name, agent_model, agent_reasoning_effort, review_strategy, review_scope) =
-        if args.manual {
-            if override_agent.is_some() {
-                review::tool::select_agent(&mut config, override_agent)?;
-            }
-            let comments = run_manual_review(&review, &workspace_manifest.workspace_path, &config)?;
-            let targets = build_targets_from_comments(&selected_targets, comments);
-            (
-                targets,
-                "manual".to_string(),
-                "".to_string(),
-                "manual".to_string(),
-                review::tool::review_strategy().to_string(),
-                review::ReviewScope::TargetFilePartial,
-            )
-        } else {
-            let agent = review::tool::select_agent(&mut config, override_agent)?;
-            let (effective_agent_model, effective_agent_reasoning_effort) =
-                if agent == review::tool::AgentKind::Codex {
-                    (
-                        args.agent_model
-                            .as_deref()
-                            .or(config_agent_model.as_deref()),
-                        args.agent_reasoning_effort
-                            .as_deref()
-                            .or(config_agent_reasoning_effort.as_deref()),
-                    )
-                } else {
-                    (None, None)
-                };
-            let agent_token = format_agent_token(
+    let (
+        targets,
+        agent_name,
+        agent_model,
+        agent_reasoning_effort,
+        review_strategy,
+        review_scope,
+        review_configuration,
+    ) = if args.manual {
+        if override_agent.is_some() {
+            review::tool::select_agent(&mut config, override_agent)?;
+        }
+        let comments = run_manual_review(&review, &workspace_manifest.workspace_path, &config)?;
+        let targets = build_targets_from_comments(&selected_targets, comments);
+        (
+            targets,
+            "manual".to_string(),
+            "".to_string(),
+            "manual".to_string(),
+            review::tool::review_strategy().to_string(),
+            review::ReviewScope::TargetFilePartial,
+            None,
+        )
+    } else {
+        let agent = review::tool::select_agent(&mut config, override_agent)?;
+        let (effective_agent_model, effective_agent_reasoning_effort) =
+            if agent == review::tool::AgentKind::Codex {
+                (
+                    args.agent_model
+                        .as_deref()
+                        .or(config_agent_model.as_deref()),
+                    args.agent_reasoning_effort
+                        .as_deref()
+                        .or(config_agent_reasoning_effort.as_deref()),
+                )
+            } else {
+                (None, None)
+            };
+        let agent_token = format_agent_token(
+            agent,
+            effective_agent_model,
+            effective_agent_reasoning_effort,
+        );
+        println!("Review agent: {}", agent_token);
+        let mut targets = Vec::new();
+        let mut agent_model = None::<String>;
+
+        for target in &selected_targets {
+            let target_display = target.relative_path.display().to_string();
+            let spinner = ProgressBar::new_spinner();
+            let spinner_style = ProgressStyle::with_template("{spinner} {msg}")
+                .context("Failed to configure review progress indicator.")?
+                .tick_strings(&["|", "/", "-", "\\"]);
+            spinner.set_style(spinner_style);
+            spinner.enable_steady_tick(std::time::Duration::from_millis(120));
+            spinner.set_message(format!("Reviewing {}", style(&target_display).dim()));
+            let agent_run = review::tool::run_agent(
                 agent,
+                &workspace_manifest.workspace_path,
+                &target_display,
                 effective_agent_model,
                 effective_agent_reasoning_effort,
             );
-            println!("Review agent: {}", agent_token);
-            let mut targets = Vec::new();
-            let mut agent_model = None::<String>;
+            let agent_run = match agent_run {
+                Ok(agent_run) => {
+                    spinner.finish_with_message(format!("Reviewed {}", target_display));
+                    agent_run
+                }
+                Err(err) => {
+                    spinner.abandon_with_message(format!("Failed {}", target_display));
+                    return Err(err);
+                }
+            };
+            agent_model = match agent_model {
+                None => Some(agent_run.model.clone()),
+                Some(current) if current == agent_run.model => Some(current),
+                Some(_) => Some("mixed".to_string()),
+            };
+            let file_agent_summary = agent_run
+                .summary
+                .as_deref()
+                .map(str::trim)
+                .filter(|summary| !summary.is_empty())
+                .map(ToOwned::to_owned);
+            let file_confidence = agent_run.confidence;
+            let comments = validate_agent_comments_for_target(
+                normalize_comments(agent_run.comments),
+                &workspace_manifest.workspace_path,
+                &target.relative_path,
+            )?;
+            let security_summary = review::security_summary_for_comments(&comments);
+            targets.push(review::ReviewTarget {
+                file_path: target.relative_path.clone(),
+                file_hash: Some(target.file_hash.clone()),
+                agent_summary: file_agent_summary,
+                security_summary: Some(security_summary),
+                confidence: file_confidence,
+                agent_run_metrics: agent_run.run_metrics,
+                comments,
+            });
+        }
 
-            for target in &selected_targets {
-                let target_display = target.relative_path.display().to_string();
-                let spinner = ProgressBar::new_spinner();
-                let spinner_style = ProgressStyle::with_template("{spinner} {msg}")
-                    .context("Failed to configure review progress indicator.")?
-                    .tick_strings(&["|", "/", "-", "\\"]);
-                spinner.set_style(spinner_style);
-                spinner.enable_steady_tick(std::time::Duration::from_millis(120));
-                spinner.set_message(format!("Reviewing {}", style(&target_display).dim()));
-                let agent_run = review::tool::run_agent(
-                    agent,
-                    &workspace_manifest.workspace_path,
-                    &target_display,
-                    effective_agent_model,
-                    effective_agent_reasoning_effort,
-                );
-                let agent_run = match agent_run {
-                    Ok(agent_run) => {
-                        spinner.finish_with_message(format!("Reviewed {}", target_display));
-                        agent_run
-                    }
-                    Err(err) => {
-                        spinner.abandon_with_message(format!("Failed {}", target_display));
-                        return Err(err);
-                    }
-                };
-                agent_model = match agent_model {
-                    None => Some(agent_run.model.clone()),
-                    Some(current) if current == agent_run.model => Some(current),
-                    Some(_) => Some("mixed".to_string()),
-                };
-                let file_agent_summary = agent_run
-                    .summary
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|summary| !summary.is_empty())
-                    .map(ToOwned::to_owned);
-                let file_confidence = agent_run.confidence;
-                let comments = validate_agent_comments_for_target(
-                    normalize_comments(agent_run.comments),
-                    &workspace_manifest.workspace_path,
-                    &target.relative_path,
-                )?;
-                let security_summary = review::security_summary_for_comments(&comments);
-                targets.push(review::ReviewTarget {
-                    file_path: target.relative_path.clone(),
-                    file_hash: Some(target.file_hash.clone()),
-                    agent_summary: file_agent_summary,
-                    security_summary: Some(security_summary),
-                    confidence: file_confidence,
-                    agent_run_metrics: agent_run.run_metrics,
-                    comments,
-                });
-            }
+        let agent_name = agent.name().to_string();
+        let agent_model = agent_model.unwrap_or_else(|| "unknown".to_string());
+        let agent_reasoning_effort =
+            recorded_agent_reasoning_effort(agent.name(), effective_agent_reasoning_effort);
+        let review_strategy = review::tool::review_strategy().to_string();
+        let review_configuration = Some(review::tool::review_configuration(
+            agent,
+            &agent_model,
+            &agent_reasoning_effort,
+        ));
 
-            (
-                targets,
-                agent.name().to_string(),
-                agent_model.unwrap_or_else(|| "unknown".to_string()),
-                recorded_agent_reasoning_effort(agent.name(), effective_agent_reasoning_effort),
-                review::tool::review_strategy().to_string(),
-                review::ReviewScope::TargetFileFull,
-            )
-        };
+        (
+            targets,
+            agent_name,
+            agent_model,
+            agent_reasoning_effort,
+            review_strategy,
+            review::ReviewScope::TargetFileFull,
+            review_configuration,
+        )
+    };
 
     review.targets = targets;
     review.reviewer_details = build_reviewer_details(
@@ -525,6 +545,7 @@ pub(crate) fn run_command_with_result(
         &review_strategy,
         review_scope,
     )?;
+    review.review_configuration = review_configuration;
     review.agent_summary = top_level_agent_summary_for_new_review();
     review.overall_security_summary = review::overall_security_summary(&review)?;
     review.overall_security_confidence = None;
@@ -1201,6 +1222,7 @@ fn setup_review(
         package,
         targets: Vec::new(),
         reviewer_details: review::ReviewerDetails::default(),
+        review_configuration: None,
         agent_summary: String::new(),
         overall_security_summary: review::SecuritySummary::default(),
         overall_security_confidence: None,
@@ -1482,6 +1504,7 @@ mod tests {
                 public_user_id: public_user_id.to_string(),
                 ..Default::default()
             },
+            review_configuration: None,
             agent_summary: String::new(),
             overall_security_summary: review::SecuritySummary::default(),
             overall_security_confidence: None,

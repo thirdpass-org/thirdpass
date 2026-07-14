@@ -82,6 +82,7 @@ pub fn submit(
         files,
         package_manifest: Some(package_manifest.clone()),
         reviewer_details: review.reviewer_details.clone(),
+        review_configuration: review.review_configuration.clone(),
         agent_summary: if review.agent_summary.trim().is_empty() {
             None
         } else {
@@ -361,6 +362,7 @@ fn store_record(
     let api::ReviewRecord {
         target,
         reviewer_details,
+        review_configuration,
         files,
         overall_security_summary,
         overall_security_confidence,
@@ -404,6 +406,7 @@ fn store_record(
         package,
         targets,
         reviewer_details,
+        review_configuration,
         agent_summary: agent_summary.unwrap_or_default(),
         overall_security_summary,
         overall_security_confidence,

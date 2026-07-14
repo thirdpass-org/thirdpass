@@ -1,5 +1,5 @@
 pub use thirdpass_core::schema::{
-    Priority, ReviewConfidence, ReviewScope, ReviewerDetails, SecuritySummary,
+    Priority, ReviewConfidence, ReviewConfiguration, ReviewScope, ReviewerDetails, SecuritySummary,
 };
 
 #[derive(
@@ -30,6 +30,8 @@ pub struct Review {
     pub targets: Vec<ReviewTarget>,
     #[serde(default)]
     pub reviewer_details: ReviewerDetails,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_configuration: Option<ReviewConfiguration>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub agent_summary: String,
     #[serde(default)]

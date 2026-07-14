@@ -274,6 +274,7 @@ impl DependencyReviewFixture {
                 public_user_id: public_user_id.to_string(),
                 ..review::ReviewerDetails::default()
             },
+            review_configuration: None,
             agent_summary: String::new(),
             overall_security_summary: review::SecuritySummary::None,
             overall_security_confidence: None,
