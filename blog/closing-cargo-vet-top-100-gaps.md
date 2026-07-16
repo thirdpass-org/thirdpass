@@ -49,7 +49,7 @@ coverage against the authoritative crates.io package archive manifest. In
 cargo-vet, that evidence is recorded under the criterion name
 `thirdpass-full-crate-archive-reviewed/v1`.
 
-The review procedure is file-focused. An agent reviews selected files, records
+The procedure works at the file level: an agent reviews selected files, records
 what it looked at, and reports concrete supply-chain indicators such as
 install-time execution, network access, credential access, dynamic code loading,
 obfuscation, or tampering behavior. The cargo-vet export creates a crate-level
