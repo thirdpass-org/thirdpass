@@ -65,11 +65,13 @@ A crate/version was included in the Thirdpass cargo-vet repo only when:
 - For this export, the reviews matched the high-effort review set:
   `codex/gpt-5.4-mini/high` with full-file scope.
 
-This is evidence toward safety in a narrow sense. It is not a proof that the
-crate is bug-free, memory safe, cryptographically correct, or suitable for a
-particular production system. It is also not automatically cargo-vet
-`safe-to-run` or `safe-to-deploy`. A project can inspect the evidence and decide
-how, or whether, to map this criterion into its own policy.
+The evidence supports a limited claim: under this review procedure, the
+accepted reviews did not report the supply-chain indicators listed above. It
+does not prove that the crate is bug-free, memory safe, cryptographically
+correct, or suitable for a particular production system. It is also not
+automatically cargo-vet `safe-to-run` or `safe-to-deploy`. A project can inspect
+the evidence and decide how, or whether, to map this criterion into its own
+policy.
 
 Each audit points to a JSON evidence file with the package hash, reviewed files,
 review summaries, agent details, available runtime and token metrics, and a link
