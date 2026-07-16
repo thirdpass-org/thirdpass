@@ -49,11 +49,14 @@ coverage against the authoritative crates.io package archive manifest. In
 cargo-vet, that evidence is recorded under the criterion name
 `thirdpass-full-crate-archive-reviewed/v1`.
 
-The procedure works at the file level: an agent reviews selected files, records
-what it looked at, and reports concrete supply-chain indicators such as
-install-time execution, network access, credential access, dynamic code loading,
-obfuscation, or tampering behavior. The cargo-vet export creates a crate-level
-audit only when those accepted file reviews cover the whole archive.
+The procedure has two levels:
+
+- At the file level, an agent reviews selected files, records what it looked
+  at, and summarizes supply-chain relevant behavior: code that runs during
+  install or build, accesses the network or credentials, loads code
+  dynamically, hides intent, or tampers with files.
+- At the crate level, the cargo-vet export creates an audit only when accepted
+  file reviews cover 100% of the archive bytes.
 
 This is evidence toward safety in a narrow sense. It is not a proof that the
 crate is bug-free, memory safe, cryptographically correct, or suitable for a
