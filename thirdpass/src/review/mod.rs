@@ -3,6 +3,7 @@ use anyhow::Result;
 pub mod active;
 pub mod comment;
 mod common;
+pub(crate) mod dependencies;
 pub(crate) mod dependency_package;
 pub(crate) mod dependency_plan;
 pub(crate) mod dependency_reuse;
