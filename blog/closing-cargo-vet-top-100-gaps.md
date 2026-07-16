@@ -49,16 +49,21 @@ coverage against the authoritative crates.io package archive manifest. In
 cargo-vet, that evidence is recorded under the criterion name
 `thirdpass-full-crate-archive-reviewed/v1`.
 
-The procedure is file-focused:
+The review procedure was:
 
-- Each agent session focuses on one file at a time. The agent can inspect the
-  rest of the crate archive to understand how that file is used.
-- The file review records what the agent looked at and summarizes
-  supply-chain relevant behavior: code that runs during install or build,
-  accesses the network or credentials, loads code dynamically, hides intent, or
-  tampers with files.
-- The cargo-vet export creates a crate-level audit only when accepted file
-  reviews cover 100% of the archive bytes.
+- Each agent session focused on one target file.
+- The agent could inspect the rest of the crate archive to understand how that
+  file was used.
+- The review recorded what the agent inspected and summarized supply-chain
+  relevant behavior, including install/build execution, network or credential
+  access, dynamic code loading, hidden intent, or file tampering.
+
+A crate/version was included in the Thirdpass cargo-vet repo only when:
+
+- Accepted file reviews matched the crate archive and file hashes.
+- Those accepted reviews covered 100% of the archive bytes.
+- For this export, the reviews matched the high-effort review set:
+  `codex/gpt-5.4-mini/high` with full-file scope.
 
 This is evidence toward safety in a narrow sense. It is not a proof that the
 crate is bug-free, memory safe, cryptographically correct, or suitable for a
