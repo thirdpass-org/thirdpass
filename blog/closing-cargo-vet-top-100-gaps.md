@@ -44,12 +44,10 @@ crate in the graph, because this pass targeted the missing pieces.
 
 ## What the Audit Means
 
-The Thirdpass criterion is:
-
-`thirdpass-full-crate-archive-reviewed/v1`
-
-For each emitted audit, Thirdpass has 100% byte coverage of the crate archive
-according to the authoritative crates.io package archive manifest.
+Each Thirdpass audit says that the crate archive was reviewed with 100% byte
+coverage against the authoritative crates.io package archive manifest. In
+cargo-vet, that evidence is recorded under the criterion name
+`thirdpass-full-crate-archive-reviewed/v1`.
 
 The review procedure is file-focused. An agent reviews selected files, records
 what it looked at, and reports concrete supply-chain indicators such as
