@@ -34,8 +34,8 @@ evidence JSON file with the package hash, reviewed files, review summaries,
 agent details, available runtime and token metrics, and links back to the
 Thirdpass review page.
 
-The current export contains 176 crate/version audits. Those entries cover all
-148 crate/version pairs that were uncovered in the previous top-100 analysis.
+The current export contains 148 crate/version audits. Those entries are the 148
+crate/version pairs that were uncovered in the previous top-100 analysis.
 
 With the new Thirdpass audit repo added to the public cargo-vet sources from
 the June analysis, the sampled graph is fully covered:
@@ -48,7 +48,9 @@ the June analysis, the sampled graph is fully covered:
 
 The "after" column is the union of the original public cargo-vet sources and
 the new Thirdpass audits. The Thirdpass repo by itself does not cover every
-crate in the graph, because the work targeted the missing pieces.
+crate in the graph, because the work targeted the missing pieces. Within the
+targeted set, every exported Thirdpass audit is backed only by
+`codex/gpt-5.4-mini/high` review records.
 
 ## What the Coverage Means
 
@@ -124,42 +126,38 @@ it checked for.
 
 ## Model and Token Spend
 
-The current export contains 3,935 accepted review records covering 10,618 file
-records across 176 crate versions.
+The current export contains 3,355 accepted review records covering 9,360 file
+records across 148 crate versions. Those reviews cover 8,920 distinct files and
+185,276,571 bytes from the crate archives.
 
-Those reviews were not all produced under the same telemetry setup. Runtime and
-token metrics are available for 2,583 of the 10,618 reviewed file records. The
-remaining 8,035 file records were submitted before or without metric reporting.
-
-The model mix in the exported evidence is:
+This export is deliberately narrower than the earlier working set. It includes
+only `codex/gpt-5.4-mini/high` reviews with full-file scope. Runtime and token
+metrics are available for every file record in the exported evidence.
 
 | Agent/model/effort             | Review records | File records | File records with metrics |
 | ------------------------------ | -------------- | ------------ | ------------------------- |
-| `codex/gpt-5.4-mini/high`      | 822            | 2,583        | 2,583                     |
-| `codex/gpt-5.4-mini/medium`    | 3,091          | 7,948        | 0                         |
-| `codex/gpt-5.5/high`           | 22             | 87           | 0                         |
+| `codex/gpt-5.4-mini/high`      | 3,355          | 9,360        | 9,360                     |
 
-For the records with metrics, the measured agent runtime and token use were:
+For those records, the measured agent runtime and token use were:
 
 | Metric | Value |
 | ------ | ----- |
-| File records with metrics | 2,583 |
-| Agent attempts | 2,584 |
-| Sum of measured agent wall-clock runtime | 12h 58m 22s |
-| Failed-attempt runtime | 48s |
-| Retry wait time | 15s |
-| Input tokens | 102,369,874 |
-| Cached input tokens | 84,852,224 |
-| Output tokens | 1,662,800 |
-| Reasoning output tokens | 787,212 |
-| Total tokens | 104,032,674 |
+| File records with metrics | 9,360 |
+| Agent attempts | 9,406 |
+| Sum of measured agent wall-clock runtime | 48h 3m 22s |
+| Failed-attempt runtime | 3h 35m 57s |
+| Retry wait time | 1h 22m 52s |
+| Input tokens | 456,431,013 |
+| Cached input tokens | 389,790,336 |
+| Output tokens | 6,109,397 |
+| Reasoning output tokens | 2,869,401 |
+| Total tokens | 462,540,410 |
 
 The runtime number is the sum of measured agent run durations, not calendar
-time from the start of the whole project to the end. The token count is also a
-lower bound for the full project, because older records do not have metrics.
+time from the start of the whole project to the end.
 
-Closing the top-100 sample gap took a few thousand measured file-focused agent
-runs, about 104 million measured tokens, and older unmetered review records.
+Closing the top-100 sample gap with one consistent high-effort profile took a
+few thousand file-focused review records and about 463 million measured tokens.
 
 ## The Token Budget Becomes the Main Question
 
@@ -193,10 +191,14 @@ The comparison used the same data files from the previous top-100 post:
 - `cargo-vet-popular-uncovered-package-frequency.csv`
 
 We compared the unique crate/version pairs in those files with the generated
-Thirdpass `audits.toml`.
+Thirdpass `audits.toml`. We also checked the evidence JSON files to make sure
+the exported audits used only `codex/gpt-5.4-mini/high` reviews with full-file
+scope.
 
 The verification checked that every crate/version pair uncovered in the
-previous top-100 analysis now has a matching Thirdpass audit entry.
+previous top-100 analysis now has a matching Thirdpass audit entry, and that the
+combined cargo-vet plus Thirdpass view fully covers the sampled dependency
+graphs.
 
 The result:
 
@@ -205,6 +207,10 @@ The result:
 | Previously uncovered unique crate/version pairs | 148 |
 | Now present in Thirdpass cargo-vet audits | 148 |
 | Still missing | 0 |
+| Previously uncovered resolved package rows | 249 |
+| Still uncovered resolved package rows | 0 |
+| Combined unique crate/version coverage | 314/314 |
+| Fully covered dependency graphs | 100/100 |
 
 ## Notes
 
