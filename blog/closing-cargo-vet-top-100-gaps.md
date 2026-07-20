@@ -24,8 +24,8 @@ crate/version pairs:
 
 <https://github.com/thirdpass-org/cargo-vet-audits>
 
-The current export contains 148 audits. The export is intentionally narrow:
-every audit is backed only by `codex/gpt-5.4-mini/high` reviews with full-file
+The current export contains 148 audits. For this first export, we used one
+review configuration throughout: `codex/gpt-5.4-mini/high` with full-file
 scope.
 
 Adding the Thirdpass repo to the public cargo-vet sources from the June analysis
@@ -34,7 +34,7 @@ combined coverage is now 314/314 crate/version pairs. The Thirdpass repo by
 itself does not cover every crate in the graph, because this pass targeted the
 missing pieces.
 
-## What the Audit Means
+## Review Procedure
 
 Each Thirdpass audit says that the crate archive was reviewed with 100% byte
 coverage against the authoritative crates.io package archive manifest. In
