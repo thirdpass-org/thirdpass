@@ -78,7 +78,6 @@ The high-effort export contains:
 | Measured agent runtime, summed across runs | 48h 3m 22s |
 | Measured tokens | 462,540,410 |
 
-That is the main tradeoff. The system can produce more audit evidence by
-spending more agent runs and tokens. The question becomes where the next review
-budget should go: more crates, repeated review, stronger models for higher-risk
-files, or human follow-up for selected results.
+That is the main tradeoff: more audit evidence means more agent runs and
+tokens. Future review budget can go toward more crates, repeated review, or
+stronger models for higher-risk files.
