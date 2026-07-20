@@ -88,28 +88,3 @@ That is the main tradeoff. The system can produce more audit evidence by
 spending more agent runs and tokens. The question becomes where the next review
 budget should go: more crates, repeated review, stronger models for higher-risk
 files, or human follow-up for selected results.
-
-## Verification
-
-We compared the previous top-100 analysis data with the generated Thirdpass
-`audits.toml`. We also checked the evidence JSON files to confirm that the
-exported audits used only `codex/gpt-5.4-mini/high` reviews with full-file
-scope.
-
-| Check | Result |
-| ----- | ------ |
-| Previously uncovered unique crate/version pairs | 148 |
-| Now present in Thirdpass cargo-vet audits | 148 |
-| Previously uncovered resolved package rows | 249 |
-| Still uncovered resolved package rows | 0 |
-| Combined unique crate/version coverage | 314/314 |
-| Fully covered dependency graphs | 100/100 |
-
-This result is scoped to the same sample as the previous post: the crates.io
-dump from 2026-06-17, dependency resolution for `x86_64-unknown-linux-gnu`, and
-the selected root crate features from that analysis. Different targets,
-features, lockfiles, newer crate releases, or different cargo-vet sources can
-produce a different result.
-
-The limited claim is that this specific cargo-vet coverage gap is now closed
-with a public, inspectable evidence bundle.
