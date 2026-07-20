@@ -74,9 +74,7 @@ The high-effort export contains:
 | Metric | Value |
 | ------ | ----- |
 | Audited crate/version pairs | 148 |
-| Accepted review records | 3,355 |
 | File review records | 9,360 |
-| Distinct files covered | 8,920 |
 | Bytes covered | 185,276,571 |
 | Measured agent runtime, summed across runs | 48h 3m 22s |
 | Measured tokens | 462,540,410 |
