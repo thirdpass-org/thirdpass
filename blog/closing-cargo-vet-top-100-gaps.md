@@ -24,9 +24,8 @@ crate/version pairs:
 
 <https://github.com/thirdpass-org/cargo-vet-audits>
 
-The current export contains 148 audits: one for each crate/version pair that was
-uncovered in the previous top-100 analysis. The export is intentionally narrow.
-Every audit is backed only by `codex/gpt-5.4-mini/high` reviews with full-file
+The current export contains 148 audits. The export is intentionally narrow:
+every audit is backed only by `codex/gpt-5.4-mini/high` reviews with full-file
 scope.
 
 Adding the Thirdpass repo to the public cargo-vet sources from the June analysis
