@@ -29,18 +29,11 @@ uncovered in the previous top-100 analysis. The export is intentionally narrow.
 Every audit is backed only by `codex/gpt-5.4-mini/high` reviews with full-file
 scope.
 
-With the new Thirdpass audit repo added to the public cargo-vet sources from the
-June analysis, the sampled graph is fully covered:
-
-| Scope                                                | Before          | After          |
-| ---------------------------------------------------- | --------------- | -------------- |
-| Top-100 starting crate versions                      | 73/100 (73.0%)  | 100/100 (100%) |
-| Dependency versions, excluding starting crates       | 145/281 (51.6%) | 281/281 (100%) |
-| Crate/version pairs, including starting crates       | 166/314 (52.9%) | 314/314 (100%) |
-
-The "after" column is the union of the original public cargo-vet sources and
-the new Thirdpass audits. The Thirdpass repo by itself does not cover every
-crate in the graph, because this pass targeted the missing pieces.
+Adding the Thirdpass repo to the public cargo-vet sources from the June analysis
+covers all 148 previously uncovered crate/version pairs. In the sampled graph,
+combined coverage is now 314/314 crate/version pairs. The Thirdpass repo by
+itself does not cover every crate in the graph, because this pass targeted the
+missing pieces.
 
 ## What the Audit Means
 
