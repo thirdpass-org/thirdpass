@@ -14,29 +14,11 @@ starting crates, only 145 of 281 unique dependency versions were covered.
 Counting the uncovered starting crate versions as well, the sample had 148
 unique crate/version pairs with no matched public cargo-vet coverage.
 
-## What We Added
+## Review Coverage
 
-We created a Thirdpass cargo-vet audit repository for those missing
-crate/version pairs:
-
-<https://github.com/thirdpass-org/cargo-vet-audits>
-
-The current export contains 148 audits. For this first export, we used one
-review configuration throughout: `codex/gpt-5.4-mini/high` with full-file
-scope.
-
-Adding the Thirdpass repo to the public cargo-vet sources from the June analysis
-covers all 148 previously uncovered crate/version pairs. In the sampled graph,
-combined coverage is now 100% of crate/version pairs. The Thirdpass repo by
-itself does not cover every crate in the graph, because this pass targeted the
-missing pieces.
-
-## Review Procedure
-
-Each Thirdpass audit says that the crate archive was reviewed with 100% byte
-coverage against the authoritative crates.io package archive manifest. In
-cargo-vet, that evidence is recorded under the criterion name
-`thirdpass-full-crate-archive-reviewed/v1`.
+We used Thirdpass to review the 148 uncovered crate/version pairs. For this
+first export, we used one review configuration throughout:
+`codex/gpt-5.4-mini/high` with full-file scope.
 
 The review procedure was:
 
@@ -47,21 +29,36 @@ The review procedure was:
   relevant behavior, including install/build execution, network or credential
   access, dynamic code loading, hidden intent, or file tampering.
 
-A crate/version was included in the Thirdpass cargo-vet repo only when:
+A crate/version counted as covered only when:
 
 - Accepted file reviews matched the crate archive and file hashes.
 - Those accepted reviews covered 100% of the archive bytes.
-- For this export, the reviews matched the high-effort review set:
-  `codex/gpt-5.4-mini/high` with full-file scope.
 
 Read the result narrowly: under this review procedure, the accepted reviews did
 not report the supply-chain indicators listed above. It is not a general
 security certification or an automatic cargo-vet `safe-to-run` or
 `safe-to-deploy` judgment.
 
+## Published cargo-vet Repo
+
+We published the covered crate/version pairs as a cargo-vet audit repo:
+
+<https://github.com/thirdpass-org/cargo-vet-audits>
+
+The current export contains 148 audits. Each Thirdpass audit says that the
+crate archive was reviewed with 100% byte coverage against the authoritative
+crates.io package archive manifest. In cargo-vet, that evidence is recorded
+under the criterion name `thirdpass-full-crate-archive-reviewed/v1`.
+
 Each audit points to a JSON evidence file with the package hash, reviewed files,
 review summaries, agent details, available runtime and token metrics, and a link
 back to the Thirdpass review page.
+
+Adding the Thirdpass repo to the public cargo-vet sources from the June analysis
+covers all 148 previously uncovered crate/version pairs. In the sampled graph,
+combined coverage is now 100% of crate/version pairs. The Thirdpass repo by
+itself does not cover every crate in the graph, because this pass targeted the
+missing pieces.
 
 ## Cost
 
