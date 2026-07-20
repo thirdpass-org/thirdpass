@@ -1,9 +1,6 @@
 # Closing the cargo-vet Gaps in the Top 100 Rust Crates
 
-Published: 2026-07-10
-
-This is a GitHub-readable mirror of the canonical website post:
-<https://thirdpass.dev/blog/closing-cargo-vet-top-100-gaps>.
+Published: 2026-07-20
 
 In June, we looked at
 [`cargo-vet` coverage in the top 100 Rust crates](cargo-vet-popular-dependency-coverage.md).
@@ -30,7 +27,7 @@ scope.
 
 Adding the Thirdpass repo to the public cargo-vet sources from the June analysis
 covers all 148 previously uncovered crate/version pairs. In the sampled graph,
-combined coverage is now 314/314 crate/version pairs. The Thirdpass repo by
+combined coverage is now 100% of crate/version pairs. The Thirdpass repo by
 itself does not cover every crate in the graph, because this pass targeted the
 missing pieces.
 
@@ -81,3 +78,10 @@ The high-effort export contains:
 That is the main tradeoff: more audit evidence means more agent runs and
 tokens. Future review budget can go toward more crates, repeated review, or
 stronger models for higher-risk files.
+
+---
+
+# Notes
+
+* This is a GitHub-readable mirror of the canonical website post:
+<https://thirdpass.dev/blog/closing-cargo-vet-top-100-gaps>.
