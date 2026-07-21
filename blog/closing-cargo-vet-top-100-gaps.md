@@ -22,9 +22,8 @@ unique crate/version pairs with no matched public cargo-vet coverage.
 We used Codex `gpt-5.4-mini` with effort `high` to review the 148 uncovered
 crate/version pairs.
 
-The review procedure was
-[file-focused review](https://thirdpass.dev/docs/cargo-vet#file-focused-review)
-for a crates.io crate version archive:
+For each crates.io crate version archive, we used
+[file-focused review](https://thirdpass.dev/docs/cargo-vet#file-focused-review):
 
 - Each agent session focused on one target file.
 - The agent could inspect the rest of the crate archive to understand how that
@@ -63,7 +62,7 @@ The evidence shows:
 
 - which archive and files were reviewed
 - which procedure version and agent configuration were used
-- what the agent reported
+- the agent summaries and review comments
 - what the review cost, including runtime and token metrics when available
 
 That makes the audit easier to inspect, compare with future review runs, and
@@ -84,7 +83,7 @@ The high-effort export contains:
 | Audited crate/version pairs | 148 |
 | File review records | 9,360 |
 | Archive data covered | 185.3 MB |
-| Measured agent runtime | 48h 3m 22s |
+| Summed agent runtime | 48h 3m 22s |
 | Input tokens | 456.4M |
 | Cached input tokens | 389.8M |
 | Output tokens | 6.1M |
