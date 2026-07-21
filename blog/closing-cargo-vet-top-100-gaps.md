@@ -94,10 +94,6 @@ The high-effort export contains:
 Cached input tokens are included in the input total. Reasoning output tokens
 are included in the output total.
 
-That is the main tradeoff: more audit evidence means more agent runs and
-tokens. Future review budget can go toward more crates, repeated review, or
-stronger models for higher-risk files.
-
 ---
 
 # Notes
