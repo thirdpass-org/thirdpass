@@ -62,7 +62,7 @@ The evidence shows:
 - which archive and files were reviewed
 - which procedure version and agent configuration were used
 - what the agent reported
-- what runtime and token metrics were available
+- what the review cost, including runtime and token metrics when available
 
 That makes the audit easier to inspect, compare with future review runs, and
 decide whether to use in a local cargo-vet policy.
