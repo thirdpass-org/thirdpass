@@ -32,20 +32,23 @@ For each crates.io crate version archive, we used
   relevant behavior: install/build execution, network or credential access,
   dynamic code loading, hidden intent, or file tampering.
 
-A crate/version counted as covered only when:
-
-- Accepted file reviews covered every file in the crate archive manifest.
+A crate/version counted as covered only when accepted file reviews covered every
+file in the crate archive manifest.
 
 Under this review procedure, the accepted reviews did not report the
 supply-chain indicators listed above.
 
 ## Published cargo-vet Repo
 
+cargo-vet lets Rust projects track audit evidence for the crate versions they
+depend on. Projects can import audit repositories and decide in their own
+policy which kinds of evidence are enough for their dependencies.
+
 We published the covered crate/version pairs as a cargo-vet audit repo:
 
 <https://github.com/thirdpass-org/cargo-vet-audits>
 
-In cargo-vet, a criterion is the named claim attached to an audit. The
+In that system, a criterion is the named claim attached to an audit. The
 Thirdpass audits use the criterion name
 `thirdpass-full-crate-archive-reviewed/v1`: the claim is that the crate archive
 has Thirdpass review coverage under the procedure above. It is not a general
