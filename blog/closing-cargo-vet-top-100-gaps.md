@@ -56,8 +56,8 @@ security certification or an automatic cargo-vet `safe-to-run` or
 `safe-to-deploy` judgment.
 
 Each audit points to a JSON evidence file so the cargo-vet entry is not just a
-bare assertion. The goal is to make the audit less opaque: readers can
-scrutinize the underlying review evidence instead of only trusting the
+bare assertion. The goal is to make the audit less opaque: readers and AI agents
+can scrutinize the underlying review evidence instead of only trusting the
 cargo-vet entry.
 
 The evidence shows:
