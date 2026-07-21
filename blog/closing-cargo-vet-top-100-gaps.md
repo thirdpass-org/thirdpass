@@ -4,7 +4,7 @@ Published: 2026-07-20
 
 In June, we looked at
 [`cargo-vet` coverage in the top 100 Rust crates](cargo-vet-popular-dependency-coverage.md).
-That analysis measured public cargo-vet coverage for the 100 most-downloaded
+That analysis measured public cargo-vet coverage for the crates.io 100 most-downloaded
 crates and the crate versions selected by their Linux dependency graphs.
 The baseline used 9 cargo-vet registry entries; the audit repositories are
 listed in the [Sources section](cargo-vet-popular-dependency-coverage.md#sources)
@@ -34,8 +34,7 @@ For each crates.io crate version archive, we used
 
 A crate/version counted as covered only when:
 
-- Accepted file reviews matched the crate archive and file hashes.
-- Those accepted reviews covered 100% of the archive bytes.
+- Accepted file reviews covered every file in the crate archive manifest.
 
 Under this review procedure, the accepted reviews did not report the
 supply-chain indicators listed above.
