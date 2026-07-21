@@ -53,11 +53,19 @@ security certification or an automatic cargo-vet `safe-to-run` or
 `safe-to-deploy` judgment.
 
 Each audit points to a JSON evidence file so the cargo-vet entry is not just a
-bare assertion. The evidence lets readers see which archive and files were
-reviewed, which procedure version and agent configuration were used, what the
-agent reported, and what runtime and token metrics were available. That makes
-the audit easier to inspect, compare with future review runs, and decide
-whether to use in a local cargo-vet policy.
+bare assertion. The goal is to make the audit less opaque: readers can
+scrutinize the underlying review evidence instead of only trusting the
+cargo-vet entry.
+
+The evidence shows:
+
+- which archive and files were reviewed
+- which procedure version and agent configuration were used
+- what the agent reported
+- what runtime and token metrics were available
+
+That makes the audit easier to inspect, compare with future review runs, and
+decide whether to use in a local cargo-vet policy.
 
 Adding the Thirdpass repo to the public cargo-vet sources from the June analysis
 covers all 148 previously uncovered crate/version pairs. In the sampled graph,
