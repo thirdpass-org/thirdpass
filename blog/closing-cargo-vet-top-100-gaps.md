@@ -22,7 +22,9 @@ unique crate/version pairs with no matched public cargo-vet coverage.
 We used Codex `gpt-5.4-mini` with effort `high` to review the 148 uncovered
 crate/version pairs.
 
-The review procedure for a crates.io crate version archive was:
+The review procedure was
+[file-focused review](https://thirdpass.dev/docs/cargo-vet#file-focused-review)
+for a crates.io crate version archive:
 
 - Each agent session focused on one target file.
 - The agent could inspect the rest of the crate archive to understand how that
