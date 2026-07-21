@@ -14,30 +14,27 @@ starting crates, only 145 of 281 unique dependency versions were covered.
 Counting the uncovered starting crate versions as well, the sample had 148
 unique crate/version pairs with no matched public cargo-vet coverage.
 
-## Review Coverage
+## Generating Review Coverage
 
-We used Thirdpass to review the 148 uncovered crate/version pairs. For this
-first export, we used one review configuration throughout:
-`codex/gpt-5.4-mini/high` with full-file scope.
+We used Codex `gpt-5.4-mini` with effort `high` to review the 148 uncovered
+crate/version pairs.
 
-The review procedure was:
+The review procedure for a crates.io crate version archive was:
 
 - Each agent session focused on one target file.
 - The agent could inspect the rest of the crate archive to understand how that
   file was used.
 - The review recorded what the agent inspected and summarized supply-chain
-  relevant behavior, including install/build execution, network or credential
-  access, dynamic code loading, hidden intent, or file tampering.
+  relevant behavior: install/build execution, network or credential access,
+  dynamic code loading, hidden intent, or file tampering.
 
 A crate/version counted as covered only when:
 
 - Accepted file reviews matched the crate archive and file hashes.
 - Those accepted reviews covered 100% of the archive bytes.
 
-Read the result narrowly: under this review procedure, the accepted reviews did
-not report the supply-chain indicators listed above. It is not a general
-security certification or an automatic cargo-vet `safe-to-run` or
-`safe-to-deploy` judgment.
+Under this review procedure, the accepted reviews did not report the
+supply-chain indicators listed above.
 
 ## Published cargo-vet Repo
 
@@ -49,6 +46,9 @@ The current export contains 148 audits. Each Thirdpass audit says that the
 crate archive was reviewed with 100% byte coverage against the authoritative
 crates.io package archive manifest. In cargo-vet, that evidence is recorded
 under the criterion name `thirdpass-full-crate-archive-reviewed/v1`.
+
+This criterion is not a general security certification or an automatic
+cargo-vet `safe-to-run` or `safe-to-deploy` judgment.
 
 Each audit points to a JSON evidence file with the package hash, reviewed files,
 review summaries, agent details, available runtime and token metrics, and a link
