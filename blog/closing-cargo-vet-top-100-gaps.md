@@ -42,10 +42,8 @@ We published the covered crate/version pairs as a cargo-vet audit repo:
 
 <https://github.com/thirdpass-org/cargo-vet-audits>
 
-The current export contains 148 audits. Each Thirdpass audit says that the
-crate archive was reviewed with 100% byte coverage against the authoritative
-crates.io package archive manifest. In cargo-vet, that evidence is recorded
-under the criterion name `thirdpass-full-crate-archive-reviewed/v1`.
+In cargo-vet, the Thirdpass evidence is recorded under the criterion name
+`thirdpass-full-crate-archive-reviewed/v1`.
 
 This criterion is not a general security certification or an automatic
 cargo-vet `safe-to-run` or `safe-to-deploy` judgment.
