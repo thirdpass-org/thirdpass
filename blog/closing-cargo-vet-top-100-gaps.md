@@ -42,11 +42,12 @@ We published the covered crate/version pairs as a cargo-vet audit repo:
 
 <https://github.com/thirdpass-org/cargo-vet-audits>
 
-In cargo-vet, the Thirdpass evidence is recorded under the criterion name
-`thirdpass-full-crate-archive-reviewed/v1`.
-
-This criterion is not a general security certification or an automatic
-cargo-vet `safe-to-run` or `safe-to-deploy` judgment.
+In cargo-vet, a criterion is the named claim attached to an audit. The
+Thirdpass audits use the criterion name
+`thirdpass-full-crate-archive-reviewed/v1`: the claim is that the crate archive
+has Thirdpass review coverage under the procedure above. It is not a general
+security certification or an automatic cargo-vet `safe-to-run` or
+`safe-to-deploy` judgment.
 
 Each audit points to a JSON evidence file with the package hash, reviewed files,
 review summaries, agent details, available runtime and token metrics, and a link
