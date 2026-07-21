@@ -49,9 +49,10 @@ has Thirdpass review coverage under the procedure above. It is not a general
 security certification or an automatic cargo-vet `safe-to-run` or
 `safe-to-deploy` judgment.
 
-Each audit points to a JSON evidence file with the package hash, reviewed files,
-review summaries, agent details, available runtime and token metrics, and a link
-back to the Thirdpass review page.
+Each audit points to a JSON evidence file so the cargo-vet entry can be
+inspected. The evidence includes the package hash, reviewed files, review
+summaries, procedure version, agent details, available runtime and token
+metrics, and a link back to the Thirdpass review page.
 
 Adding the Thirdpass repo to the public cargo-vet sources from the June analysis
 covers all 148 previously uncovered crate/version pairs. In the sampled graph,
