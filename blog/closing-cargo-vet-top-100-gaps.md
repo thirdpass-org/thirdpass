@@ -6,6 +6,9 @@ In June, we looked at
 [`cargo-vet` coverage in the top 100 Rust crates](cargo-vet-popular-dependency-coverage.md).
 That analysis measured public cargo-vet coverage for the 100 most-downloaded
 crates and the crate versions selected by their Linux dependency graphs.
+The baseline used 9 cargo-vet registry entries; the audit repositories are
+listed in the [Sources section](cargo-vet-popular-dependency-coverage.md#sources)
+of that post.
 
 The starting crate versions were in decent shape: 73 of 100 had matched public
 cargo-vet coverage. The dependency graph had larger gaps. Excluding the
