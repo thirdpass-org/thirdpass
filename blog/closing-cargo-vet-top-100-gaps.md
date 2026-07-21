@@ -83,9 +83,16 @@ The high-effort export contains:
 | ------ | ----- |
 | Audited crate/version pairs | 148 |
 | File review records | 9,360 |
-| Bytes covered | 185,276,571 |
-| Measured agent runtime, summed across runs | 48h 3m 22s |
-| Measured tokens | 462,540,410 |
+| Archive data covered | 185.3 MB |
+| Measured agent runtime | 48h 3m 22s |
+| Input tokens | 456.4M |
+| Cached input tokens | 389.8M |
+| Output tokens | 6.1M |
+| Reasoning output tokens | 2.9M |
+| Total tokens | 462.5M |
+
+Cached input tokens are included in the input total. Reasoning output tokens
+are included in the output total.
 
 That is the main tradeoff: more audit evidence means more agent runs and
 tokens. Future review budget can go toward more crates, repeated review, or
