@@ -1,6 +1,6 @@
 [package]
 name = "thirdpass"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["rndhouse <rndhouse@protonmail.com>"]
 edition = "2018"
 repository = "https://github.com/thirdpass-org/thirdpass"
@@ -12,8 +12,8 @@ description = "A multi-ecosystem package code review system."
 itest = []
 
 [dependencies]
-thirdpass-core = { path = "../thirdpass-core", version = "0.5.0", features = ["package", "registry"] }
-thirdpass-py = { path = "../../extensions/thirdpass-py", version = "0.5.0" }
+thirdpass-core = { path = "../thirdpass-core", version = "0.5.1", features = ["package", "registry"] }
+thirdpass-py = { path = "../../extensions/thirdpass-py", version = "0.5.1" }
 thirdpass-js = { path = "../../extensions/thirdpass-js", version = "0.5.0" }
 thirdpass-rs = { path = "../../extensions/thirdpass-rs", version = "0.3.0" }
 
