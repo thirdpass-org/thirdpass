@@ -2,27 +2,25 @@
 
 Published: 2026-07-20
 
-In June, we looked at
+The June analysis measured public cargo-vet coverage for the crates.io 100
+most-downloaded crates and the crate versions selected by their Linux
+dependency graphs. The results were published in
 [`cargo-vet` coverage in the top 100 Rust crates](cargo-vet-popular-dependency-coverage.md).
-That analysis measured public cargo-vet coverage for the crates.io 100 most-downloaded
-crates and the crate versions selected by their Linux dependency graphs.
 The baseline used 9 cargo-vet registry entries; the audit repositories are
 listed in the [Sources section](cargo-vet-popular-dependency-coverage.md#sources)
 of that post.
 
-The starting crate versions were in decent shape: 73 of 100 had matched public
-cargo-vet coverage. The dependency graph had larger gaps. Excluding the
-starting crates, only 145 of 281 unique dependency versions were covered.
-
-Counting the uncovered starting crate versions as well, the sample had 148
-unique crate/version pairs with no matched public cargo-vet coverage.
+The baseline still had substantial gaps: 27 of 100 top-level crate versions
+were not covered, and 148 of 314 distinct crate/version pairs across the
+sampled dependency graphs were not covered. That is 27.0% of the top-level
+versions and 47.1% of the sampled crate/version pairs.
 
 ## Generating Review Coverage
 
-We used Codex `gpt-5.4-mini` with effort `high` to review the 148 uncovered
-crate/version pairs.
+Thirdpass CLI was used with Codex `gpt-5.4-mini` at effort `high` to review
+the 148 uncovered crate/version pairs.
 
-For each crates.io crate version archive, we used
+For each crates.io crate version archive, the review procedure was
 [file-focused review](https://thirdpass.dev/docs/cargo-vet#file-focused-review):
 
 - Each agent session focused on one target file.
@@ -42,23 +40,26 @@ supply-chain indicators listed above.
 
 cargo-vet lets Rust projects track audit evidence for the crate versions they
 depend on. Projects can import audit repositories and decide in their own
-policy which kinds of evidence are enough for their dependencies.
+policy which evidence is enough for their dependencies.
 
-We published the covered crate/version pairs as a cargo-vet audit repo:
+Review evidence was published as a cargo-vet audit repo:
 
 <https://github.com/thirdpass-org/cargo-vet-audits>
 
-In that system, a criterion is the named claim attached to an audit. The
-Thirdpass audits use the criterion name
-`thirdpass-full-crate-archive-reviewed/v1`: the claim is that the crate archive
-has Thirdpass review coverage under the procedure above. It is not a general
-security certification or an automatic cargo-vet `safe-to-run` or
-`safe-to-deploy` judgment.
+The Thirdpass audit repo records that, for a given crate version, every file in
+the crates.io archive was reviewed with the Thirdpass file-focused review
+procedure.
+
+In cargo-vet, a criterion is the named audit result recorded for a crate
+version. The Thirdpass repo uses
+`thirdpass-full-crate-archive-reviewed/v1`. It is not a general security
+certification, and it does not automatically mark the crate as `safe-to-run` or
+`safe-to-deploy`. A project would have to make that choice explicitly in its
+own cargo-vet policy.
 
 Each audit points to a JSON evidence file so the cargo-vet entry is not just a
-bare assertion. The goal is to make the audit less opaque: readers and AI agents
-can scrutinize the underlying review evidence instead of only trusting the
-cargo-vet entry.
+bare audit entry. The point is that readers and AI agents can examine the
+review judgment, challenge it, and decide how much weight to give it.
 
 The evidence shows:
 
