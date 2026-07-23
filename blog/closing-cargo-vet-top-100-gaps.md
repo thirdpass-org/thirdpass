@@ -11,9 +11,8 @@ listed in the [Sources section](cargo-vet-popular-dependency-coverage.md#sources
 of that post.
 
 The baseline still had substantial gaps: 27 of 100 top-level crate versions
-were not covered, and 148 of 314 distinct crate/version pairs across the
-sampled dependency graphs were not covered. That is 27.0% of the top-level
-versions and 47.1% of the sampled crate/version pairs.
+were not covered, and 148 of 314 (47.1%) distinct crate/version pairs across the
+sampled dependency graphs were not covered.
 
 ## Generating Review Coverage
 
